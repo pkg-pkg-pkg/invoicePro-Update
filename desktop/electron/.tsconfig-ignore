@@ -1,0 +1,5 @@
+# This file helps IDEs ignore TypeScript project references
+# The electron/tsconfig.json is standalone and doesn't use 'bundler'
+# If you see an error about 'bundler', it's a false positive from the IDE
+# The actual config is correct and uses "moduleResolution": "node"
+

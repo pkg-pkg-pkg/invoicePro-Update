@@ -1,0 +1,69 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "license_upgrade_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "licenseKey", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "license_upgrade_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "utr", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "license_upgrade_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "licenseKey", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "license_upgrade_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "gateway_renewal_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "licenseKey", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "gateway_renewal_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "utr", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "gateway_renewal_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "licenseKey", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "gateway_renewal_requests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

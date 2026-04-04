@@ -1,0 +1,676 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// USER & AUTH MANAGEMENT
+// ==========================================
+
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  email     String   @unique
+  password  String
+  fullName  String
+  role      UserRole @default(SALESPERSON)
+  isActive  Boolean  @default(true)
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  SALESPERSON
+  ACCOUNTANT
+}
+
+// ==========================================
+// COMPANY MASTER
+// ==========================================
+
+model Company {
+  id           String  @id @default(uuid())
+  name         String
+  gstin        String? @unique
+  pan          String?
+  addressLine1 String
+  addressLine2 String?
+  roadName     String? // New Field
+  city         String
+  state        String
+  pincode      String
+  country      String  @default("India")
+  
+  // Contact Info
+  phone        String
+  mobile1      String? // Secondary Mobile
+  mobile2      String? // Tertiary Mobile
+  email        String?
+  website      String?
+  
+  // Branding
+  logo         String?
+  signature    String?
+  bankDetails  Json?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  users          User[]
+  products       Product[]
+  categories     Category[]
+  customers      Customer[]
+  suppliers      Supplier[]
+  invoices       Invoice[]
+  payments       Payment[]
+  bankAccounts   BankAccount[]
+  settings       CompanySettings?
+  customerGroups CustomerGroupConfig[]
+}
+
+model CompanySettings {
+  id        String  @id @default(uuid())
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Module Activation
+  moduleInvoice        Boolean @default(true)
+  moduleInventory      Boolean @default(true)
+  moduleGSTReports     Boolean @default(true)
+  modulePurchaseOrders Boolean @default(false)
+  moduleAccounting     Boolean @default(false)
+  moduleExpense        Boolean @default(false)
+  modulePayroll        Boolean @default(false)
+
+  // Invoice Settings
+  invoicePrefix       String  @default("INV")
+  invoiceStartNumber  Int     @default(1001)
+  invoiceNumberFormat String  @default("PREFIX-YEAR-NUMBER")
+  invoiceResetYearly  Boolean @default(true)
+  invoiceTemplate     String  @default("standard")
+
+  // Display Options
+  showCompanyLogo Boolean @default(true)
+  showSignature   Boolean @default(true)
+  showBankDetails Boolean @default(true)
+  showHSNCode     Boolean @default(true)
+  showQRCode      Boolean @default(true)
+  showTerms       Boolean @default(true)
+
+  // Payment Settings
+  defaultPaymentTerms String  @default("Net 30")
+  enableLateFee       Boolean @default(false)
+  lateFeePercentage   Decimal @default(2)
+  gracePeriodDays     Int     @default(5)
+
+  // Tax Settings
+  defaultGSTRate Decimal @default(18)
+  enableCGST     Boolean @default(true)
+  enableSGST     Boolean @default(true)
+  enableIGST     Boolean @default(true)
+  enableCess     Boolean @default(false)
+  requireHSNCode Boolean @default(true)
+
+  // Notification Settings
+  enableEmailNotifications Boolean @default(false)
+  enableSMSNotifications   Boolean @default(false)
+  emailInvoiceOnCreation   Boolean @default(false)
+  emailPaymentReminders    Boolean @default(false)
+  reminderDays             Json?
+
+  // Regional Settings
+  currency       String @default("INR")
+  currencySymbol String @default("₹")
+  dateFormat     String @default("DD-MM-YYYY")
+  timeFormat     String @default("24h")
+  timezone       String @default("Asia/Kolkata")
+
+  // Backup & Security
+  autoBackup          Boolean @default(true)
+  backupFrequency     String  @default("daily")
+  backupTime          String  @default("02:00")
+  backupRetentionDays Int     @default(30)
+  sessionTimeout      Int     @default(60)
+  requireTwoFactor    Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CustomerGroupConfig {
+  id                    String   @id @default(uuid())
+  companyId             String
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name                  String
+  description           String?
+  discountPercent       Decimal  @default(0)
+  creditLimit           Decimal  @default(0)
+  creditDays            Int      @default(0)
+  requiresAdminApproval Boolean  @default(false)
+  canCreateInvoice      Boolean  @default(true)
+  alertMessage          String?
+  color                 String   @default("blue")
+  isActive              Boolean  @default(true)
+  isSystem              Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+// ==========================================
+// INVENTORY & PRODUCT MANAGEMENT
+// ==========================================
+
+model Category {
+  id          String   @id @default(uuid())
+  name        String
+  parentId    String?
+  parent      Category? @relation("CategoryTree", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryTree")
+  description String?
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id])
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products Product[]
+
+  @@index([companyId])
+  @@index([parentId])
+}
+
+model Product {
+  id               String   @id @default(uuid())
+  name             String
+  code             String
+  barcode          String?
+  description      String?
+  
+  categoryId       String?
+  category         Category? @relation(fields: [categoryId], references: [id])
+  
+  // Tax Info
+  hsnCode          String?
+  sacCode          String?
+  gstRate          Decimal   @default(0) // Added for tax calc
+  taxIncluded      Boolean   @default(false)
+
+  // Units
+  unit             String
+  uqc              String?
+
+  // Pricing
+  purchasePrice    Decimal  @default(0)
+  salePrice        Decimal  @default(0)
+  mrp              Decimal?
+  wholesalePrice   Decimal?
+  distributorPrice Decimal?
+
+  // Stock
+  openingStock     Decimal  @default(0)
+  currentStock     Decimal  @default(0)
+  lowStockAlert    Decimal  @default(0)
+  
+  // Tracking
+  trackBatch       Boolean  @default(false)
+  trackSerial      Boolean  @default(false)
+  trackExpiry      Boolean  @default(false)
+  
+  images           String[]
+  
+  companyId        String
+  company          Company  @relation(fields: [companyId], references: [id])
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  invoiceItems   InvoiceItem[]
+  stockMovements StockMovement[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([categoryId])
+  @@index([barcode])
+}
+
+// ==========================================
+// PARTY MANAGEMENT (CUSTOMERS & SUPPLIERS)
+// ==========================================
+
+model Customer {
+  id                String   @id @default(uuid())
+  name              String
+  code              String?
+  gstin             String?
+  pan               String?
+  
+  group             String   @default("RETAIL")
+  customGroup       String?
+  
+  creditLimit       Decimal  @default(0)
+  creditDays        Int      @default(0)
+  
+  addressLine1      String
+  addressLine2      String?
+  city              String
+  state             String
+  pincode           String
+  country           String   @default("India")
+  
+  phone             String
+  email             String?
+  whatsapp          String?
+  photo             String?
+  
+  // Financials
+  openingBalance    Decimal  @default(0)
+  currentBalance    Decimal  @default(0)
+  outstandingAmount Decimal  @default(0)
+
+  // Status
+  isBlacklisted     Boolean  @default(false)
+  isDefaulter       Boolean  @default(false)
+  blacklistReason   String?
+  blacklistedAt     DateTime?
+  blacklistedBy     String?
+
+  lastInvoiceDate   DateTime?
+  lastPaymentDate   DateTime?
+  totalInvoices     Int      @default(0)
+  totalPaid         Decimal  @default(0)
+
+  companyId         String
+  company           Company  @relation(fields: [companyId], references: [id])
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  invoices Invoice[]
+  payments Payment[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([gstin])
+}
+
+model Supplier {
+  id             String   @id @default(uuid())
+  name           String
+  code           String?
+  gstin          String?
+  pan            String?
+  
+  addressLine1   String
+  addressLine2   String?
+  city           String
+  state          String
+  pincode        String
+  country        String   @default("India")
+  
+  phone          String
+  email          String?
+  whatsapp       String?
+  
+  creditDays     Int      @default(0)
+  openingBalance Decimal  @default(0)
+  currentBalance Decimal  @default(0)
+  
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id])
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  invoices Invoice[]
+  payments Payment[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+}
+
+// ==========================================
+// BILLING & TRANSACTIONS
+// ==========================================
+
+model Invoice {
+  id              String        @id @default(uuid())
+  invoiceNumber   String
+  type            InvoiceType
+  date            DateTime
+  
+  // Relation Fix: Split Party into Customer and Supplier
+  customerId      String?
+  customer        Customer?     @relation(fields: [customerId], references: [id])
+  supplierId      String?
+  supplier        Supplier?     @relation(fields: [supplierId], references: [id])
+
+  // Amounts
+  subtotal        Decimal       @default(0)
+  discount        Decimal       @default(0)
+  discountType    DiscountType  @default(PERCENTAGE)
+  additionalCharges Json?
+  roundOff        Decimal       @default(0)
+  totalAmount     Decimal       @default(0)
+  
+  // Tax Breakup
+  cgst            Decimal       @default(0)
+  sgst            Decimal       @default(0)
+  igst            Decimal       @default(0)
+  cess            Decimal       @default(0)
+  totalTax        Decimal       @default(0)
+  grandTotal      Decimal       @default(0)
+  
+  paymentStatus   PaymentStatus @default(PENDING)
+  paymentMode     String[]
+  
+  notes           String?
+  terms           String?
+  ewayBillNumber  String?
+  
+  isCancelled     Boolean       @default(false)
+  cancelledAt     DateTime?
+  cancelledBy     String?
+  
+  companyId       String
+  company         Company       @relation(fields: [companyId], references: [id])
+  createdBy       String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  items           InvoiceItem[]
+  payments        Payment[]
+
+  @@unique([companyId, invoiceNumber])
+  @@index([companyId])
+  @@index([customerId])
+  @@index([supplierId])
+  @@index([date])
+}
+
+enum InvoiceType {
+  SALES_INVOICE
+  SALES_RETURN
+  PURCHASE_INVOICE
+  PURCHASE_RETURN
+  CREDIT_NOTE
+  DEBIT_NOTE
+  PROFORMA
+  QUOTATION
+  DELIVERY_CHALLAN
+  PURCHASE_ORDER
+  SALES_ORDER
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum PaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
+  OVERDUE
+}
+
+model InvoiceItem {
+  id            String       @id @default(uuid())
+  invoiceId     String
+  invoice       Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  productId     String?
+  product       Product?     @relation(fields: [productId], references: [id])
+  
+  name          String
+  hsnCode       String?
+  sacCode       String?
+  
+  quantity      Decimal
+  unit          String
+  rate          Decimal
+  
+  discount      Decimal      @default(0)
+  discountType  DiscountType @default(PERCENTAGE)
+  
+  taxableAmount Decimal
+  gstRate       Decimal
+  cgst          Decimal      @default(0)
+  sgst          Decimal      @default(0)
+  igst          Decimal      @default(0)
+  cess          Decimal      @default(0)
+  totalTax      Decimal      @default(0)
+  totalAmount   Decimal
+  
+  batchNumber   String?
+  serialNumber  String?
+  
+  createdAt     DateTime     @default(now())
+
+  @@index([invoiceId])
+  @@index([productId])
+}
+
+model Payment {
+  id              String      @id @default(uuid())
+  type            PaymentType
+  
+  // Relation Fix
+  customerId      String?
+  customer        Customer?   @relation(fields: [customerId], references: [id])
+  supplierId      String?
+  supplier        Supplier?   @relation(fields: [supplierId], references: [id])
+
+  amount          Decimal
+  paymentMode     PaymentMode
+  referenceNumber String?
+  chequeNumber    String?
+  chequeDate      DateTime?
+  
+  bankId          String?
+  bank            BankAccount? @relation(fields: [bankId], references: [id])
+  
+  invoiceId       String?
+  invoice         Invoice?    @relation(fields: [invoiceId], references: [id])
+  
+  notes           String?
+  date            DateTime
+  
+  companyId       String
+  company         Company     @relation(fields: [companyId], references: [id])
+  createdBy       String
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([companyId])
+  @@index([customerId])
+  @@index([supplierId])
+  @@index([date])
+}
+
+enum PaymentType {
+  RECEIPT
+  PAYMENT
+}
+
+enum PaymentMode {
+  CASH
+  CARD
+  UPI
+  CHEQUE
+  NEFT
+  RTGS
+  IMPS
+  BANK_TRANSFER
+}
+
+model BankAccount {
+  id             String          @id @default(uuid())
+  name           String
+  accountNumber  String
+  ifscCode       String
+  bankName       String
+  branchName     String?
+  accountType    BankAccountType
+  openingBalance Decimal         @default(0)
+  currentBalance Decimal         @default(0)
+  companyId      String
+  company        Company         @relation(fields: [companyId], references: [id])
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  payments       Payment[]
+
+  @@index([companyId])
+}
+
+enum BankAccountType {
+  SAVINGS
+  CURRENT
+  CASH
+}
+
+// ==========================================
+// STOCK & REPORTS
+// ==========================================
+
+model StockMovement {
+  id                String            @id @default(uuid())
+  productId         String
+  product           Product           @relation(fields: [productId], references: [id])
+  type              StockMovementType
+  quantity          Decimal
+  rate              Decimal
+  
+  batchNumber       String?
+  serialNumber      String?
+  expiryDate        DateTime?
+  manufacturingDate DateTime?
+  
+  referenceId       String?
+  referenceType     String?
+  notes             String?
+  
+  createdAt         DateTime          @default(now())
+  createdBy         String
+
+  @@index([productId])
+  @@index([type])
+}
+
+enum StockMovementType {
+  OPENING
+  PURCHASE
+  SALE
+  RETURN
+  ADJUSTMENT
+  TRANSFER
+}
+
+model GSTReport {
+  id                String        @id @default(uuid())
+  companyId         String
+  reportType        GSTReportType
+  month             Int
+  year              Int
+  period            String
+  
+  totalTaxableValue Decimal       @default(0)
+  totalCGST         Decimal       @default(0)
+  totalSGST         Decimal       @default(0)
+  totalIGST         Decimal       @default(0)
+  totalCess         Decimal       @default(0)
+  totalTax          Decimal       @default(0)
+  
+  filingStatus      FilingStatus  @default(PENDING)
+  filedAt           DateTime?
+  filedBy           String?
+  acknowledgementNo String?
+  
+  reportData        Json?
+  
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@unique([companyId, reportType, period])
+  @@index([companyId])
+}
+
+enum GSTReportType {
+  GSTR1
+  GSTR2A
+  GSTR2B
+  GSTR3B
+  GSTR4
+  GSTR9
+}
+
+enum FilingStatus {
+  PENDING
+  FILED
+  REVISED
+}
+
+model SyncLog {
+  id        String    @id @default(uuid())
+  deviceId  String
+  entity    String
+  action    String
+  data      Json
+  timestamp DateTime  @default(now())
+  syncedAt  DateTime?
+  companyId String
+  userId    String
+
+  @@index([deviceId])
+  @@index([companyId])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  companyId  String
+  userId     String
+  entityType String
+  entityId   String
+  action     String
+  changes    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([companyId])
+  @@index([userId])
+}
+
+model ShareLink {
+  id          String    @id @default(uuid())
+  companyId   String
+  token       String    @unique
+  shareType   String
+  entityId    String?
+  expiresAt   DateTime?
+  isActive    Boolean   @default(true)
+  accessCount Int       @default(0)
+  createdBy   String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([companyId])
+  @@index([token])
+}

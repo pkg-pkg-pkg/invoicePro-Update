@@ -1,0 +1,218 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pve.local/phase3/masters.schema.json",
+  "title": "Phase 3 Masters Schema",
+  "type": "object",
+  "definitions": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ledgerGroup": {
+      "type": "object",
+      "required": ["id", "name", "type", "isSystem", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
+        "code": { "type": ["string", "null"] },
+        "type": { "enum": ["ASSET", "LIABILITY", "INCOME", "EXPENSE"] },
+        "parentGroupId": { "type": ["string", "null"] },
+        "isSystem": { "type": "boolean" },
+        "sortOrder": { "type": ["number", "null"] },
+        "isActive": { "type": "boolean", "default": true },
+        "createdAt": { "$ref": "#/definitions/timestamp" },
+        "updatedAt": { "$ref": "#/definitions/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "ledgerAccount": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "groupId",
+        "openingBalance",
+        "openingBalanceType",
+        "currentBalance",
+        "isCashBank",
+        "isActive",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
+        "code": { "type": ["string", "null"] },
+        "groupId": { "type": "string" },
+        "openingBalance": { "type": "number", "minimum": 0 },
+        "openingBalanceType": { "enum": ["DEBIT", "CREDIT"] },
+        "currentBalance": { "type": "number" },
+        "gstDetails": {
+          "type": ["object", "null"],
+          "properties": {
+            "gstin": { "type": "string" },
+            "pan": { "type": "string" },
+            "composition": { "type": ["boolean", "null"] }
+          },
+          "additionalProperties": false
+        },
+        "contactDetails": {
+          "type": ["object", "null"],
+          "properties": {
+            "phone": { "type": "string" },
+            "email": { "type": "string" },
+            "address": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "isCashBank": { "type": "boolean" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "$ref": "#/definitions/timestamp" },
+        "updatedAt": { "$ref": "#/definitions/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "ledgerTransaction": {
+      "type": "object",
+      "required": ["id", "ledgerId", "voucherType", "voucherId", "date", "debit", "credit", "runningBalance", "createdAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "ledgerId": { "type": "string" },
+        "voucherType": { "type": "string" },
+        "voucherId": { "type": "string" },
+        "date": { "$ref": "#/definitions/timestamp" },
+        "debit": { "type": "number", "minimum": 0 },
+        "credit": { "type": "number", "minimum": 0 },
+        "runningBalance": { "type": "number" },
+        "meta": { "type": ["object", "null"] },
+        "createdAt": { "$ref": "#/definitions/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "itemCategory": {
+      "type": "object",
+      "required": ["id", "name", "isActive", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
+        "code": { "type": ["string", "null"] },
+        "parentId": { "type": ["string", "null"] },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "$ref": "#/definitions/timestamp" },
+        "updatedAt": { "$ref": "#/definitions/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "unitOfMeasure": {
+      "type": "object",
+      "required": ["id", "name", "symbol", "precision", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
+        "symbol": { "type": "string", "minLength": 1 },
+        "uqc": { "type": ["string", "null"] },
+        "precision": { "type": "integer", "minimum": 0 },
+        "createdAt": { "$ref": "#/definitions/timestamp" },
+        "updatedAt": { "$ref": "#/definitions/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "godown": {
+      "type": "object",
+      "required": ["id", "name", "isDefault", "isActive", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
+        "code": { "type": ["string", "null"] },
+        "address": { "type": ["string", "null"] },
+        "isDefault": { "type": "boolean" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "$ref": "#/definitions/timestamp" },
+        "updatedAt": { "$ref": "#/definitions/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "inventoryItem": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "sku",
+        "unitId",
+        "gstRate",
+        "openingStock",
+        "openingValue",
+        "currentStock",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
+        "sku": { "type": "string" },
+        "barcode": { "type": ["string", "null"] },
+        "categoryId": { "type": ["string", "null"] },
+        "unitId": { "type": "string" },
+        "secondaryUnitId": { "type": ["string", "null"] },
+        "conversionRatio": { "type": ["number", "null"], "minimum": 0 },
+        "gstRate": { "type": "number", "minimum": 0 },
+        "hsnCode": { "type": ["string", "null"] },
+        "pricing": {
+          "type": "object",
+          "properties": {
+            "purchase": { "type": "number", "minimum": 0 },
+            "sale": { "type": "number", "minimum": 0 },
+            "mrp": { "type": ["number", "null"], "minimum": 0 },
+            "wholesale": { "type": ["number", "null"], "minimum": 0 },
+            "distributor": { "type": ["number", "null"], "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "trackBatch": { "type": "boolean" },
+        "trackSerial": { "type": "boolean" },
+        "trackExpiry": { "type": "boolean" },
+        "openingStock": { "type": "number" },
+        "openingValue": { "type": "number" },
+        "currentStock": { "type": "number" },
+        "reorderLevel": { "type": ["number", "null"] },
+        "godownStocks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["godownId", "quantity"],
+            "properties": {
+              "godownId": { "type": "string" },
+              "quantity": { "type": "number" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "images": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "status": { "enum": ["ACTIVE", "INACTIVE"] },
+        "createdAt": { "$ref": "#/definitions/timestamp" },
+        "updatedAt": { "$ref": "#/definitions/timestamp" }
+      },
+      "additionalProperties": false
+    },
+    "stockAdjustment": {
+      "type": "object",
+      "required": ["id", "itemId", "type", "quantity", "value", "date", "createdAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "itemId": { "type": "string" },
+        "godownId": { "type": ["string", "null"] },
+        "type": { "enum": ["OPENING", "ADJUSTMENT"] },
+        "quantity": { "type": "number" },
+        "value": { "type": "number" },
+        "reason": { "type": ["string", "null"] },
+        "date": { "$ref": "#/definitions/timestamp" },
+        "createdAt": { "$ref": "#/definitions/timestamp" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

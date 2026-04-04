@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>License Validation Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .pass { color: green; }
+        .fail { color: red; }
+        .info { color: blue; }
+        pre { background: #f5f5f5; padding: 10px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>🔍 License Validation Test</h1>
+    
+    <div class="test-section">
+        <h2>Test Configuration</h2>
+        <p><strong>Email:</strong> pawanipm@gmail.com</p>
+        <p><strong>License Key:</strong> INVPRO0001</p>
+        <p><strong>Device ID:</strong> 9a4d64ec-a837-4b86-ae34-ea29de30de4d</p>
+        <p><strong>Expected Behavior:</strong> Should login directly without activation</p>
+    </div>
+
+    <div class="test-section">
+        <h2>1️⃣ Device ID Check</h2>
+        <div id="device-check"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2️⃣ Device Binding Check</h2>
+        <div id="binding-check"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>3️⃣ License Cache Check</h2>
+        <div id="cache-check"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>4️⃣ Expected Flow Result</h2>
+        <div id="flow-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>📋 Console Logs</h2>
+        <p>Open browser console (F12) to see detailed validation logs when you test the actual app.</p>
+    </div>
+
+    <div class="test-section">
+        <h2>🎯 How to Test</h2>
+        <ol>
+            <li>Open the built app: <code>dist/index.html</code></li>
+            <li>Open browser console (F12)</li>
+            <li>Look for 🔍 debugging logs</li>
+            <li>Verify you see: "✅ Local license validation passed"</li>
+            <li>Verify you DON'T see activation window</li>
+        </ol>
+    </div>
+
+    <script>
+        // Mock the same data that should be in localStorage for activated user
+        const mockDeviceId = '9a4d64ec-a837-4b86-ae34-ea29de30de4d';
+        
+        // Set up mock localStorage data (simulating activated user)
+        localStorage.setItem('device_binding_v1', JSON.stringify({
+            deviceId: mockDeviceId,
+            boundAt: Date.now(),
+            email: 'pawanipm@gmail.com'
+        }));
+        
+        localStorage.setItem('enc_license_cache_v1', 'mock_encrypted_license_data');
+
+        // Test functions
+        function runTests() {
+            console.log('🔍 Starting License Validation Tests');
+            console.log('=====================================');
+
+            // Test 1: Device ID
+            const deviceCheck = document.getElementById('device-check');
+            deviceCheck.innerHTML = `
+                <p><strong>Current Device ID:</strong> <code>${mockDeviceId}</code></p>
+                <p class="info">✅ Device ID available for validation</p>
+            `;
+
+            // Test 2: Device Binding
+            const bindingCheck = document.getElementById('binding-check');
+            const deviceBinding = JSON.parse(localStorage.getItem('device_binding_v1') || '{}');
+            const deviceMatch = deviceBinding.deviceId === mockDeviceId;
+            
+            bindingCheck.innerHTML = `
+                <p><strong>Stored Device Binding:</strong></p>
+                <pre>${JSON.stringify(deviceBinding, null, 2)}</pre>
+                <p class="${deviceMatch ? 'pass' : 'fail'}">
+                    Device Match: ${deviceMatch ? '✅ PASS' : '❌ FAIL'}
+                </p>
+            `;
+
+            // Test 3: License Cache
+            const cacheCheck = document.getElementById('cache-check');
+            const licenseCache = localStorage.getItem('enc_license_cache_v1');
+            
+            cacheCheck.innerHTML = `
+                <p><strong>License Cache Exists:</strong> ${licenseCache ? '✅ YES' : '❌ NO'}</p>
+                <p class="info">Cache data: ${licenseCache || 'None'}</p>
+            `;
+
+            // Test 4: Expected Flow Result
+            const flowResult = document.getElementById('flow-result');
+            const shouldAllowLogin = deviceMatch && licenseCache;
+            
+            flowResult.innerHTML = `
+                <p class="${shouldAllowLogin ? 'pass' : 'fail'}">
+                    <strong>Expected Behavior:</strong><br>
+                    ${shouldAllowLogin ? 
+                        '✅ Should allow login directly (skip activation)' : 
+                        '❌ Would show activation window (unexpected)'}
+                </p>
+                <p class="info">
+                    <strong>In the actual app, you should see:</strong><br>
+                    🔍 Current Device ID: ${mockDeviceId}<br>
+                    🔍 Device Change Result: {changed: false}<br>
+                    🔍 Local License Cache: [decrypted data]<br>
+                    ✅ Local license validation passed
+                </p>
+            `;
+
+            console.log('📊 Test Results:');
+            console.log('- Device ID Match:', deviceMatch);
+            console.log('- License Cache Exists:', !!licenseCache);
+            console.log('- Should Allow Direct Login:', shouldAllowLogin);
+        }
+
+        // Run tests when page loads
+        runTests();
+    </script>
+</body>
+</html>

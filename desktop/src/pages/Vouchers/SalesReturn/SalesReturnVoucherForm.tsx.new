@@ -1,0 +1,153 @@
+import { useState } from 'react';
+import { Alert, Box, Button, Card, CardContent, Grid, Stack, TextField, Typography } from '@mui/material';
+import dayjs from 'dayjs';
+import { useNavigate } from 'react-router-dom';
+
+import { voucherService } from '../../../services/vouchers/voucherService';
+import { usePermission } from '../../../hooks/usePermission';
+import { autoLedgerService } from '../../../services/masters/autoLedgerService';
+
+const SalesReturnVoucherForm = () => {
+  const navigate = useNavigate();
+  const { can } = usePermission();
+  const canCreate = can('create-vouchers');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [formState, setFormState] = useState({
+    date: dayjs().format('YYYY-MM-DD'),
+    number: `SR-${dayjs().format('YYYYMMDD-HHmmss')}`,
+    customerName: '',
+    amount: '',
+    narration: '',
+  });
+
+  const canSubmit =
+    canCreate &&
+    formState.date &&
+    formState.number &&
+    formState.customerName.trim().length > 0 &&
+    Number(formState.amount) > 0 &&
+    !saving;
+
+  const buildVoucherLines = async () => {
+    const { salesLedgerId } = await autoLedgerService.ensureCore();
+    const customerLedgerId = await autoLedgerService.ensureCustomerLedger(formState.customerName);
+    const amount = Number(formState.amount) || 0;
+    return [
+      { ledgerId: salesLedgerId, debit: 0, credit: amount },
+      { ledgerId: customerLedgerId, debit: amount, credit: 0 },
+    ];
+  };
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!canSubmit) {
+      setError('Please complete all required fields before saving.');
+      return;
+    }
+    try {
+      setSaving(true);
+      setError(null);
+      const voucherLines = await buildVoucherLines();
+      await voucherService.create({
+        type: 'SALES_RETURN',
+        date: new Date(formState.date).toISOString(),
+        number: formState.number,
+        narration: formState.narration,
+        lines: voucherLines,
+      });
+      navigate('/vouchers/sales-return');
+    } catch (err) {
+      setError((err as Error).message ?? 'Failed to create voucher');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card component="form" onSubmit={handleSubmit}>
+      <CardContent>
+        <Stack spacing={3}>
+          <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} alignItems={{ xs: 'flex-start', md: 'center' }}>
+            <Box>
+              <Typography variant="h5" fontWeight={600}>
+                New Sales Return
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Record credit notes and sales returns. Ledgers auto-resolve.
+              </Typography>
+            </Box>
+            <Stack direction="row" spacing={1}>
+              <Button variant="outlined" onClick={() => navigate('/vouchers/sales-return')}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="contained" disabled={!canSubmit}>
+                {saving ? 'Saving...' : 'Save Voucher'}
+              </Button>
+            </Stack>
+          </Stack>
+
+          {error && (
+            <Alert severity="error" onClose={() => setError(null)}>
+              {error}
+            </Alert>
+          )}
+
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={3}>
+              <TextField
+                label="Voucher Date"
+                type="date"
+                value={formState.date}
+                onChange={(e) => setFormState((prev) => ({ ...prev, date: e.target.value }))}
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <TextField
+                label="Voucher Number"
+                value={formState.number}
+                onChange={(e) => setFormState((prev) => ({ ...prev, number: e.target.value }))}
+                fullWidth
+              />
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <TextField
+                label="Customer Name"
+                value={formState.customerName}
+                onChange={(e) => setFormState((prev) => ({ ...prev, customerName: e.target.value }))}
+                fullWidth
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <TextField
+                label="Amount"
+                type="number"
+                value={formState.amount}
+                onChange={(e) => setFormState((prev) => ({ ...prev, amount: e.target.value }))}
+                fullWidth
+                required
+                inputProps={{ min: '0', step: '0.01' }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                label="Narration"
+                value={formState.narration}
+                onChange={(e) => setFormState((prev) => ({ ...prev, narration: e.target.value }))}
+                fullWidth
+                multiline
+                minRows={2}
+              />
+            </Grid>
+          </Grid>
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+};
+
+export default SalesReturnVoucherForm;

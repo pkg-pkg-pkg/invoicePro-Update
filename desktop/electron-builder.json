@@ -1,0 +1,52 @@
+{
+  "appId": "com.gstbilling.desktop",
+  "productName": "GST Billing Software",
+  "icon": "electron/icon.ico",
+  "asarUnpack": [
+    "dist/SQLOGO.png",
+    "dist/invoicepro-logo.png",
+    "dist/InvoicePro LOGO.png"
+  ],
+  "directories": {
+    "buildResources": "electron",
+    "output": "releases"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/preload.js",
+    "electron/main.js",
+    "node_modules/**/*"
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      },
+      {
+        "target": "portable",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "certificateFile": null,
+    "certificatePassword": null
+  },
+  "publish": {
+    "provider": "github"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "GST Billing Software",
+    "artifactName": "${productName}-Setup-${version}.${ext}"
+  },
+  "portable": {
+    "artifactName": "${productName}-${version}.exe"
+  }
+}

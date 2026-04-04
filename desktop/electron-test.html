@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Electron Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 Electron Test Page</h1>
+        <div class="status success">
+            ✅ Electron is working! This page loaded successfully.
+        </div>
+
+        <h2>Testing Services</h2>
+        <button onclick="testBackend()">Test Backend (Port 3000)</button>
+        <button onclick="testVite()">Test Vite Server (Port 5173)</button>
+        <button onclick="loadReactApp()">Load React App</button>
+
+        <div id="results"></div>
+
+        <h2>Debug Info</h2>
+        <div id="debug-info">
+            <p><strong>Platform:</strong> <span id="platform"></span></p>
+            <p><strong>Electron Version:</strong> <span id="electron-version"></span></p>
+            <p><strong>Node Version:</strong> <span id="node-version"></span></p>
+            <p><strong>Chrome Version:</strong> <span id="chrome-version"></span></p>
+        </div>
+    </div>
+
+    <script>
+        // Display debug info
+        document.getElementById('platform').textContent = process.platform;
+        document.getElementById('electron-version').textContent = process.versions.electron;
+        document.getElementById('node-version').textContent = process.versions.node;
+        document.getElementById('chrome-version').textContent = process.versions.chrome;
+
+        function addResult(message, isError = false) {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = 'status ' + (isError ? 'error' : 'success');
+            div.innerHTML = message;
+            results.appendChild(div);
+        }
+
+        async function testBackend() {
+            try {
+                const response = await fetch('http://localhost:3000/health');
+                const data = await response.json();
+                addResult(`✅ Backend responding: ${JSON.stringify(data)}`);
+            } catch (error) {
+                addResult(`❌ Backend error: ${error.message}`, true);
+            }
+        }
+
+        async function testVite() {
+            try {
+                const response = await fetch('http://localhost:5173');
+                addResult(`✅ Vite server responding (status: ${response.status})`);
+            } catch (error) {
+                addResult(`❌ Vite server error: ${error.message}`, true);
+            }
+        }
+
+        function loadReactApp() {
+            addResult('🔄 Attempting to load React app...');
+            window.location.href = 'http://localhost:5173';
+        }
+
+        // Auto-test on load
+        setTimeout(() => {
+            testBackend();
+            testVite();
+        }, 1000);
+    </script>
+</body>
+</html>

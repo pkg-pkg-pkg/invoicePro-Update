@@ -1,0 +1,66 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+*.lcov
+
+# Production builds
+dist/
+build/
+*.exe
+*.dmg
+*.app
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# Mobile
+mobile/android/app/build/
+mobile/android/.gradle/
+mobile/ios/build/
+mobile/ios/Pods/
+*.apk
+*.aab
+
+# Desktop
+desktop/dist/
+desktop/out/
+desktop/.vite/
+
+# Backend
+backend/uploads/
+backend/temp/
+
+# Sync data
+sync-data/
+backups/
+
