@@ -868,22 +868,21 @@ export const fetchCustomers = createAsyncThunk<{ data: Customer[]; pagination?: 
         customers = customers.filter(customer => customer.group === f.group);
       }
 
-      // Apply pagination
-      const page = f.page || 1;
-      const limit = f.limit || 10;
+      // Pagination only when caller passes page or limit (Party Master screens use full list by default).
+      const page = f.page ?? 1;
+      const limit = f.limit ?? (customers.length || 10);
       const startIndex = (page - 1) * limit;
-      const paginatedCustomers = customers.slice(startIndex, startIndex + limit);
-
-      const data = paginatedCustomers;
+      const usePaging = f.page != null || f.limit != null;
+      const data = usePaging ? customers.slice(startIndex, startIndex + limit) : customers;
 
       return {
         data,
         pagination: {
           total: customers.length,
-          page,
-          limit,
-          totalPages: Math.ceil(customers.length / limit)
-        }
+          page: usePaging ? page : 1,
+          limit: usePaging ? limit : customers.length,
+          totalPages: usePaging && limit > 0 ? Math.ceil(customers.length / limit) : 1,
+        },
       };
     } catch (err: any) {
       return thunkAPI.rejectWithValue(err?.message ?? 'Failed to fetch customers');
@@ -1092,22 +1091,20 @@ export const fetchSuppliers = createAsyncThunk<{ data: Supplier[]; pagination?: 
         );
       }
 
-      // Apply pagination
-      const page = f.page || 1;
-      const limit = f.limit || 10;
+      const page = f.page ?? 1;
+      const limit = f.limit ?? (suppliers.length || 10);
       const startIndex = (page - 1) * limit;
-      const paginatedSuppliers = suppliers.slice(startIndex, startIndex + limit);
-
-      const data = paginatedSuppliers;
+      const usePaging = f.page != null || f.limit != null;
+      const data = usePaging ? suppliers.slice(startIndex, startIndex + limit) : suppliers;
 
       return {
         data,
         pagination: {
           total: suppliers.length,
-          page,
-          limit,
-          totalPages: Math.ceil(suppliers.length / limit)
-        }
+          page: usePaging ? page : 1,
+          limit: usePaging ? limit : suppliers.length,
+          totalPages: usePaging && limit > 0 ? Math.ceil(suppliers.length / limit) : 1,
+        },
       };
     } catch (err: any) {
       return thunkAPI.rejectWithValue(err?.message ?? 'Failed to fetch suppliers');

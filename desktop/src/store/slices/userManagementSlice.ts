@@ -87,6 +87,7 @@ export const createUser = createAsyncThunk<SerializableUser, {
   fullName: string;
   password: string;
   role: UserRole;
+  permissions?: UserPermissions;
 }, { rejectValue: string }>(
   'userManagement/createUser',
   async (userData, thunkAPI) => {
@@ -109,7 +110,7 @@ export const createUser = createAsyncThunk<SerializableUser, {
       const newUser: SerializableUser = {
         id: Date.now().toString(),
         ...userData,
-        permissions: clonePermissions(DEFAULT_PERMISSIONS[userData.role]),
+        permissions: clonePermissions(userData.permissions ?? DEFAULT_PERMISSIONS[userData.role]),
         isActive: true,
         lastLogin: undefined,
         createdAt: new Date().toISOString(),

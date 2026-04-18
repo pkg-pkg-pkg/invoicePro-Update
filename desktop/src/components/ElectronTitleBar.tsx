@@ -7,6 +7,7 @@ import CropSquareIcon from '@mui/icons-material/CropSquare';
 import FilterNoneIcon from '@mui/icons-material/FilterNone';
 import CloseIcon from '@mui/icons-material/Close';
 import { isElectronRuntime } from '../utils/runtime';
+import { APP_DISPLAY_NAME, APP_TAGLINE } from '../constants/appBranding';
 
 export const ELECTRON_TITLEBAR_HEIGHT_PX = 40;
 
@@ -73,7 +74,7 @@ export default function ElectronTitleBar() {
           ...dragSx,
         }}
       >
-        InvoicePro
+        {APP_DISPLAY_NAME}
       </Typography>
       <Typography
         variant="caption"
@@ -85,7 +86,7 @@ export default function ElectronTitleBar() {
           ...dragSx,
         }}
       >
-        GST Billing Software
+        {APP_TAGLINE}
       </Typography>
       <Box sx={{ flex: 1, minWidth: 8, alignSelf: 'stretch', ...dragSx }} />
 

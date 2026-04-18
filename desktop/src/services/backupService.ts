@@ -1,6 +1,8 @@
 // src/services/backupService.ts
 // Simple auto-backup service for demonstration
 
+import { APP_DISPLAY_NAME } from '../constants/appBranding';
+
 interface AutoBackupConfig {
   enabled: boolean;
   frequency: 'daily' | 'weekly' | 'monthly';
@@ -152,7 +154,7 @@ class BackupService {
       // Show notification (in Electron, this would be a system notification)
       if (typeof window !== 'undefined' && 'Notification' in window) {
         if (Notification.permission === 'granted') {
-          new Notification('InvoicePro Auto-Backup', {
+          new Notification(`${APP_DISPLAY_NAME} Auto-Backup`, {
             body: `Backup created successfully: ${fileName}`,
             icon: '/invoicepro-logo.png'
           });

@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Box, Button, Card, CardContent, Checkbox, FormControlLabel, Grid, IconButton, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography, Paper, Chip, Divider } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -28,6 +28,8 @@ import { getAppSettings } from '../../../services/appSettingsService';
 import QuickCreateLedgerDialog from '../../../components/QuickCreateLedgerDialog';
 import PartyMasterDialog from '../../../components/PartyMasterDialog';
 import InventoryItemMasterDialog from '../../../components/InventoryItemMasterDialog';
+import { TallyListPickerModal } from './components/TallyListPickerModal';
+import { rateMemory } from '../../../services/reports/rateMemory';
 
 interface ItemLineState {
   lineId: string;
@@ -95,6 +97,48 @@ const SalesVoucherForm = () => {
   const [showQuickCreateCustomer, setShowQuickCreateCustomer] = useState(false);
   const [showQuickCreateSales, setShowQuickCreateSales] = useState(false);
   const [showQuickCreateItem, setShowQuickCreateItem] = useState(false);
+  const [partyPickerOpen, setPartyPickerOpen] = useState(false);
+  const [itemPickerLineId, setItemPickerLineId] = useState<string | null>(null);
+
+  const linesRef = useRef(lines);
+  const itemPickerLineIdRef = useRef(itemPickerLineId);
+  useEffect(() => {
+    linesRef.current = lines;
+  }, [lines]);
+  useEffect(() => {
+    itemPickerLineIdRef.current = itemPickerLineId;
+  }, [itemPickerLineId]);
+
+  const blockEscapeBackRef = useRef(false);
+  useEffect(() => {
+    blockEscapeBackRef.current =
+      partyPickerOpen ||
+      itemPickerLineId !== null ||
+      showQuickCreateCustomer ||
+      showQuickCreateItem ||
+      showQuickCreateSales;
+  }, [
+    partyPickerOpen,
+    itemPickerLineId,
+    showQuickCreateCustomer,
+    showQuickCreateItem,
+    showQuickCreateSales,
+  ]);
+
+  /** Escape on the main form (no open dialog) → same as Back: return to sales list. */
+  useEffect(() => {
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (blockEscapeBackRef.current) return;
+      const el = e.target as HTMLElement | null;
+      if (!el?.isConnected) return;
+      if (el.closest?.('[role="dialog"], [data-tally-picker-modal]')) return;
+      e.preventDefault();
+      navigate('/vouchers/sales');
+    };
+    window.addEventListener('keydown', onEscape);
+    return () => window.removeEventListener('keydown', onEscape);
+  }, [navigate]);
 
   const [formState, setFormState] = useState({
     date: dayjs().format('YYYY-MM-DD'),
@@ -558,6 +602,15 @@ const SalesVoucherForm = () => {
         narration: formState.narration,
         lines: voucherLines,
       });
+      const custId = formState.customerLedgerId;
+      if (custId) {
+        for (const line of lines) {
+          const ex = toNumber(line.rateExclusive);
+          if (line.itemId && ex > 0) {
+            rateMemory.setLastSaleExclusive(custId, line.itemId, ex);
+          }
+        }
+      }
       navigate('/vouchers/sales');
     } catch (err) {
       setError((err as Error).message ?? 'Failed to create voucher');
@@ -608,7 +661,11 @@ const SalesVoucherForm = () => {
 
   const handleInventoryMasterSaved = (newItem: InventoryItem) => {
     setInventoryItems((prev) => [...prev, newItem]);
-    const sale = newItem.pricing?.sale ?? 0;
+    const mem =
+      formState.customerLedgerId && newItem.id
+        ? rateMemory.getLastSaleExclusive(formState.customerLedgerId, newItem.id)
+        : null;
+    const sale = mem ?? Number(newItem.pricing?.sale ?? 0);
     const gst = Number(newItem.gstRate ?? 0);
     setLines((prev) => {
       const updatedLines = [...prev];
@@ -655,7 +712,12 @@ const SalesVoucherForm = () => {
           parties={parties}
           ledgers={ledgerAccounts}
           onChange={handlePartyChange}
-          onQuickCreateCustomer={() => setShowQuickCreateCustomer(true)}
+          onQuickCreateCustomer={() => {
+            setPartyPickerOpen(false);
+            setShowQuickCreateCustomer(true);
+          }}
+          billingCustomerSelector="picker"
+          onOpenBillingCustomerPicker={() => setPartyPickerOpen(true)}
         />
 
         {error && (
@@ -686,6 +748,7 @@ const SalesVoucherForm = () => {
                     <TableCell sx={{ minWidth: 100, width: 100 }}>Quantity</TableCell>
                     <TableCell sx={{ minWidth: 100, width: 100 }}>Rate</TableCell>
                     <TableCell sx={{ minWidth: 80, width: 80 }}>Tax %</TableCell>
+                    <TableCell sx={{ minWidth: 140, width: 140 }}>Godown</TableCell>
                     <TableCell sx={{ minWidth: 120, width: 120 }} align="right">Amount</TableCell>
                     <TableCell sx={{ minWidth: 80, width: 80 }} align="right">Actions</TableCell>
                   </TableRow>
@@ -696,7 +759,6 @@ const SalesVoucherForm = () => {
                       key={line.lineId}
                       line={line}
                       index={index}
-                      inventoryItems={inventoryItems}
                       godowns={godowns}
                       updateLine={updateLine}
                       removeLine={removeLine}
@@ -704,7 +766,12 @@ const SalesVoucherForm = () => {
                       disableRemove={lines.length === 1}
                       onRequestAddLine={addLine}
                       onValidationError={setError}
-                      onRequestQuickCreateItem={() => setShowQuickCreateItem(true)}
+                      requireGodown={godowns.length > 0}
+                      getItemDisplayName={(id) => getItemName(id)}
+                      onOpenItemPicker={(rowIndex) => {
+                        const lid = lines[rowIndex]?.lineId;
+                        if (lid) setItemPickerLineId(lid);
+                      }}
                     />
                   ))}
                 </TableBody>
@@ -948,6 +1015,157 @@ const SalesVoucherForm = () => {
           onSaved={handleInventoryMasterSaved}
         />
 
+        <TallyListPickerModal<Party>
+          open={partyPickerOpen}
+          onClose={() => setPartyPickerOpen(false)}
+          title="List of Ledger Accounts"
+          searchPlaceholder="Search party name, alias, or GSTIN…"
+          rows={parties}
+          getRowKey={(p) => String(p.ledgerId ?? p.id)}
+          filterRow={(p, q) => {
+            const s = q.trim().toLowerCase();
+            if (!s) return true;
+            const name = (p.name || '').toLowerCase();
+            const g = (p.gstin || '').toLowerCase();
+            const mobile = (p.mobile || '').toLowerCase();
+            return name.includes(s) || g.includes(s) || mobile.includes(s);
+          }}
+          columns={[
+            {
+              id: 'name',
+              header: 'Party Name',
+              render: (p) => <Typography fontWeight={600}>{p.name}</Typography>,
+            },
+            {
+              id: 'bal',
+              header: 'Outstanding Balance',
+              align: 'right',
+              render: (p) => {
+                const n = Number(p.currentBalance ?? p.openingBalance ?? 0);
+                return <Typography variant="body2">₹{Number.isFinite(n) ? n.toFixed(2) : '0.00'}</Typography>;
+              },
+            },
+            {
+              id: 'gstin',
+              header: 'GSTIN',
+              render: (p) => (
+                <Typography variant="body2" color="text.secondary">
+                  {p.gstin || '—'}
+                </Typography>
+              ),
+            },
+          ]}
+          onSelect={(selectedParty) => {
+            setPartyPickerOpen(false);
+            const ledgerId = selectedParty.ledgerId || '';
+            handlePartyChange({
+              billing: {
+                ledgerId,
+                name: selectedParty.name,
+                gstin: selectedParty.gstin,
+                address: selectedParty.address,
+                phone: selectedParty.mobile,
+                email: selectedParty.email,
+                city: selectedParty.city,
+                state: selectedParty.state,
+                pin: selectedParty.pincode,
+              },
+            });
+          }}
+          onCreateNew={() => {
+            setPartyPickerOpen(false);
+            setShowQuickCreateCustomer(true);
+          }}
+          createNewLabel="+ Create New Party"
+          emptyMessage="No parties found."
+        />
+
+        <TallyListPickerModal<InventoryItem>
+          sessionKey={itemPickerLineId}
+          open={itemPickerLineId !== null}
+          onClose={() => setItemPickerLineId(null)}
+          title="List of Inventory Items"
+          searchPlaceholder="Search item name, SKU, or barcode…"
+          rows={inventoryItems}
+          getRowKey={(it) => it.id}
+          filterRow={(it, q) => {
+            const s = q.trim().toLowerCase();
+            if (!s) return true;
+            const name = (it.name || '').toLowerCase();
+            const sku = (it.sku || '').toLowerCase();
+            const bc = (it.barcode || '').toLowerCase();
+            const hsn = (it.hsnCode || '').toLowerCase();
+            return name.includes(s) || sku.includes(s) || bc.includes(s) || hsn.includes(s);
+          }}
+          columns={[
+            {
+              id: 'name',
+              header: 'Item',
+              render: (it) => (
+                <Box>
+                  <Typography fontWeight={700}>{it.name}</Typography>
+                  {it.sku ? (
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      SKU: {it.sku}
+                    </Typography>
+                  ) : null}
+                </Box>
+              ),
+            },
+            {
+              id: 'hsn',
+              header: 'HSN',
+              width: 100,
+              render: (it) => (
+                <Typography variant="body2" fontWeight={600}>
+                  {it.hsnCode?.trim() ? it.hsnCode : '—'}
+                </Typography>
+              ),
+            },
+            {
+              id: 'qty',
+              header: 'Stock (Qty)',
+              width: 110,
+              align: 'right',
+              render: (it) => {
+                const q = Number(it.currentStock);
+                const t = Number.isFinite(q) ? q : 0;
+                return (
+                  <Typography variant="body2" fontWeight={600}>
+                    {Number.isInteger(t) ? String(t) : t.toFixed(2)}
+                  </Typography>
+                );
+              },
+            },
+            {
+              id: 'gst',
+              header: 'Tax %',
+              width: 72,
+              align: 'right',
+              render: (it) => <Typography variant="body2">{it.gstRate ?? 0}%</Typography>,
+            },
+          ]}
+          onSelect={(item) => {
+            const lid = itemPickerLineIdRef.current;
+            if (!lid) return;
+            const idx = linesRef.current.findIndex((l) => l.lineId === lid);
+            if (idx < 0) {
+              setItemPickerLineId(null);
+              return;
+            }
+            updateLine(idx, { itemId: item.id });
+            setItemPickerLineId(null);
+            window.setTimeout(() => {
+              focusRegistry.focusById(buildLineFieldId(lid, 'quantity'));
+            }, 0);
+          }}
+          onCreateNew={() => {
+            setItemPickerLineId(null);
+            setShowQuickCreateItem(true);
+          }}
+          createNewLabel="+ Create New Item"
+          emptyMessage="No items found."
+        />
       </Stack>
     </Box>
   );
@@ -958,7 +1176,6 @@ export default SalesVoucherForm;
 interface SalesLineRowProps {
   line: ItemLineState;
   index: number;
-  inventoryItems: InventoryItem[];
   godowns: Godown[];
   updateLine: (index: number, patch: Partial<ItemLineState>) => void;
   removeLine: (index: number) => void;
@@ -966,14 +1183,15 @@ interface SalesLineRowProps {
   disableRemove: boolean;
   onRequestAddLine: () => void;
   onValidationError: (message: string | null) => void;
-  onRequestQuickCreateItem: () => void;
+  requireGodown: boolean;
+  getItemDisplayName: (itemId: string) => string;
+  onOpenItemPicker: (rowIndex: number) => void;
 }
 
 const SalesLineRow = memo(
   ({
     line,
     index,
-    inventoryItems,
     godowns,
     updateLine,
     removeLine,
@@ -981,21 +1199,33 @@ const SalesLineRow = memo(
     disableRemove,
     onRequestAddLine,
     onValidationError,
-    onRequestQuickCreateItem,
+    requireGodown,
+    getItemDisplayName,
+    onOpenItemPicker,
   }: SalesLineRowProps) => {
     const baseOrder = 100 + index * 10;
 
-    const ensureValidBeforeNext = useCallback(() => {
-      if (!isLineDataValid(line)) {
-        onValidationError('Complete the current line (item, quantity, godown) before continuing.');
+    const canAdvanceRow = useCallback(
+      (l: ItemLineState) => isLineDataValid(l) && (!requireGodown || Boolean(l.godownId)),
+      [requireGodown]
+    );
+
+    const ensureAdvance = useCallback(() => {
+      if (!canAdvanceRow(line)) {
+        onValidationError(
+          requireGodown
+            ? 'Complete item, quantity, rate, and godown before continuing.'
+            : 'Complete the current line (item, quantity, rate) before continuing.'
+        );
         return false;
       }
       onValidationError(null);
       if (isLastRow) {
         onRequestAddLine();
+        return false;
       }
       return true;
-    }, [isLastRow, line, onRequestAddLine, onValidationError]);
+    }, [canAdvanceRow, isLastRow, line, onRequestAddLine, onValidationError, requireGodown]);
 
     const itemFieldRef = useFocusField<HTMLInputElement>({
       screenId: SCREEN_ID,
@@ -1011,6 +1241,8 @@ const SalesLineRow = memo(
       order: baseOrder + 2,
       row: index,
       col: 2,
+      id: buildLineFieldId(line.lineId, 'quantity'),
+      onBeforeNext: ensureAdvance,
     });
     const rateFieldRef = useFocusField<HTMLInputElement>({
       screenId: SCREEN_ID,
@@ -1032,38 +1264,22 @@ const SalesLineRow = memo(
       order: baseOrder + 5,
       row: index,
       col: 5,
-      onBeforeNext: ensureValidBeforeNext,
+      onBeforeNext: ensureAdvance,
     });
 
     return (
       <TableRow>
         <TableCell sx={{ minWidth: 200 }}>
           <TextField
-            select
-            value={line.itemId}
-            onChange={(e) => updateLine(index, { itemId: e.target.value })}
+            value={line.itemId ? getItemDisplayName(line.itemId) : ''}
+            placeholder="Click to search items"
             fullWidth
+            size="small"
+            InputProps={{ readOnly: true }}
             inputRef={itemFieldRef}
-            SelectProps={{ displayEmpty: true }}
-          >
-            <MenuItem value="">
-              <em>Select Item</em>
-            </MenuItem>
-            <MenuItem
-              value="__ADD_NEW__"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRequestQuickCreateItem();
-              }}
-            >
-              <em>+ Add New Item</em>
-            </MenuItem>
-            {inventoryItems.map((item) => (
-              <MenuItem key={item.id} value={item.id}>
-                {item.name}
-              </MenuItem>
-            ))}
-          </TextField>
+            onClick={() => onOpenItemPicker(index)}
+            inputProps={{ 'aria-haspopup': 'dialog' as const }}
+          />
         </TableCell>
         <TableCell sx={{ minWidth: 100, width: 100 }}>
           <TextField

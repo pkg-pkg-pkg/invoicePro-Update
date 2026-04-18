@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>InvoicePro Loading</title>
+<title>PVE InvoicePro 360 — Loading</title>
 <style>
 html, body {
   width: 100%;
@@ -21,8 +21,21 @@ html, body {
   display: flex;
   align-items: stretch;
   justify-content: center;
-  background: linear-gradient(135deg, #1f4037, #99f2c8);
+  background:
+    radial-gradient(980px 460px at 78% 12%, rgba(118, 215, 255, 0.38), rgba(118, 215, 255, 0) 64%),
+    radial-gradient(920px 420px at 20% 90%, rgba(93, 232, 132, 0.34), rgba(93, 232, 132, 0) 62%),
+    linear-gradient(140deg, #063064 0%, #0c4ea1 34%, #0e6ed8 66%, #18a36f 100%);
   padding: 10px;
+  position: relative;
+}
+
+.root::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.02) 42%, rgba(0, 0, 0, 0.18) 100%);
 }
 
 .card {
@@ -32,14 +45,17 @@ html, body {
   max-height: 100%;
   box-sizing: border-box;
   padding: 0;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.97);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+  border-radius: 18px;
+  background: linear-gradient(164deg, rgba(255, 255, 255, 0.97), rgba(245, 251, 255, 0.92));
+  border: 1px solid rgba(255, 255, 255, 0.56);
+  box-shadow: 0 28px 72px rgba(3, 20, 48, 0.48);
   text-align: center;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 /* Logo uses all space above the footer strip (full frame within the card) */
@@ -50,16 +66,19 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 10px 12px 4px;
+  padding: 12px 12px 6px;
   box-sizing: border-box;
+  background:
+    radial-gradient(560px 220px at 50% 18%, rgba(110, 207, 255, 0.26), rgba(110, 207, 255, 0) 62%),
+    radial-gradient(620px 240px at 50% 100%, rgba(51, 160, 255, 0.16), rgba(51, 160, 255, 0) 66%);
 }
 
 .logo {
   display: block;
-  width: 100%;
-  height: 100%;
-  max-width: 100%;
-  max-height: 100%;
+  width: 96%;
+  height: 96%;
+  max-width: 420px;
+  max-height: 300px;
   object-fit: contain;
   object-position: center center;
   opacity: 0;
@@ -69,44 +88,48 @@ html, body {
 .bottom {
   flex: 0 0 auto;
   width: 100%;
-  padding: 6px 14px 12px;
+  padding: 8px 14px 10px;
   box-sizing: border-box;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(231, 246, 255, 0.78));
+  border-top: 1px solid rgba(19, 94, 203, 0.12);
 }
 
 .title {
-  margin: 0 0 2px;
-  font-size: 18px;
-  font-weight: 700;
-  color: #0a7f5a;
+  margin: 0 0 1px;
+  font-size: 32px;
+  font-weight: 800;
+  color: #114ea1;
+  letter-spacing: 0.2px;
+  line-height: 1.05;
   opacity: 0;
   animation: titleReveal 0.85s ease forwards;
   animation-delay: 0.9s;
 }
 
 .subtitle {
-  margin: 0 0 8px;
-  font-size: 11px;
+  margin: 0 0 7px;
+  font-size: 10px;
   line-height: 1.3;
-  color: #444;
+  color: #2c4a74;
   opacity: 0;
   animation: fadeIn 0.8s ease forwards;
   animation-delay: 1.6s;
 }
 
 .loader {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  border: 3px solid rgba(10, 127, 90, 0.25);
-  border-top-color: #0a7f5a;
+  border: 3px solid rgba(20, 97, 217, 0.24);
+  border-top-color: #16a36f;
   animation: spin 0.85s linear infinite;
   margin: 0 auto;
 }
 
 .msg {
-  margin: 6px 0 0;
-  font-size: 11px;
-  color: #555;
+  margin: 4px 0 0;
+  font-size: 10px;
+  color: #2f537f;
   opacity: 0;
   animation: fadeIn 0.8s ease forwards;
   animation-delay: 1.9s;
@@ -151,13 +174,13 @@ html, body {
       <img
         class="logo"
         src="./InvoicePro LOGO.png"
-        alt="InvoicePro"
+        alt="PVE InvoicePro 360"
         decoding="async"
       />
     </div>
     <div class="bottom">
-      <div class="title">InvoicePro</div>
-      <div class="subtitle">Professional Invoice &amp; Billing Management</div>
+      <div class="title">PVE InvoicePro 360</div>
+      <div class="subtitle">Professional GST billing</div>
       <div class="loader"></div>
       <div class="msg">Initializing…</div>
     </div>

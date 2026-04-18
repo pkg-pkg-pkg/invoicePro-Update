@@ -2,6 +2,7 @@ import { InventoryGodownStock, InventoryItem, InventoryStatus } from '../../type
 import { generateId } from '../../utils/id';
 import { itemCategoryService } from './itemCategoryService';
 import { godownService } from './godownService';
+import { assertInventoryItemCanBeDeactivated } from './masterUsageGuard';
 import { unitOfMeasureService } from './unitOfMeasureService';
 import { nowIso, readList, sanitizeString, writeList } from './storageHelpers';
 
@@ -325,6 +326,7 @@ export const inventoryItemService = {
   },
 
   async softDelete(id: string): Promise<void> {
+    await assertInventoryItemCanBeDeactivated(id);
     const items = await readList<InventoryItem>(STORAGE_KEY);
     const index = items.findIndex((item) => item.id === id);
     if (index < 0) {
@@ -346,6 +348,9 @@ export const inventoryItemService = {
 
   async bulkSoftDelete(ids: string[]): Promise<number> {
     if (!ids.length) return 0;
+    for (const rawId of ids) {
+      await assertInventoryItemCanBeDeactivated(String(rawId));
+    }
     const idSet = new Set(ids.map((id) => String(id)));
     const items = await readList<InventoryItem>(STORAGE_KEY);
     let updated = 0;

@@ -347,7 +347,7 @@ export default function ProductList(): JSX.Element {
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
-            <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+            <TableRow sx={{ backgroundColor: 'action.hover' }}>
               <TableCell padding="checkbox">
                 <Checkbox
                   checked={allChecked}

@@ -14,6 +14,7 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PaymentIcon from '@mui/icons-material/Payment';
 import { networkService } from '../services/networkService';
+import { APP_DISPLAY_NAME } from '../constants/appBranding';
 
 type Props = {
   initialServerUrl?: string;
@@ -96,7 +97,7 @@ export default function ConnectToHost({
             Connect to Host
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Multi-user mode is enabled. This computer must connect to the licensed Host server to use InvoicePro.
+            Multi-user mode is enabled. This computer must connect to the licensed Host server to use {APP_DISPLAY_NAME}.
             If you turned this on by mistake, use the options below—you are not stuck here.
           </Typography>
 

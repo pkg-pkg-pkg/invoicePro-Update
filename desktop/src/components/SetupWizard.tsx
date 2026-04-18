@@ -24,6 +24,7 @@ import {
 } from '@mui/material';
 import { Business, Person, Palette, Backup, Restore, CheckCircle } from '@mui/icons-material';
 import { restoreCompanyDetailsFromCloud, saveCompanyDetailsToCloud, archiveCompanyDetails } from '../services/companyDetailsCloudService';
+import { APP_DISPLAY_NAME, APP_TAGLINE } from '../constants/appBranding';
 
 interface CompanyData {
   name: string;
@@ -241,10 +242,10 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ open, onComplete, onRestoreBa
   const renderWelcomeStep = () => (
     <Box sx={{ textAlign: 'center', py: 4 }}>
       <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-        Welcome to InvoicePro! 🎉
+        Welcome to {APP_DISPLAY_NAME}! 🎉
       </Typography>
       <Typography variant="h6" sx={{ mb: 3, color: 'text.secondary' }}>
-        Professional GST Billing Software
+        {APP_TAGLINE}
       </Typography>
       <Typography variant="body1" sx={{ mb: 4 }}>
         Let's set up your business in just a few simple steps.
@@ -798,7 +799,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ open, onComplete, onRestoreBa
       <DialogContent sx={{ p: 0 }}>
         <Box sx={{ p: 3, pb: 1 }}>
           <Typography variant="h5" align="center" gutterBottom>
-            InvoicePro Setup Wizard
+            {APP_DISPLAY_NAME} Setup Wizard
           </Typography>
 
           {hasBackup !== null && (

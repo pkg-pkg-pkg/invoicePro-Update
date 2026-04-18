@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Box, Button, Card, CardContent, Grid, IconButton, MenuItem, Select, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography, Checkbox, FormControlLabel } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -19,6 +19,7 @@ import QuickCreateLedgerDialog from '../../../components/QuickCreateLedgerDialog
 import { decideGSTType } from '../../../services/vouchers/gstDecisionEngine';
 import { bifurcateTax } from '../../../services/vouchers/gstBifurcationEngine';
 import { normalizeStateToCode } from '../../../utils/stateMapping';
+import { rateMemory } from '../../../services/reports/rateMemory';
 
 interface ItemLineState {
   lineId: string;
@@ -137,11 +138,37 @@ const PurchaseVoucherForm = () => {
       .catch(() => setGodowns([]));
   }, []);
 
-  const updateLine = (index: number, patch: Partial<ItemLineState>) => {
-    setLines((prev) =>
-      prev.map((line, idx) => (idx === index ? { ...line, ...patch } : line))
-    );
-  };
+  const itemMap = useMemo(() => {
+    const map = new Map<string, InventoryItem>();
+    inventoryItems.forEach((item) => map.set(item.id, item));
+    return map;
+  }, [inventoryItems]);
+
+  const updateLine = useCallback(
+    (index: number, patch: Partial<ItemLineState>) => {
+      const supplierLedgerId = parties.find((p) => p.id === formState.partyId)?.ledgerId ?? '';
+      setLines((prev) =>
+        prev.map((line, idx) => {
+          if (idx !== index) return line;
+          const next = { ...line, ...patch };
+          if (patch.itemId) {
+            const selectedItem = itemMap.get(patch.itemId);
+            const mem = rateMemory.getLastPurchaseExclusive(supplierLedgerId, patch.itemId);
+            const basePur = Number(selectedItem?.pricing?.purchase ?? 0);
+            const rateEx = mem ?? (Number.isFinite(basePur) ? basePur : 0);
+            if (rateEx > 0) {
+              next.rate = String(rateEx);
+            }
+            if (selectedItem && selectedItem.gstRate != null) {
+              next.gstPercent = String(selectedItem.gstRate);
+            }
+          }
+          return next;
+        })
+      );
+    },
+    [itemMap, parties, formState.partyId]
+  );
 
   const addLine = () => setLines((prev) => [...prev, createLine(formState.defaultGodownId)]);
 
@@ -410,6 +437,15 @@ const PurchaseVoucherForm = () => {
         narration: formState.narration,
         lines: voucherLines,
       });
+      const supplierLedgerId = parties.find((p) => p.id === formState.partyId)?.ledgerId ?? '';
+      if (supplierLedgerId) {
+        for (const line of lines) {
+          const r = Number(line.rate) || 0;
+          if (line.itemId && r > 0) {
+            rateMemory.setLastPurchaseExclusive(supplierLedgerId, line.itemId, r);
+          }
+        }
+      }
       navigate('/vouchers/purchase');
     } catch (err) {
       setError((err as Error).message ?? 'Failed to create voucher');

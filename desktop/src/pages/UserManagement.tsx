@@ -54,6 +54,14 @@ import { SerializableUser } from '../store/slices/userManagementSlice';
 import { User, UserRole, DEFAULT_PERMISSIONS, UserPermissions } from '../store/slices/authSlice';
 import { useAuth } from './contexts/auth';
 
+const buildBlankPermissions = (): UserPermissions => {
+  const keys = Object.keys(DEFAULT_PERMISSIONS.viewer) as Array<keyof UserPermissions>;
+  return keys.reduce((acc, key) => {
+    acc[key] = false;
+    return acc;
+  }, {} as UserPermissions);
+};
+
 const UserManagement: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
   const { users, loading, error, selectedUser } = useSelector((state: RootState) => state.userManagement);
@@ -90,10 +98,10 @@ const UserManagement: React.FC = () => {
 
   const [permissions, setPermissions] = useState<UserPermissions>(() => {
     try {
-      return JSON.parse(JSON.stringify(DEFAULT_PERMISSIONS.viewer));
+      return JSON.parse(JSON.stringify(buildBlankPermissions()));
     } catch (error) {
       console.error('Error initializing permissions:', error);
-      return { ...DEFAULT_PERMISSIONS.viewer };
+      return buildBlankPermissions();
     }
   });
 
@@ -116,6 +124,11 @@ const UserManagement: React.FC = () => {
         confirmPassword: '',
         role: serial.role,
       });
+      try {
+        setPermissions(JSON.parse(JSON.stringify(serial.permissions)));
+      } catch {
+        setPermissions({ ...serial.permissions });
+      }
     } else if (mode === 'permissions' && user) {
       const serial = normalizeToSerializableUser(user);
       dispatch(setSelectedUser(serial));
@@ -134,7 +147,7 @@ const UserManagement: React.FC = () => {
         confirmPassword: '',
         role: 'viewer',
       });
-      setPermissions(DEFAULT_PERMISSIONS.viewer);
+      setPermissions(buildBlankPermissions());
     }
   };
 
@@ -173,6 +186,7 @@ const UserManagement: React.FC = () => {
         fullName: formData.fullName,
         password: formData.password,
         role: formData.role,
+        permissions,
       }));
 
       if (createUser.fulfilled.match(action)) {
@@ -186,6 +200,7 @@ const UserManagement: React.FC = () => {
           email: formData.email,
           fullName: formData.fullName,
           role: formData.role,
+          permissions,
         },
       }));
 
@@ -238,7 +253,6 @@ const UserManagement: React.FC = () => {
 
   const handleRoleChange = (newRole: UserRole) => {
     setFormData(prev => ({ ...prev, role: newRole }));
-    setPermissions(DEFAULT_PERMISSIONS[newRole]);
   };
 
   const getRoleColor = (role: UserRole) => {
@@ -501,6 +515,39 @@ const UserManagement: React.FC = () => {
                   </Grid>
                 </>
               )}
+              <Grid item xs={12}>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                  Access controls (admin-selected)
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                  Role is only a label; enable exactly what this user can access.
+                </Typography>
+                <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} sx={{ mb: 2 }}>
+                  {permissionCategories.map((category, idx) => (
+                    <Tab key={idx} label={category.title} />
+                  ))}
+                </Tabs>
+                <Grid container spacing={1}>
+                  {permissionCategories[activeTab]?.permissions.map((permission) => (
+                    <Grid item xs={12} sm={6} key={permission}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={Boolean(permissions[permission as keyof UserPermissions])}
+                            onChange={(e) => {
+                              setPermissions((prev) => ({
+                                ...prev,
+                                [permission]: e.target.checked,
+                              }));
+                            }}
+                          />
+                        }
+                        label={permission.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
+                      />
+                    </Grid>
+                  ))}
+                </Grid>
+              </Grid>
             </Grid>
           )}
 

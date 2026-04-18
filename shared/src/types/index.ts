@@ -313,6 +313,7 @@ export interface Payment {
   referenceNumber?: string;
   chequeNumber?: string;
   chequeDate?: Date;
+  chequeDrawnOnBank?: string;
   bankId?: string;
   bank?: BankAccount;
   invoiceId?: string;

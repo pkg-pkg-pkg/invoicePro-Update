@@ -181,7 +181,7 @@ export async function sendPasswordResetEmail(email: string, tempPassword: string
     // TODO: Integrate with actual email service
     // For now, return true and show password in UI
     console.log('📝 Email content would be:');
-    console.log(`Subject: Password Reset - InvoicePro`);
+    console.log(`Subject: Password Reset - PVE InvoicePro 360`);
     console.log(`Body: Your temporary password is: ${tempPassword}`);
     
     return true;

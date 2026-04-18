@@ -40,9 +40,22 @@ interface PartyCardsProps {
   parties?: Party[];
   onChange: (patch: { billing?: Partial<PartyInfo>; shipping?: Partial<PartyInfo> }) => void;
   onQuickCreateCustomer?: () => void;
+  /** `picker` opens a Tally-style search modal from the parent instead of a long dropdown. */
+  billingCustomerSelector?: 'menu' | 'picker';
+  onOpenBillingCustomerPicker?: () => void;
 }
 
-const PartyCards: FC<PartyCardsProps> = ({ mode, billing, shipping, ledgers, parties, onChange, onQuickCreateCustomer }) => {
+const PartyCards: FC<PartyCardsProps> = ({
+  mode,
+  billing,
+  shipping,
+  ledgers,
+  parties,
+  onChange,
+  onQuickCreateCustomer,
+  billingCustomerSelector = 'menu',
+  onOpenBillingCustomerPicker,
+}) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
@@ -81,62 +94,89 @@ const PartyCards: FC<PartyCardsProps> = ({ mode, billing, shipping, ledgers, par
     onChange({ [partyType]: patch });
   }, [onChange]);
 
-  const renderSelect = (party: PartyInfo, key: 'billing' | 'shipping', label: string) => (
-    <Stack spacing={1}>
-      <Stack direction="row" spacing={1}>
-        <TextField
-          select
-          label={label}
-          value={party.ledgerId}
-          onChange={(e) => {
-            const selectedLedgerId = e.target.value;
-            
-            // Find the selected party from parties array using ledgerId
-            const selectedParty = parties?.find(p => p.ledgerId === selectedLedgerId);
-            
-            if (selectedParty) {
-              // Auto-populate all party details
-              onChange({ 
-                [key]: {
-                  ledgerId: selectedLedgerId,
-                  name: selectedParty.name,
-                  gstin: selectedParty.gstin,
-                  address: selectedParty.address,
-                  phone: selectedParty.mobile,
-                  email: selectedParty.email,
-                  city: selectedParty.city,
-                  state: selectedParty.state,
-                  pin: selectedParty.pincode,
-                }
-              });
-            } else {
-              // Fallback to just ledgerId if party not found
-              onChange({ [key]: { ledgerId: selectedLedgerId } });
-            }
-          }}
-          fullWidth
-        >
-          <MenuItem value="">
-            <em>Select</em>
-          </MenuItem>
-          {availableOptions.map((option) => (
-            <MenuItem key={option.id} value={option.id}>
-              {option.name}
-            </MenuItem>
-          ))}
-        </TextField>
-        {key === 'billing' && (
-          <Button
-            variant="outlined"
-            onClick={onQuickCreateCustomer}
-            sx={{ minWidth: 100 }}
+  const renderSelect = (party: PartyInfo, key: 'billing' | 'shipping', label: string) => {
+    const usePicker = key === 'billing' && billingCustomerSelector === 'picker';
+
+    if (usePicker) {
+      const display =
+        party.name ||
+        (party.ledgerId ? availableOptions.find((o) => o.id === party.ledgerId)?.name : '') ||
+        '';
+      return (
+        <Stack spacing={1}>
+          <Stack direction="row" spacing={1}>
+            <TextField
+              label={label}
+              value={display}
+              placeholder="Click to search customers (Tab does not reopen picker)"
+              fullWidth
+              InputProps={{ readOnly: true }}
+              onClick={() => onOpenBillingCustomerPicker?.()}
+              inputProps={{ 'aria-haspopup': 'dialog' as const }}
+            />
+            {key === 'billing' && (
+              <Button variant="outlined" onClick={onQuickCreateCustomer} sx={{ minWidth: 100 }}>
+                + New
+              </Button>
+            )}
+          </Stack>
+        </Stack>
+      );
+    }
+
+    return (
+      <Stack spacing={1}>
+        <Stack direction="row" spacing={1}>
+          <TextField
+            select
+            label={label}
+            value={party.ledgerId}
+            onChange={(e) => {
+              const selectedLedgerId = e.target.value;
+
+              // Find the selected party from parties array using ledgerId
+              const selectedParty = parties?.find((p) => p.ledgerId === selectedLedgerId);
+
+              if (selectedParty) {
+                // Auto-populate all party details
+                onChange({
+                  [key]: {
+                    ledgerId: selectedLedgerId,
+                    name: selectedParty.name,
+                    gstin: selectedParty.gstin,
+                    address: selectedParty.address,
+                    phone: selectedParty.mobile,
+                    email: selectedParty.email,
+                    city: selectedParty.city,
+                    state: selectedParty.state,
+                    pin: selectedParty.pincode,
+                  },
+                });
+              } else {
+                // Fallback to just ledgerId if party not found
+                onChange({ [key]: { ledgerId: selectedLedgerId } });
+              }
+            }}
+            fullWidth
           >
-            + New
-          </Button>
-        )}
+            <MenuItem value="">
+              <em>Select</em>
+            </MenuItem>
+            {availableOptions.map((option) => (
+              <MenuItem key={option.id} value={option.id}>
+                {option.name}
+              </MenuItem>
+            ))}
+          </TextField>
+          {key === 'billing' && (
+            <Button variant="outlined" onClick={onQuickCreateCustomer} sx={{ minWidth: 100 }}>
+              + New
+            </Button>
+          )}
+        </Stack>
       </Stack>
-    </Stack>
-  );
+    );
+  };
 
   const renderDisplay = (title: string, party: PartyInfo) => (
     <Box>

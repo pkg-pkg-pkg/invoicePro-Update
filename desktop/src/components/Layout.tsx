@@ -55,6 +55,7 @@ import LocalOfferIcon from "@mui/icons-material/LocalOffer";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import FeedbackIcon from "@mui/icons-material/Feedback";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 
 import { useAuth } from "../pages/contexts/auth";
 import { useNavigationCustomization } from "../hooks/useNavigationCustomization";
@@ -68,31 +69,17 @@ import ElectronTitleBar, {
   ELECTRON_TITLEBAR_HEIGHT_PX,
   electronUsesFramelessChrome,
 } from "./ElectronTitleBar";
+import AppTopBar from "./AppTopBar";
 import { appBarGradient, appBarForeground, appBarMutedForeground } from "../theme/shellChrome";
+import { navIconGradientForKey } from "../theme/navIconGradients";
+import { APP_DISPLAY_NAME } from "@/constants/appBranding";
 
 const drawerWidth = 240;
 
-const getNavIconGradient = (key: string) => {
-  const k = key.toLowerCase();
-  if (k.includes('dashboard')) return 'linear-gradient(135deg, #3b82f6 0%, #7c3aed 100%)';
-  if (k.includes('products') || k.includes('inventory')) return 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)';
-  if (k.includes('parties') || k.includes('customers') || k.includes('suppliers') || k.includes('people'))
-    return 'linear-gradient(135deg, #f97316 0%, #f43f5e 100%)';
-  if (k.includes('transactions') || k.includes('invoices') || k.includes('receipt'))
-    return 'linear-gradient(135deg, #a855f7 0%, #ec4899 100%)';
-  if (k.includes('payments') || k.includes('payment')) return 'linear-gradient(135deg, #14b8a6 0%, #0ea5e9 100%)';
-  if (k.includes('accounts') || k.includes('account')) return 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)';
-  if (k.includes('expenses')) return 'linear-gradient(135deg, #ef4444 0%, #f97316 100%)';
-  if (k.includes('gst')) return 'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)';
-  if (k.includes('schemes')) return 'linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%)';
-  if (k.includes('reports') || k.includes('assessment')) return 'linear-gradient(135deg, #06b6d4 0%, #22c55e 100%)';
-  if (k.includes('settings')) return 'linear-gradient(135deg, #64748b 0%, #334155 100%)';
-  return 'linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%)';
-};
-
-const getNavIconBadgeSx = (options: { gradient: string; selected: boolean; size?: number }) => {
+const getNavIconBadgeSx = (options: { gradient: string; selected: boolean; size?: number; lightMode?: boolean }) => {
   const size = options.size ?? 34;
   const iconSize = Math.max(16, Math.round(size * 0.58));
+  const lightMode = Boolean(options.lightMode);
 
   return {
     width: size,
@@ -101,38 +88,40 @@ const getNavIconBadgeSx = (options: { gradient: string; selected: boolean; size?
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: Math.max(8, Math.round(size * 0.28)),
-    background: options.gradient,
-    border: '1px solid rgba(255,255,255,0.38)',
+    background: lightMode ? (options.selected ? 'var(--sidebar-active-bg)' : 'transparent') : options.gradient,
+    border: lightMode ? '1px solid var(--border)' : '1px solid var(--nav-badge-border-dark)',
     position: 'relative',
     overflow: 'hidden',
-    transform: options.selected ? 'translateY(-1px)' : 'translateY(0px)',
-    boxShadow: options.selected
-      ? '0 10px 18px rgba(0,0,0,0.28)'
-      : '0 8px 14px rgba(0,0,0,0.18)',
-    transition: 'transform 150ms ease, box-shadow 150ms ease, filter 150ms ease',
-    '&::before': {
+    transform: options.selected && !lightMode ? 'translateY(-1px)' : 'translateY(0px)',
+    boxShadow: lightMode
+      ? 'none'
+      : options.selected
+        ? 'var(--nav-badge-shadow-active)'
+        : 'var(--nav-badge-shadow)',
+    transition: 'background-color 0.2s ease, transform 150ms ease, box-shadow 150ms ease, filter 150ms ease',
+    '&::before': lightMode ? { display: 'none' } : {
       content: '""',
       position: 'absolute',
       top: 0,
       left: 0,
       right: 0,
       height: '48%',
-      background: 'linear-gradient(180deg, rgba(255,255,255,0.40), rgba(255,255,255,0.00))',
+      background: 'var(--nav-badge-overlay)',
       zIndex: 0,
     },
-    '&::after': {
+    '&::after': lightMode ? { display: 'none' } : {
       content: '""',
       position: 'absolute',
       inset: 0,
-      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.55), inset 0 -4px 10px rgba(0,0,0,0.28)',
+      boxShadow: 'var(--nav-badge-inset)',
       zIndex: 0,
     },
     '& svg': {
       position: 'relative',
       zIndex: 1,
-      color: '#fff',
+      color: options.selected ? 'var(--sidebar-icon-active)' : 'var(--sidebar-icon)',
       fontSize: iconSize,
-      filter: 'drop-shadow(0 2px 2px rgba(0,0,0,0.35))',
+      filter: lightMode ? 'none' : 'var(--nav-badge-filter)',
     },
   } as const;
 };
@@ -153,6 +142,7 @@ const iconMap: Record<string, React.ComponentType<any>> = {
   Settings: SettingsIcon,
   Undo: UndoIcon,
   Redo: RedoIcon,
+  CloudUpload: CloudUploadIcon,
 };
 
 const getNavIconComponent = (idOrKey: string | undefined, fallbackIconKey: string | undefined) => {
@@ -189,6 +179,7 @@ const getNavIconComponent = (idOrKey: string | undefined, fallbackIconKey: strin
     schemes: LocalOfferIcon,
     reports: BarChartIcon,
     settings: SettingsIcon,
+    'import-from-erp': CloudUploadIcon,
   };
 
   const fromId = byId[id];
@@ -200,9 +191,9 @@ const getNavIconComponent = (idOrKey: string | undefined, fallbackIconKey: strin
 const getPageTitle = (pathname: string): { title: string; showBackButton: boolean } => {
   const routeMap: Record<string, { title: string; showBackButton: boolean }> = {
     '/dashboard': { title: 'Dashboard', showBackButton: false },
-    '/products': { title: 'Products', showBackButton: false },
-    '/products/new': { title: 'New Product', showBackButton: true },
-    '/products/edit': { title: 'Edit Product', showBackButton: true },
+    '/products': { title: 'Inventory Items', showBackButton: false },
+    '/products/new': { title: 'Add Inventory Item', showBackButton: true },
+    '/products/edit': { title: 'Edit Inventory Item', showBackButton: true },
     '/parties': { title: 'Party Master', showBackButton: false },
     '/parties/new': { title: 'New Party', showBackButton: true },
     '/parties/edit': { title: 'Edit Party', showBackButton: true },
@@ -217,9 +208,11 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
     '/expenses': { title: 'Expenses', showBackButton: false },
     '/expenses/new': { title: 'New Expense', showBackButton: true },
     '/expenses/edit': { title: 'Edit Expense', showBackButton: true },
+    '/vouchers': { title: 'Vouchers', showBackButton: false },
+    '/vouchers/money': { title: 'Payment & Receipt', showBackButton: false },
     '/vouchers/sales': { title: 'Sales Vouchers', showBackButton: false },
     '/vouchers/sales/new': { title: 'New Sales Voucher', showBackButton: true },
-    '/vouchers/sales/new-staged': { title: 'Guided Sales Invoice', showBackButton: true },
+    '/vouchers/sales/new-staged': { title: 'New Sales Voucher', showBackButton: true },
     '/vouchers/sales/edit': { title: 'Edit Sales Voucher', showBackButton: true },
     '/vouchers/sales-return': { title: 'Sales Return Vouchers', showBackButton: false },
     '/vouchers/sales-return/new': { title: 'New Sales Return', showBackButton: true },
@@ -262,6 +255,7 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
     '/masters/ledger-accounts': { title: 'Ledger Accounts', showBackButton: false },
     '/masters/ledger-accounts/new': { title: 'New Ledger Account', showBackButton: true },
     '/masters/ledger-accounts/edit': { title: 'Edit Ledger Account', showBackButton: true },
+    '/import/erp': { title: 'Upload from Tally/Busy/Marg', showBackButton: false },
   };
 
   const isNewOrEdit = pathname.includes('/new') || pathname.includes('/edit');
@@ -269,6 +263,10 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
   // Find exact match first
   if (routeMap[pathname]) {
     return routeMap[pathname];
+  }
+
+  if (pathname.startsWith('/parties/party-ledger/')) {
+    return { title: 'Party Ledger', showBackButton: true };
   }
 
   // Check for pattern matches (for edit routes with IDs)
@@ -319,10 +317,10 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
     return { title: 'Ledger Accounts', showBackButton: isNewOrEdit };
   }
   if (pathname.startsWith('/products')) {
-    return { title: 'Products', showBackButton: isNewOrEdit };
+    return { title: 'Inventory Items', showBackButton: isNewOrEdit };
   }
 
-  return { title: 'InvoicePro', showBackButton: false };
+  return { title: APP_DISPLAY_NAME, showBackButton: false };
 };
 
 function readCompanyOwnerName(): string {
@@ -531,9 +529,15 @@ const Layout: React.FC = () => {
       return hasMenuPermission(String(item?.id ?? '')) && isFeatureEnabled(String(item?.id ?? ''));
     });
 
-  const handleBackNavigation = () => {
-    const path = String(location.pathname ?? '');
+  const handleBackNavigation = useCallback(() => {
+    const raw = String(location.pathname ?? '');
+    const path = raw.replace(/\/+$/, '') || '/';
+
     if (path.startsWith('/customers/ledger') || path.startsWith('/suppliers/ledger')) {
+      navigate('/parties/ledger-report');
+      return;
+    }
+    if (path.startsWith('/parties/party-ledger')) {
       navigate('/parties/ledger-report');
       return;
     }
@@ -545,8 +549,105 @@ const Layout: React.FC = () => {
       navigate('/vouchers/purchase');
       return;
     }
-    navigate(-1);
-  };
+    if (path.startsWith('/vouchers/sales-return')) {
+      navigate('/vouchers/sales-return');
+      return;
+    }
+    if (path.startsWith('/vouchers/purchase-return')) {
+      navigate('/vouchers/purchase-return');
+      return;
+    }
+    if (path.startsWith('/vouchers/payment-vouchers')) {
+      navigate('/vouchers/payment-vouchers');
+      return;
+    }
+    if (path.startsWith('/vouchers/receipt-vouchers')) {
+      navigate('/vouchers/receipt-vouchers');
+      return;
+    }
+    if (path.startsWith('/vouchers/journal')) {
+      navigate('/vouchers/journal');
+      return;
+    }
+
+    const mastersNew = path.match(/^\/masters\/([^/]+)\/new$/);
+    if (mastersNew) {
+      navigate(`/masters/${mastersNew[1]}`);
+      return;
+    }
+    const mastersEdit = path.match(/^\/masters\/([^/]+)\/[^/]+\/edit$/);
+    if (mastersEdit) {
+      navigate(`/masters/${mastersEdit[1]}`);
+      return;
+    }
+
+    if (path === '/parties/new') {
+      navigate('/parties');
+      return;
+    }
+    const partyEdit = path.match(/^\/parties\/([^/]+)$/);
+    if (partyEdit && partyEdit[1] !== 'ledger-report' && partyEdit[1] !== 'new') {
+      navigate('/parties');
+      return;
+    }
+
+    if (
+      path === '/schemes/new' ||
+      path === '/schemes/retailer-dashboard' ||
+      path === '/schemes/overdue-tracker' ||
+      /^\/schemes\/[^/]+\/edit$/.test(path)
+    ) {
+      navigate('/schemes');
+      return;
+    }
+
+    if (path === '/payments/new' || /^\/payments\/edit\/[^/]+$/.test(path) || path === '/payments/reports') {
+      navigate('/payments');
+      return;
+    }
+
+    if (path === '/gst/gstr1' || path === '/gst/gstr2' || path === '/gst/gstr3b' || path === '/gst/gstr9' || path === '/gst/hsn-summary') {
+      navigate('/gst');
+      return;
+    }
+
+    if (path === '/expenses/heads/new' || /^\/expenses\/heads\/edit\/[^/]+$/.test(path)) {
+      navigate('/expenses');
+      return;
+    }
+
+    navigate('/dashboard');
+  }, [navigate, location.pathname]);
+
+  /** Escape = same as header back (when no modal/menu is eating the key). */
+  useEffect(() => {
+    const isOpenBlockingDialog = () => {
+      for (const node of document.querySelectorAll('[role="dialog"]')) {
+        const el = node as HTMLElement;
+        if (el.getAttribute('aria-hidden') === 'true') continue;
+        const modal = el.closest('.MuiModal-root');
+        if (modal?.classList.contains('MuiModal-open')) return true;
+      }
+      return false;
+    };
+
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const path = String(location.pathname ?? '').replace(/\/+$/, '') || '/';
+      if (path === '/dashboard' || path === '/') return;
+
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.('[role="dialog"]')) return;
+      if (el?.closest?.('[data-tally-picker-modal]')) return;
+      if (el?.closest?.('.MuiPopover-root, .MuiMenu-root, .MuiAutocomplete-popper, [role="listbox"]')) return;
+      if (isOpenBlockingDialog()) return;
+
+      e.preventDefault();
+      handleBackNavigation();
+    };
+    window.addEventListener('keydown', onEscape);
+    return () => window.removeEventListener('keydown', onEscape);
+  }, [location.pathname, handleBackNavigation]);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -600,23 +701,6 @@ const Layout: React.FC = () => {
     setExpandedGroups(newExpanded);
   };
 
-  const getCompanyName = () =>
-    localStorage.getItem('companyName')?.trim() || 'GST Billing Software';
-  const [companyName, setCompanyName] = useState<string>(getCompanyName());
-
-  const getCompanyLogo = () => {
-    const direct = localStorage.getItem('companyLogo')?.trim();
-    if (direct) return direct;
-    try {
-      const raw = localStorage.getItem('company-info');
-      if (!raw) return '';
-      const parsed = JSON.parse(raw);
-      return String(parsed?.logo ?? '').trim();
-    } catch {
-      return '';
-    }
-  };
-  const [companyLogo, setCompanyLogo] = useState<string>(getCompanyLogo());
   const [headerSearch, setHeaderSearch] = useState('');
 
   const headerDateLine = useMemo(
@@ -630,25 +714,6 @@ const Layout: React.FC = () => {
     []
   );
 
-  useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === 'companyName') setCompanyName(getCompanyName());
-      if (e.key === 'companyLogo' || e.key === 'company-info') setCompanyLogo(getCompanyLogo());
-    };
-    const onCustom = () => {
-      setCompanyName(getCompanyName());
-      setCompanyLogo(getCompanyLogo());
-    };
-    window.addEventListener('storage', onStorage);
-    window.addEventListener('companyProfileUpdated', onCustom as any);
-    window.addEventListener('companyNameUpdated', onCustom as any); // Keep for backward compatibility
-    return () => {
-      window.removeEventListener('storage', onStorage);
-      window.removeEventListener('companyProfileUpdated', onCustom as any);
-      window.removeEventListener('companyNameUpdated', onCustom as any);
-    };
-  }, []);
-
   const handleLogout = () => {
     // AuthContext se logout
     logout();
@@ -661,11 +726,17 @@ const Layout: React.FC = () => {
   const navItemSelectedSx = useMemo(
     () => ({
       "&.Mui-selected": {
-        bgcolor: theme.palette.mode === "dark" ? alpha(theme.palette.primary.main, 0.22) : "#ffffff",
-        boxShadow: theme.palette.mode === "dark" ? "none" : "0 1px 3px 0 rgb(0 0 0 / 0.1)",
+        bgcolor: 'var(--sidebar-active-bg)',
+        color: 'var(--text-primary)',
+        borderLeft: '3px solid var(--sidebar-icon-active)',
+        boxShadow: 'none',
+        '& .MuiListItemText-primary': { color: 'var(--text-primary)' },
         "&:hover": {
-          bgcolor: theme.palette.mode === "dark" ? alpha(theme.palette.primary.main, 0.3) : "#f1f5f9",
+          bgcolor: 'var(--sidebar-active-hover)',
         },
+      },
+      "&:hover": {
+        bgcolor: 'var(--sidebar-hover)',
       },
     }),
     [theme]
@@ -677,12 +748,31 @@ const Layout: React.FC = () => {
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        bgcolor: "background.sidebar",
+        background: theme.palette.mode === 'light'
+          ? 'var(--bg-sidebar)'
+          : 'linear-gradient(180deg, #020617 0%, var(--bg-sidebar) 100%)',
+        color: 'var(--text-secondary)',
         borderRight: { sm: "1px solid" },
-        borderColor: "divider",
+        borderColor: 'var(--border)',
       }}
     >
-      <Box sx={{ flex: '1 1 auto', overflowY: 'auto', px: 2, pb: 2, pt: 2 }}>
+      <Box
+        sx={{
+          flex: '1 1 auto',
+          overflowY: 'auto',
+          px: 2,
+          pb: 2,
+          pt: 2,
+          /* Keep sidebar scroll functional but hide the scrollbar in real UI */
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
+          '&::-webkit-scrollbar': {
+            width: 0,
+            height: 0,
+            display: 'none',
+          },
+        }}
+      >
         <List sx={{ gap: 0.5, display: 'flex', flexDirection: 'column' }}>
         {filteredMenuItems
           .filter((item) => {
@@ -720,7 +810,10 @@ const Layout: React.FC = () => {
               const isGroupSelected = item.items.some(
                 (sub: { path: string; }) => location.pathname === sub.path || location.pathname.startsWith(sub.path + '/')
               );
-              const groupGradient = getNavIconGradient(String(item.id ?? item.icon ?? ''));
+              const groupGradient = navIconGradientForKey(
+                String(item.id ?? item.icon ?? ''),
+                theme.palette.primary.main
+              );
 
               return (
                 <React.Fragment key={item.id}>
@@ -735,13 +828,17 @@ const Layout: React.FC = () => {
                       <ListItemIcon sx={{ minWidth: 48 }}>
                         <Box
                           sx={{
-                            ...getNavIconBadgeSx({ gradient: groupGradient, selected: isGroupSelected }),
+                            ...getNavIconBadgeSx({
+                              gradient: groupGradient,
+                              selected: isGroupSelected,
+                              lightMode: theme.palette.mode === 'light',
+                            }),
                             ...(isExpanded
                               ? { filter: 'saturate(1.15) brightness(1.05)' }
                               : undefined),
                             '.MuiListItemButton-root:hover &': {
                               transform: 'translateY(-2px)',
-                              boxShadow: '0 12px 18px rgba(0,0,0,0.26)',
+                              boxShadow: 'var(--nav-hover-shadow)',
                             },
                           }}
                         >
@@ -752,7 +849,10 @@ const Layout: React.FC = () => {
                         primary={item.text} 
                         primaryTypographyProps={{ 
                           fontWeight: isGroupSelected ? 700 : 600,
-                          fontSize: '0.9rem' 
+                          fontSize: '0.9rem',
+                          color: isGroupSelected
+                            ? 'var(--text-primary)'
+                            : 'var(--text-secondary)',
                         }} 
                       />
                       {isExpanded ? <ExpandLessIcon sx={{ fontSize: '1.2rem', opacity: 0.5 }} /> : <ExpandMoreIcon sx={{ fontSize: '1.2rem', opacity: 0.5 }} />}
@@ -765,7 +865,10 @@ const Layout: React.FC = () => {
                         const isSubSelected =
                           location.pathname === subItem.path ||
                           location.pathname.startsWith(subItem.path + '/');
-                        const subGradient = getNavIconGradient(String(subItem.id ?? subItem.icon ?? ''));
+                        const subGradient = navIconGradientForKey(
+                          String(subItem.id ?? subItem.icon ?? ''),
+                          theme.palette.primary.main
+                        );
                         return (
                           <ListItem key={subItem.id} disablePadding sx={{ mb: 0.5 }}>
                             <ListItemButton
@@ -784,6 +887,7 @@ const Layout: React.FC = () => {
                                       gradient: subGradient,
                                       selected: isSubSelected,
                                       size: 28,
+                                      lightMode: theme.palette.mode === 'light',
                                     }),
                                   }}
                                 >
@@ -794,7 +898,10 @@ const Layout: React.FC = () => {
                                 primary={subItem.text} 
                                 primaryTypographyProps={{ 
                                   fontWeight: isSubSelected ? 700 : 500,
-                                  fontSize: '0.85rem' 
+                                  fontSize: '0.85rem',
+                                  color: isSubSelected
+                                    ? 'var(--text-primary)'
+                                    : 'var(--text-secondary)',
                                 }} 
                               />
                             </ListItemButton>
@@ -809,7 +916,7 @@ const Layout: React.FC = () => {
               // It's a MenuItem
           const IconComponent = getNavIconComponent(item.id, item.icon);
           const isSelected = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
-          const gradient = getNavIconGradient(item.id || item.icon);
+          const gradient = navIconGradientForKey(item.id || item.icon, theme.palette.primary.main);
           return (
             <ListItem key={item.id} disablePadding sx={{ mb: 0.5 }}>
               <ListItemButton
@@ -823,10 +930,14 @@ const Layout: React.FC = () => {
                 <ListItemIcon sx={{ minWidth: 48 }}>
                   <Box
                     sx={{
-                      ...getNavIconBadgeSx({ gradient, selected: isSelected }),
+                      ...getNavIconBadgeSx({
+                        gradient,
+                        selected: isSelected,
+                        lightMode: theme.palette.mode === 'light',
+                      }),
                       '.MuiListItemButton-root:hover &': {
                         transform: 'translateY(-2px)',
-                        boxShadow: '0 12px 18px rgba(0,0,0,0.26)',
+                        boxShadow: 'var(--nav-hover-shadow)',
                       },
                     }}
                   >
@@ -837,7 +948,10 @@ const Layout: React.FC = () => {
                   primary={item.text} 
                   primaryTypographyProps={{ 
                     fontWeight: isSelected ? 700 : 600,
-                    fontSize: '0.9rem' 
+                    fontSize: '0.9rem',
+                    color: isSelected
+                      ? 'var(--text-primary)'
+                      : 'var(--text-secondary)',
                   }} 
                 />
               </ListItemButton>
@@ -850,13 +964,48 @@ const Layout: React.FC = () => {
     </Box>
   );
 
+  const shouldShowHeaderSearch = !showBackButton;
+
   const submitHeaderSearch = () => {
     const q = headerSearch.trim();
-    navigate(
-      q
-        ? `/masters/inventory-items?q=${encodeURIComponent(q)}`
-        : '/masters/inventory-items'
-    );
+    if (!q) {
+      navigate('/dashboard');
+      return;
+    }
+    const s = q.toLowerCase();
+    if (s.includes('invoice') || s.includes('sale') || s.includes('billing')) {
+      navigate('/vouchers');
+      return;
+    }
+    if (s.includes('purchase') || s.includes('buy')) {
+      navigate('/purchase-invoices');
+      return;
+    }
+    if (s.includes('payment') || s.includes('receipt') || s.includes('collect')) {
+      navigate('/payments');
+      return;
+    }
+    if (s.includes('customer') || s.includes('supplier') || s.includes('party')) {
+      navigate('/parties');
+      return;
+    }
+    if (s.includes('product') || s.includes('item') || s.includes('inventory') || s.includes('stock')) {
+      navigate(`/masters/inventory-items?q=${encodeURIComponent(q)}`);
+      return;
+    }
+    if (s.includes('expense') || s.includes('spend')) {
+      navigate('/expenses');
+      return;
+    }
+    if (s.includes('account') || s.includes('ledger') || s.includes('bank') || s.includes('cash')) {
+      navigate('/accounts');
+      return;
+    }
+    if (s.includes('gst') || s.includes('report')) {
+      navigate('/reports');
+      return;
+    }
+    navigate(`/masters/inventory-items?q=${encodeURIComponent(q)}`);
   };
 
   const titleBarOffset = electronUsesFramelessChrome() ? ELECTRON_TITLEBAR_HEIGHT_PX : 0;
@@ -895,10 +1044,11 @@ const Layout: React.FC = () => {
           ml: 0,
           zIndex: t.zIndex.drawer + 1,
           background: appBarGradient(t),
-          borderBottom: `1px solid ${t.palette.mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'}`,
+          borderBottom: '1px solid var(--border)',
           borderRadius: 0,
-          boxShadow: t.palette.mode === 'dark' ? '0 4px 20px rgba(0,0,0,0.22)' : '0 2px 12px rgba(0,0,0,0.08)',
+          boxShadow: t.palette.mode === 'dark' ? 'var(--header-shadow-dark)' : 'var(--header-shadow)',
           color: appBarForeground(t),
+          transition: 'background-color 0.2s ease',
         })}
       >
         <Toolbar
@@ -911,219 +1061,180 @@ const Layout: React.FC = () => {
             color: appBarForeground(theme),
           }}
         >
-          <Box
-            sx={{
-              display: { xs: 'none', sm: 'flex' },
-              width: drawerWidth,
-              flexShrink: 0,
-              alignItems: 'center',
-              gap: 1.5,
-              px: 2,
-              boxSizing: 'border-box',
-              borderRight: (t) =>
-                `1px solid ${t.palette.mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)'}`,
-              alignSelf: 'stretch',
-              minHeight: { sm: 64 },
-            }}
-          >
-            {companyLogo ? (
+          <AppTopBar
+            left={
+              <>
+                <IconButton
+                  color="inherit"
+                  aria-label="open drawer"
+                  edge="start"
+                  onClick={handleDrawerToggle}
+                  sx={{ display: { sm: 'none' }, color: 'inherit' }}
+                >
+                  <MenuIcon />
+                </IconButton>
+                {showBackButton && (
+                  <IconButton
+                    color="inherit"
+                    onClick={handleBackNavigation}
+                    sx={{ color: 'inherit' }}
+                    title="Go Back"
+                  >
+                    <ArrowBackIcon />
+                  </IconButton>
+                )}
+                <Box sx={{ minWidth: 0, pl: { xs: 0, sm: 0.5 } }}>
+                  <Typography
+                    variant="h6"
+                    noWrap
+                    component="div"
+                    sx={{
+                      fontWeight: 700,
+                      letterSpacing: '-0.02em',
+                      color: 'inherit',
+                      fontSize: { xs: '1rem', sm: '1.1rem' },
+                      lineHeight: 1.2,
+                    }}
+                    title={`${APP_DISPLAY_NAME} — ${pageTitle}`}
+                  >
+                    {pageTitle}
+                  </Typography>
+                  <Typography
+                    variant="caption"
+                    noWrap
+                    sx={{
+                      display: { xs: 'none', sm: 'block' },
+                      color: 'var(--brand-accent)',
+                      fontSize: '0.72rem',
+                      mt: 0.25,
+                    }}
+                    title={`${headerDateLine}`}
+                  >
+                    {headerDateLine}
+                  </Typography>
+                </Box>
+              </>
+            }
+            center={
+              shouldShowHeaderSearch ? (
+                <TextField
+                  size="small"
+                  placeholder="Search items, invoices, purchases, customers…"
+                  value={headerSearch}
+                  onChange={(e) => setHeaderSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      submitHeaderSearch();
+                    }
+                  }}
+                  inputProps={{
+                    'aria-label': 'Search inventory by name, SKU, or barcode',
+                    title: 'Search by name, SKU, or barcode. Press Enter.',
+                  }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon sx={{ color: appBarMutedForeground(theme), fontSize: 20 }} />
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={{
+                    width: '100%',
+                    maxWidth: { xs: '100%', sm: 480, md: 560 },
+                    '& .MuiOutlinedInput-root': {
+                      height: 40,
+                      bgcolor: theme.palette.mode === 'light' ? 'var(--search-bg)' : 'var(--search-bg)',
+                      borderRadius: 2,
+                      color: 'inherit',
+                      fontSize: '0.8125rem',
+                      transition: 'background-color 0.2s ease',
+                      '& fieldset': {
+                        borderColor: 'var(--search-border)',
+                      },
+                      '&:hover fieldset': {
+                        borderColor: 'var(--search-border-hover)',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: 'var(--search-border-focus)',
+                      },
+                    },
+                    '& .MuiInputBase-input::placeholder': {
+                      color: appBarMutedForeground(theme),
+                      opacity: 1,
+                    },
+                  }}
+                />
+              ) : (
+                <Box sx={{ width: '100%', maxWidth: { xs: '100%', sm: 480, md: 560 }, height: 40 }} />
+              )
+            }
+            right={
               <Box
-                component="img"
-                src={companyLogo}
-                alt=""
-                sx={{ width: 34, height: 34, objectFit: 'contain', borderRadius: 1 }}
-              />
-            ) : (
-              <Avatar
                 sx={{
-                  width: 34,
-                  height: 34,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  px: 1.25,
+                  py: 0.5,
+                  borderRadius: 999,
+                  border: (t) =>
+                    `1px solid ${t.palette.mode === 'dark' ? 'var(--user-group-border-dark)' : 'var(--border)'}`,
                   bgcolor: (t) =>
-                    t.palette.mode === 'dark' ? 'rgba(255,255,255,0.15)' : alpha(t.palette.primary.main, 0.2),
-                  fontWeight: 800,
-                  color: 'inherit',
+                    t.palette.mode === 'dark' ? 'var(--user-group-bg-dark)' : 'var(--bg-card)',
+                  transition: 'background-color 0.2s ease',
+                  '&:hover': {
+                    bgcolor: (t) =>
+                      t.palette.mode === 'dark' ? 'var(--user-group-bg-hover-dark)' : 'var(--sidebar-hover)',
+                  },
                 }}
               >
-                {companyName.charAt(0)}
-              </Avatar>
-            )}
-            <Typography
-              variant="subtitle1"
-              noWrap
-              sx={{
-                fontWeight: 800,
-                color: 'inherit',
-                fontSize: '0.95rem',
-                letterSpacing: '-0.02em',
-              }}
-              title={companyName}
-            >
-              {companyName}
-            </Typography>
-          </Box>
-
-          <IconButton
-            color="inherit"
-            aria-label="open drawer"
-            edge="start"
-            onClick={handleDrawerToggle}
-            sx={{ ml: 1, display: { sm: 'none' }, color: 'inherit' }}
-          >
-            <MenuIcon />
-          </IconButton>
-          <Box
-            sx={{
-              display: { xs: 'flex', sm: 'none' },
-              alignItems: 'center',
-              gap: 1,
-              minWidth: 0,
-              maxWidth: '42vw',
-            }}
-          >
-            {companyLogo ? (
-              <Box
-                component="img"
-                src={companyLogo}
-                alt=""
-                sx={{ width: 28, height: 28, objectFit: 'contain', flexShrink: 0, borderRadius: 0.5 }}
-              />
-            ) : (
-              <Avatar
-                sx={{
-                  width: 28,
-                  height: 28,
-                  bgcolor: (t) =>
-                    t.palette.mode === 'dark' ? 'rgba(255,255,255,0.15)' : alpha(t.palette.primary.main, 0.2),
-                  fontSize: '0.75rem',
-                  color: 'inherit',
-                }}
-              >
-                {companyName.charAt(0)}
-              </Avatar>
-            )}
-            <Typography variant="body2" noWrap fontWeight={700} color="inherit" title={companyName}>
-              {companyName}
-            </Typography>
-          </Box>
-
-          {showBackButton && (
-            <IconButton
-              color="inherit"
-              onClick={handleBackNavigation}
-              sx={{ ml: { xs: 0.5, sm: 0 }, mr: 0.5, color: 'inherit' }}
-              title="Go Back"
-            >
-              <ArrowBackIcon />
-            </IconButton>
-          )}
-
-          <Box
-            sx={{
-              minWidth: 0,
-              flex: { xs: '0 1 auto', md: '0 1 160px' },
-              maxWidth: { md: 'min(220px, 28vw)' },
-              mr: { md: 1 },
-              ml: { xs: 0.5, sm: 1.5 },
-            }}
-          >
-            <Typography
-              variant="h6"
-              noWrap
-              component="div"
-              sx={{
-                fontWeight: 700,
-                letterSpacing: '-0.02em',
-                color: 'inherit',
-                fontSize: { xs: '1rem', sm: '1.15rem' },
-                lineHeight: 1.25,
-              }}
-            >
-              {pageTitle}
-            </Typography>
-            <Typography
-              variant="caption"
-              noWrap
-              sx={{
-                display: { xs: 'none', sm: 'block' },
-                color: appBarMutedForeground(theme),
-                fontSize: '0.72rem',
-                mt: 0.25,
-              }}
-              title={headerDateLine}
-            >
-              {headerDateLine}
-            </Typography>
-          </Box>
-
-          <TextField
-            size="small"
-            placeholder="Search items…"
-            value={headerSearch}
-            onChange={(e) => setHeaderSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                submitHeaderSearch();
-              }
-            }}
-            inputProps={{
-              'aria-label': 'Search inventory by name, SKU, or barcode',
-              title: 'Search by name, SKU, or barcode. Press Enter.',
-            }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon sx={{ color: appBarMutedForeground(theme), fontSize: 20 }} />
-                </InputAdornment>
-              ),
-            }}
-            sx={{
-              flex: 1,
-              minWidth: { sm: 200, md: 260 },
-              maxWidth: { xs: 160, sm: 440, md: 560 },
-              display: { xs: 'none', sm: 'block' },
-              '& .MuiOutlinedInput-root': {
-                bgcolor: (t) =>
-                  t.palette.mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.28)',
-                borderRadius: 2,
-                color: 'inherit',
-                fontSize: '0.8125rem',
-                '& fieldset': {
-                  borderColor: (t) =>
-                    t.palette.mode === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.45)',
-                },
-                '&:hover fieldset': {
-                  borderColor: (t) =>
-                    t.palette.mode === 'dark' ? 'rgba(255,255,255,0.32)' : 'rgba(255,255,255,0.65)',
-                },
-                '&.Mui-focused fieldset': {
-                  borderColor: (t) => alpha(t.palette.primary.light, 0.9),
-                },
-              },
-              '& .MuiInputBase-input::placeholder': {
-                color: appBarMutedForeground(theme),
-                opacity: 1,
-              },
-            }}
+                <IconButton
+                  color="inherit"
+                  aria-label="Updates and notifications"
+                  title="Check for updates"
+                  onClick={(e) => setUpdateMenuAnchor(e.currentTarget)}
+                  sx={{ color: 'inherit', p: 0.75 }}
+                >
+                  <Badge
+                    color="warning"
+                    variant="dot"
+                    invisible={!updateCheck?.updateAvailable && !updateCheck?.belowMinimum}
+                    overlap="circular"
+                    anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+                  >
+                    <NotificationsOutlinedIcon sx={{ fontSize: 22 }} />
+                  </Badge>
+                </IconButton>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    maxWidth: 160,
+                    display: { xs: 'none', md: 'block' },
+                    color: 'inherit',
+                    fontWeight: 600,
+                  }}
+                  noWrap
+                  title={userFullName}
+                >
+                  {userFullName}
+                </Typography>
+                <IconButton
+                  onClick={handleMenuOpen}
+                  color="inherit"
+                  sx={{ p: 0.25 }}
+                >
+                  <Avatar
+                    src={userHasPhoto ? userPhotoUrl : undefined}
+                    imgProps={{ referrerPolicy: 'no-referrer' }}
+                    sx={{ width: 32, height: 32, bgcolor: 'secondary.main' }}
+                  >
+                    {userHasPhoto ? null : userInitials}
+                  </Avatar>
+                </IconButton>
+              </Box>
+            }
           />
-
-          <IconButton
-            color="inherit"
-            aria-label="Updates and notifications"
-            title="Check for updates"
-            onClick={(e) => setUpdateMenuAnchor(e.currentTarget)}
-            sx={{ color: 'inherit' }}
-          >
-            <Badge
-              color="warning"
-              variant="dot"
-              invisible={!updateCheck?.updateAvailable && !updateCheck?.belowMinimum}
-              overlap="circular"
-              anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-            >
-              <NotificationsOutlinedIcon sx={{ fontSize: 22 }} />
-            </Badge>
-          </IconButton>
           <Menu
             anchorEl={updateMenuAnchor}
             open={Boolean(updateMenuAnchor)}
@@ -1200,44 +1311,6 @@ const Layout: React.FC = () => {
               </MenuItem>
             ) : null}
           </Menu>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 0.5 }}>
-            <Typography
-              variant="body2"
-              sx={{
-                maxWidth: 200,
-                display: { xs: 'none', md: 'block' },
-                color: 'inherit',
-                fontWeight: 500,
-              }}
-              noWrap
-              title={userFullName}
-            >
-              {userFullName}
-            </Typography>
-            <IconButton
-              onClick={handleMenuOpen}
-              color="inherit"
-              sx={{
-                p: 0.5,
-                border: (t) =>
-                  `1px solid ${
-                    t.palette.mode === 'dark' ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.12)'
-                  }`,
-                '&:hover': {
-                  bgcolor: (t) =>
-                    t.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-                },
-              }}
-            >
-              <Avatar
-                src={userHasPhoto ? userPhotoUrl : undefined}
-                imgProps={{ referrerPolicy: 'no-referrer' }}
-                sx={{ width: 32, height: 32, bgcolor: 'secondary.main' }}
-              >
-                {userHasPhoto ? null : userInitials}
-              </Avatar>
-            </IconButton>
-          </Box>
           <Menu
             anchorEl={anchorEl}
             open={Boolean(anchorEl)}
@@ -1306,7 +1379,15 @@ const Layout: React.FC = () => {
             "& .MuiDrawer-paper": {
               boxSizing: "border-box",
               width: drawerWidth,
+              overflow: 'hidden',
               ...drawerPaperTopSx,
+              scrollbarWidth: 'none',
+              msOverflowStyle: 'none',
+              '&::-webkit-scrollbar': {
+                width: 0,
+                height: 0,
+                display: 'none',
+              },
             },
           }}
         >
@@ -1319,7 +1400,15 @@ const Layout: React.FC = () => {
             "& .MuiDrawer-paper": {
               boxSizing: "border-box",
               width: drawerWidth,
+              overflow: 'hidden',
               ...drawerPaperTopSx,
+              scrollbarWidth: 'none',
+              msOverflowStyle: 'none',
+              '&::-webkit-scrollbar': {
+                width: 0,
+                height: 0,
+                display: 'none',
+              },
             },
           }}
           open
@@ -1386,6 +1475,7 @@ const Layout: React.FC = () => {
           </Alert>
         )}
         <Outlet />
+        
       </Box>
       </Box>
       <FeedbackDialog

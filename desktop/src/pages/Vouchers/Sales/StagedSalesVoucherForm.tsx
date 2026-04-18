@@ -21,6 +21,7 @@ import { useNavigate } from 'react-router-dom';
 import PartySelectionPopup from '../../../components/Vouchers/PartySelectionPopup';
 import StockItemSelectionPopup from '../../../components/Vouchers/StockItemSelectionPopup';
 import ItemAllocationPopup from '../../../components/Vouchers/ItemAllocationPopup';
+import QuickCreateLedgerDialog from '../../../components/QuickCreateLedgerDialog';
 import {
   Ledger,
   SalesVoucher,
@@ -126,6 +127,7 @@ const StagedSalesVoucherForm: React.FC = () => {
 
   const [lines, setLines] = useState<VoucherItem[]>([]);
   const [showPartyPopup, setShowPartyPopup] = useState(false);
+  const [showQuickPartyCreate, setShowQuickPartyCreate] = useState(false);
   const [showStockPopup, setShowStockPopup] = useState(false);
   const [allocStock, setAllocStock] = useState<StockItem | null>(null);
   const [allocTotalQty, setAllocTotalQty] = useState(1);
@@ -443,7 +445,34 @@ const StagedSalesVoucherForm: React.FC = () => {
           applyParty(p);
           setShowPartyPopup(false);
         }}
-        onCreateNew={() => setShowPartyPopup(false)}
+        onCreateNew={() => {
+          setShowPartyPopup(false);
+          setShowQuickPartyCreate(true);
+        }}
+      />
+
+      <QuickCreateLedgerDialog
+        open={showQuickPartyCreate}
+        onClose={() => setShowQuickPartyCreate(false)}
+        ledgerType="CUSTOMER"
+        title="Create New Party"
+        onSave={(ledgerId, ledgerName, details) => {
+          applyParty({
+            id: Number.isFinite(Number(ledgerId)) ? Number(ledgerId) : (ledgerId as any),
+            name: ledgerName,
+            opening_balance: 0,
+            balance_type: 'Dr',
+            gstin: details?.gstin ?? '',
+            address: details?.address ?? '',
+            city: details?.city ?? '',
+            state: details?.state ?? '',
+            phone: details?.phone ?? '',
+            email: details?.email ?? '',
+            is_active: true,
+          });
+          setShowQuickPartyCreate(false);
+          setStage('party-details');
+        }}
       />
 
       <StockItemSelectionPopup

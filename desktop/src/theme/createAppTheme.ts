@@ -26,12 +26,17 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
   const isDark = opts.mode === 'premium-dark';
 
   if (isDark) {
-    const defBg = '#0c0c0f';
-    const sidebarBg = mixHex(defBg, accent, 0.14);
-    const paper = mixHex(sidebarBg, '#ffffff', 0.045);
-    const onBg = contrastTextOnBackground(defBg);
-    const onPaper = contrastTextOnBackground(paper);
-    const secondaryMain = lighten(accent, 0.1);
+    const defBgHex = '#0B1220';
+    const paperHex = '#111827';
+    const sidebarHex = '#0F172A';
+    const contentHex = '#0F172A';
+    /** MUI palette must be parseable hex/rgb — never CSS variables (see colorManipulator). */
+    const defBg = defBgHex;
+    const paper = paperHex;
+    const sidebarBg = sidebarHex;
+    const onBg = contrastTextOnBackground(defBgHex);
+    const onPaper = contrastTextOnBackground(paperHex);
+    const secondaryMain = lighten(accent, 0.04);
     const primaryContrast = contrastTextOnBackground(accent);
     const secondaryContrast = contrastTextOnBackground(secondaryMain);
     return createTheme({
@@ -49,11 +54,11 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
           dark: darken(accent, 0.12),
           contrastText: secondaryContrast,
         },
-        success: { main: '#2dd4bf', contrastText: contrastTextOnBackground('#2dd4bf') },
-        error: { main: '#fb7185', contrastText: contrastTextOnBackground('#fb7185') },
-        warning: { main: '#fbbf24', contrastText: contrastTextOnBackground('#fbbf24') },
-        info: { main: '#38bdf8', contrastText: contrastTextOnBackground('#38bdf8') },
-        background: { default: defBg, paper, content: defBg, sidebar: sidebarBg },
+        success: { main: '#22c55e', contrastText: contrastTextOnBackground('#22c55e') },
+        error: { main: '#ef4444', contrastText: contrastTextOnBackground('#ef4444') },
+        warning: { main: '#eab308', contrastText: contrastTextOnBackground('#eab308') },
+        info: { main: '#3b82f6', contrastText: contrastTextOnBackground('#3b82f6') },
+        background: { default: defBg, paper, content: contentHex, sidebar: sidebarBg },
         text: {
           primary: onBg,
           secondary: alpha(onBg, 0.62),
@@ -62,11 +67,19 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
         divider: alpha(onBg, 0.1),
       },
       typography: sharedTypography,
-      shape: { borderRadius: 12 },
+      shape: { borderRadius: 16 },
       components: {
         MuiCssBaseline: {
           styleOverrides: {
-            body: { scrollbarColor: `${alpha(accent, 0.35)} ${alpha(onBg, 0.08)}` },
+            body: {
+              scrollbarColor: `${alpha(accent, 0.35)} ${alpha(onBg, 0.08)}`,
+              backgroundColor: 'var(--bg-main)',
+              color: 'var(--text-primary)',
+              transition: 'all 0.2s ease',
+            },
+            '*': {
+              transition: 'all 0.2s ease',
+            },
           },
         },
         MuiLink: {
@@ -84,10 +97,10 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
               borderRadius: 8,
               padding: '8px 16px',
               boxShadow: 'none',
-              '&:hover': { boxShadow: `0 4px 14px ${alpha(accent, 0.25)}` },
+              '&:hover': { boxShadow: `0 4px 14px ${alpha(accent, 0.16)}` },
             },
             containedPrimary: {
-              background: `linear-gradient(135deg, ${lighten(accent, 0.06)} 0%, ${darken(accent, 0.12)} 100%)`,
+              background: `linear-gradient(135deg, ${mixHex('#ffffff', accent, 0.08)} 0%, ${mixHex('#0f172a', accent, 0.1)} 100%)`,
               color: primaryContrast,
               '&:hover': { color: primaryContrast },
             },
@@ -115,19 +128,75 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
         MuiCard: {
           styleOverrides: {
             root: {
-              borderRadius: 14,
+              borderRadius: 16,
               backgroundImage: 'none',
-              boxShadow: `0 4px 24px ${alpha('#000', 0.45)}`,
-              border: `1px solid ${alpha(onBg, 0.08)}`,
+              boxShadow: '0 10px 30px rgba(0,0,0,0.4)',
+              border: '1px solid rgba(255,255,255,0.05)',
+              backdropFilter: 'blur(10px)',
+              transition: 'all 0.2s ease',
             },
           },
         },
         MuiPaper: {
           styleOverrides: {
             root: {
-              borderRadius: 14,
+              borderRadius: 16,
               backgroundImage: 'none',
               border: `1px solid ${alpha(onBg, 0.07)}`,
+              backgroundColor: 'var(--bg-card)',
+              transition: 'all 0.2s ease',
+            },
+          },
+        },
+        MuiTypography: {
+          styleOverrides: {
+            root: {
+              color: onBg,
+            },
+          },
+        },
+        MuiTableContainer: {
+          styleOverrides: {
+            root: {
+              backgroundColor: alpha('#0B1220', 0.24),
+              border: `1px solid ${alpha(onBg, 0.1)}`,
+            },
+          },
+        },
+        MuiTableCell: {
+          styleOverrides: {
+            root: {
+              color: onBg,
+              borderBottom: `1px solid ${alpha(onBg, 0.1)}`,
+            },
+            head: {
+              color: alpha(onBg, 0.9),
+              backgroundColor: alpha(onBg, 0.04),
+              fontWeight: 700,
+            },
+          },
+        },
+        MuiTablePagination: {
+          styleOverrides: {
+            root: {
+              color: onBg,
+            },
+            selectIcon: {
+              color: alpha(onBg, 0.82),
+            },
+            actions: {
+              color: onBg,
+            },
+          },
+        },
+        MuiChip: {
+          styleOverrides: {
+            root: {
+              color: onBg,
+              borderColor: alpha(onBg, 0.22),
+            },
+            outlined: {
+              borderColor: alpha(onBg, 0.28),
             },
           },
         },
@@ -137,9 +206,27 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
             root: { '& .MuiOutlinedInput-root': { borderRadius: 8 } },
           },
         },
+        MuiInputBase: {
+          styleOverrides: {
+            input: {
+              color: onBg,
+              '&::placeholder': {
+                color: alpha(onBg, 0.56),
+                opacity: 1,
+              },
+              '&:-webkit-autofill': {
+                WebkitBoxShadow: `0 0 0 100px ${alpha(defBgHex, 0.88)} inset`,
+                WebkitTextFillColor: onBg,
+                transition: 'background-color 9999s ease-out 0s',
+              },
+            },
+          },
+        },
         MuiOutlinedInput: {
           styleOverrides: {
             root: {
+              color: onBg,
+              backgroundColor: alpha(onBg, 0.02),
               '& fieldset': { borderColor: alpha(onPaper, 0.14) },
               '&:hover fieldset': { borderColor: alpha(onPaper, 0.22) },
             },
@@ -162,11 +249,12 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
     });
   }
 
-  const lightPaper = '#ffffff';
-  const lightBg = '#f1f5f9';
-  const sidebarLight = mixHex(lightPaper, accent, 0.07);
+  const lightBg = '#F1F5F9';
+  const lightPaperHex = '#FFFFFF';
+  const lightContentHex = '#F8FAFC';
+  const lightSidebarHex = '#FFFFFF';
   const onLightBg = contrastTextOnBackground(lightBg);
-  const secondaryMainLt = darken(accent, 0.08);
+  const secondaryMainLt = darken(accent, 0.04);
   const secondaryContrastLt = contrastTextOnBackground(secondaryMainLt);
   const accentBtnText = contrastTextOnBackground(accent);
 
@@ -187,7 +275,12 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
       },
       success: { main: '#10b981', contrastText: contrastTextOnBackground('#10b981') },
       error: { main: '#ef4444', contrastText: contrastTextOnBackground('#ef4444') },
-      background: { default: lightBg, paper: lightPaper, content: lightBg, sidebar: sidebarLight },
+      background: {
+        default: lightBg,
+        paper: lightPaperHex,
+        content: lightContentHex,
+        sidebar: lightSidebarHex,
+      },
       text: {
         primary: onLightBg,
         secondary: alpha(onLightBg, 0.58),
@@ -195,8 +288,20 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
       },
     },
     typography: sharedTypography,
-    shape: { borderRadius: 12 },
+    shape: { borderRadius: 16 },
     components: {
+      MuiCssBaseline: {
+        styleOverrides: {
+          body: {
+            backgroundColor: 'var(--bg-main)',
+            color: 'var(--text-primary)',
+            transition: 'all 0.2s ease',
+          },
+          '*': {
+            transition: 'all 0.2s ease',
+          },
+        },
+      },
       MuiLink: {
         defaultProps: { underline: 'hover' },
         styleOverrides: {
@@ -217,7 +322,7 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
             },
           },
           containedPrimary: {
-            background: `linear-gradient(135deg, ${lighten(accent, 0.08)} 0%, ${darken(accent, 0.12)} 100%)`,
+            background: `linear-gradient(135deg, ${lighten(accent, 0.03)} 0%, ${darken(accent, 0.06)} 100%)`,
             color: accentBtnText,
             '&:hover': { color: accentBtnText },
           },
@@ -250,12 +355,73 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
             borderRadius: 16,
             boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)',
             border: '1px solid #e2e8f0',
+            backgroundColor: 'var(--bg-card)',
+            transition: 'all 0.2s ease',
           },
         },
       },
       MuiPaper: {
         styleOverrides: {
-          root: { borderRadius: 16 },
+          root: {
+            borderRadius: 16,
+            backgroundImage: 'none',
+            border: `1px solid ${alpha(onLightBg, 0.1)}`,
+            boxShadow: '0 10px 25px rgba(0,0,0,0.05)',
+            backgroundColor: 'var(--bg-card)',
+            transition: 'all 0.2s ease',
+          },
+        },
+      },
+      MuiTypography: {
+        styleOverrides: {
+          root: {
+            color: onLightBg,
+          },
+        },
+      },
+      MuiTableContainer: {
+        styleOverrides: {
+          root: {
+              backgroundColor: 'var(--bg-card)',
+            border: `1px solid ${alpha(onLightBg, 0.14)}`,
+          },
+        },
+      },
+      MuiTableCell: {
+        styleOverrides: {
+          root: {
+            color: onLightBg,
+            borderBottom: `1px solid ${alpha(onLightBg, 0.12)}`,
+          },
+          head: {
+            color: alpha(onLightBg, 0.88),
+            backgroundColor: alpha(onLightBg, 0.04),
+            fontWeight: 700,
+          },
+        },
+      },
+      MuiTablePagination: {
+        styleOverrides: {
+          root: {
+            color: onLightBg,
+          },
+          selectIcon: {
+            color: alpha(onLightBg, 0.74),
+          },
+          actions: {
+            color: onLightBg,
+          },
+        },
+      },
+      MuiChip: {
+        styleOverrides: {
+          root: {
+            color: onLightBg,
+            borderColor: alpha(onLightBg, 0.2),
+          },
+          outlined: {
+            borderColor: alpha(onLightBg, 0.24),
+          },
         },
       },
       MuiTextField: {
@@ -264,9 +430,27 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
           root: { '& .MuiOutlinedInput-root': { borderRadius: 8 } },
         },
       },
+      MuiInputBase: {
+        styleOverrides: {
+          input: {
+            color: onLightBg,
+            '&::placeholder': {
+              color: alpha(onLightBg, 0.56),
+              opacity: 1,
+            },
+            '&:-webkit-autofill': {
+              WebkitBoxShadow: '0 0 0 100px #ffffff inset',
+              WebkitTextFillColor: onLightBg,
+              transition: 'background-color 9999s ease-out 0s',
+            },
+          },
+        },
+      },
       MuiOutlinedInput: {
         styleOverrides: {
           root: {
+            color: onLightBg,
+            backgroundColor: alpha('#ffffff', 0.96),
             '& fieldset': { borderColor: alpha(onLightBg, 0.22) },
             '&:hover fieldset': { borderColor: alpha(onLightBg, 0.35) },
           },

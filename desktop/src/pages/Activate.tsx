@@ -19,6 +19,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "./contexts/auth";
 import { activateAccountWithLicense } from "../services/licenseService";
+import { APP_DISPLAY_NAME } from "../constants/appBranding";
 
 const Activate: React.FC = () => {
   const navigate = useNavigate();
@@ -146,7 +147,7 @@ const Activate: React.FC = () => {
               <BusinessIcon sx={{ fontSize: 40 }} />
             </Avatar>
             <Typography variant="h4" fontWeight="bold" color="primary">
-              InvoicePro
+              {APP_DISPLAY_NAME}
             </Typography>
             <Typography variant="body1" color="text.secondary">
               Activate your licence (new install or new account)

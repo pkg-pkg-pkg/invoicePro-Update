@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { dashboardAggregator } from '../../services/dashboard/dashboardAggregator';
+import { indianFYBounds, indianFYStartYearForDate } from '../../utils/indianFY';
 import {
   CustomerSummary,
   DashboardSummary,
@@ -16,6 +17,11 @@ interface DashboardState {
   loading: boolean;
   error: string | null;
   period: SummaryPeriod;
+  /** GST tab period (independent from main `period` / summary range). */
+  gstPeriod: SummaryPeriod;
+  /** Today-only summary for dashboard header / quick metrics (optional fast path). */
+  todaySummary: DashboardSummary | null;
+  todayOverviewLoading: boolean;
   summary: DashboardSummary | null;
   salesAnalytics: SalesAnalytics | null;
   outstandingSummary: { customers: CustomerSummary[] } | null;
@@ -29,6 +35,9 @@ const initialState: DashboardState = {
   loading: false,
   error: null,
   period: 'today',
+  gstPeriod: 'month',
+  todaySummary: null,
+  todayOverviewLoading: false,
   summary: null,
   salesAnalytics: null,
   outstandingSummary: null,
@@ -106,6 +115,20 @@ export const fetchLowStock = createAsyncThunk('dashboard/fetchLowStock', async (
   }
 });
 
+/** Dashboard overview cards for selected Indian FY (1 Apr – 31 Mar), or current FY if omitted. */
+export const fetchTodayOverview = createAsyncThunk(
+  'dashboard/fetchTodayOverview',
+  async (fyStartYear: number | undefined, { rejectWithValue }) => {
+    try {
+      const y = fyStartYear ?? indianFYStartYearForDate(new Date());
+      const { fromISODate, toISODate } = indianFYBounds(y);
+      return await dashboardAggregator.summaryForDateRange(fromISODate, toISODate);
+    } catch (error: any) {
+      return rejectWithValue(error?.message ?? 'Failed to fetch overview');
+    }
+  }
+);
+
 // --- Slice Definition ---
 
 const dashboardSlice = createSlice({
@@ -114,6 +137,9 @@ const dashboardSlice = createSlice({
   reducers: {
     setPeriod: (state, action: PayloadAction<'today' | 'week' | 'month' | 'year'>) => {
       state.period = action.payload;
+    },
+    setGstPeriod: (state, action: PayloadAction<SummaryPeriod>) => {
+      state.gstPeriod = action.payload;
     },
     clearError: (state) => {
       state.error = null;
@@ -171,9 +197,22 @@ const dashboardSlice = createSlice({
       // Low Stock
       .addCase(fetchLowStock.fulfilled, (state, action) => {
         state.lowStock = action.payload;
+      })
+
+      // Today overview (separate loading flag)
+      .addCase(fetchTodayOverview.pending, (state) => {
+        state.todayOverviewLoading = true;
+      })
+      .addCase(fetchTodayOverview.fulfilled, (state, action) => {
+        state.todayOverviewLoading = false;
+        state.todaySummary = action.payload;
+      })
+      .addCase(fetchTodayOverview.rejected, (state, action) => {
+        state.todayOverviewLoading = false;
+        state.error = (action.payload as string) ?? state.error;
       });
   },
 });
 
-export const { setPeriod, clearError } = dashboardSlice.actions;
+export const { setPeriod, setGstPeriod, clearError } = dashboardSlice.actions;
 export default dashboardSlice.reducer;

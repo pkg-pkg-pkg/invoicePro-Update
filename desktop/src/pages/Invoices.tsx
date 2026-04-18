@@ -38,6 +38,7 @@ import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { docApi, getHostBaseUrl } from '../services/docApi';
 import { getAppSettings, getDefaultTodayForEntry, validateTransactionDate } from '../services/appSettingsService';
 import { usePermissions } from '../hooks/usePermissions';
+import { APP_DISPLAY_NAME } from "../constants/appBranding";
 
 import type { RootState } from "../store";
 import type { AppDispatch } from "../store";
@@ -384,7 +385,7 @@ const generateInvoiceHTMLForPrint = (invoice: Invoice) => {
     <div class="header">
       <div class="company">
         ${company?.logo ? `<img src="${String(company.logo)}" alt="Logo" style="max-width:120px;max-height:60px;object-fit:contain;margin-bottom:6px;">` : ''}
-        <h1>${String(company?.name ?? 'InvoicePro')}</h1>
+        <h1>${String(company?.name ?? APP_DISPLAY_NAME)}</h1>
         ${company?.address ? `<p>${String(company.address)}</p>` : ''}
         ${(company?.phone || company?.email) ? `<p>${company?.phone ? `Phone: ${String(company.phone)}` : ''}${company?.phone && company?.email ? ' | ' : ''}${company?.email ? `Email: ${String(company.email)}` : ''}</p>` : ''}
         ${company?.gstin ? `<p>GSTIN: ${String(company.gstin)}</p>` : ''}

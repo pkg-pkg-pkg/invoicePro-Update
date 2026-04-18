@@ -5,11 +5,12 @@ import { store } from "./store";
 import App from "./App";
 import ErrorBoundary from "./components/ErrorBoundary";
 import "./index.css";
+import "./styles/theme.css";
 import { AuthProvider } from "./pages/contexts/auth";
 import { initMasters } from "./services/masters/seedMasters";
 import { syncService } from "./services/sync";
 
-console.log("🚀 Starting GST Billing App...");
+console.log("🚀 Starting PVE InvoicePro 360...");
 
 const rootElement = document.getElementById("root");
 

@@ -1,7 +1,7 @@
 {
   "name": "@gst-billing/backend",
   "version": "1.0.0",
-  "description": "Backend API for GST Billing Software",
+  "description": "Backend API for PVE InvoicePro 360",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",

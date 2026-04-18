@@ -1,8 +1,9 @@
 import { Typography, Paper, Box, Alert } from '@mui/material';
+import { APP_DISPLAY_NAME } from './constants/appBranding';
 
 export default function CompanyDetails() {
     const details = {
-        name: localStorage.getItem('companyName')?.trim() || 'GST Billing Software',
+        name: localStorage.getItem('companyName')?.trim() || APP_DISPLAY_NAME,
         address: localStorage.getItem('companyAddress')?.trim() || '',
         statePin: localStorage.getItem('companyStatePin')?.trim() || '',
         mobiles: localStorage.getItem('companyMobiles')?.trim() || '',

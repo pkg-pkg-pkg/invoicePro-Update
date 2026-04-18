@@ -1,58 +1,83 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useDispatch, useSelector } from 'react-redux';
 import {
+  Alert,
   Box,
+  Button,
+  Grid,
   Paper,
   Typography,
-  Grid,
+  TextField,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  TextField,
-  Button,
-  Alert,
 } from '@mui/material';
 import Autocomplete from '@mui/material/Autocomplete';
-import type { AppDispatch, RootState } from '../store';
-import { fetchCustomers, fetchSuppliers, clearError } from '../store/slices/partySlice';
+import type { Party } from '../types/party';
+import { partyService } from '../services/masters/partyService';
 
 type PartyType = 'customer' | 'supplier';
 
+type PartyOption = { id: string; name: string; ledgerId: string };
+
 export default function PartyLedgerReport() {
   const navigate = useNavigate();
-  const dispatch = useDispatch<AppDispatch>();
-
-  const { customers, suppliers, loading, error } = useSelector((state: RootState) => state.parties);
 
   const [partyType, setPartyType] = useState<PartyType>('customer');
+  const [customers, setCustomers] = useState<Party[]>([]);
+  const [suppliers, setSuppliers] = useState<Party[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadingLists, setLoadingLists] = useState(true);
+
   const [selectedPartyId, setSelectedPartyId] = useState<string>('');
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
 
-  useEffect(() => {
-    dispatch(fetchCustomers());
-    dispatch(fetchSuppliers());
-  }, [dispatch]);
+  const refreshLists = useCallback(async () => {
+    setLoadingLists(true);
+    setLoadError(null);
+    try {
+      const [buyers, sellers] = await Promise.all([
+        partyService.listForSales(),
+        partyService.listForPurchase(),
+      ]);
+      setCustomers(buyers);
+      setSuppliers(sellers);
+    } catch (e) {
+      setLoadError((e as Error).message ?? 'Failed to load parties');
+      setCustomers([]);
+      setSuppliers([]);
+    } finally {
+      setLoadingLists(false);
+    }
+  }, []);
 
-  const options = useMemo(() => {
+  useEffect(() => {
+    void refreshLists();
+  }, [refreshLists]);
+
+  const options: PartyOption[] = useMemo(() => {
     const list = partyType === 'customer' ? customers : suppliers;
-    return (list || []).map((p) => ({ id: String((p as any).id ?? ''), name: String((p as any).name ?? '') }));
+    return (list || []).map((p) => ({
+      id: p.id,
+      name: p.name || p.id,
+      ledgerId: String(p.ledgerId ?? '').trim(),
+    }));
   }, [partyType, customers, suppliers]);
 
   const selected = options.find((o) => o.id === selectedPartyId) ?? null;
 
   const openLedger = () => {
-    if (!selectedPartyId) return;
-
-    const base = partyType === 'customer' ? `/customers/ledger/${encodeURIComponent(selectedPartyId)}` : `/suppliers/ledger/${encodeURIComponent(selectedPartyId)}`;
+    if (!selectedPartyId || !selected?.ledgerId) {
+      return;
+    }
     const params = new URLSearchParams();
     if (fromDate) params.set('fromDate', fromDate);
     if (toDate) params.set('toDate', toDate);
-
-    const url = params.toString() ? `${base}?${params.toString()}` : base;
-    navigate(url);
+    const q = params.toString();
+    const path = `/parties/party-ledger/${encodeURIComponent(selected.ledgerId)}`;
+    navigate(q ? `${path}?${q}` : path);
   };
 
   return (
@@ -61,9 +86,9 @@ export default function PartyLedgerReport() {
         Ledger Report
       </Typography>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => dispatch(clearError())}>
-          {error}
+      {loadError && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setLoadError(null)}>
+          {loadError}
         </Alert>
       )}
 
@@ -91,10 +116,21 @@ export default function PartyLedgerReport() {
               options={options}
               value={selected}
               getOptionLabel={(o) => o.name}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
               onChange={(_e, v) => setSelectedPartyId(v?.id ?? '')}
-              loading={loading}
+              loading={loadingLists}
+              noOptionsText={loadingLists ? 'Loading…' : 'No parties — add them in Party Master'}
               renderInput={(params) => (
-                <TextField {...params} size="small" label={partyType === 'customer' ? 'Customer' : 'Supplier'} />
+                <TextField
+                  {...params}
+                  size="small"
+                  label={partyType === 'customer' ? 'Customer' : 'Supplier'}
+                  helperText={
+                    !loadingLists && options.length === 0
+                      ? 'Party list is empty. Create buyers/suppliers under Party Master.'
+                      : undefined
+                  }
+                />
               )}
             />
           </Grid>
@@ -135,7 +171,11 @@ export default function PartyLedgerReport() {
               >
                 Clear
               </Button>
-              <Button variant="contained" disabled={!selectedPartyId} onClick={openLedger}>
+              <Button
+                variant="contained"
+                disabled={!selectedPartyId || !selected?.ledgerId}
+                onClick={openLedger}
+              >
                 View Ledger
               </Button>
             </Box>

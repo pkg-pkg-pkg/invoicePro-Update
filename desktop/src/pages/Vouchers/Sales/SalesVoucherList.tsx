@@ -116,14 +116,9 @@ const SalesVoucherList = () => {
             </IconButton>
           </Tooltip>
           {canCreate && (
-            <>
-              <Button variant="outlined" startIcon={<AddIcon />} onClick={() => navigate('/vouchers/sales/new-staged')}>
-                Guided invoice
-              </Button>
-              <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate('/vouchers/sales/new')}>
-                New Invoice
-              </Button>
-            </>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate('/vouchers/sales/new')}>
+              New Invoice
+            </Button>
           )}
         </Stack>
       </Stack>

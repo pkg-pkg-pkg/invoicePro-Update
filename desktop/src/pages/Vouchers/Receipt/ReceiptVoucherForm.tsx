@@ -192,7 +192,7 @@ const ReceiptVoucherForm = () => {
         lines: voucherLines,
       });
       
-      navigate('/vouchers/receipts');
+      navigate('/vouchers/receipt-vouchers');
     } catch (err) {
       setError((err as Error).message ?? 'Failed to create receipt voucher');
     } finally {

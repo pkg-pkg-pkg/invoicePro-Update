@@ -28,6 +28,14 @@ export interface NetworkStatus {
 }
 
 class NetworkService {
+  private hasMultiUserEntitlement(): boolean {
+    try {
+      return localStorage.getItem('license_multi_user_lan') === '1';
+    } catch {
+      return false;
+    }
+  }
+
   private config: NetworkConfig = {
     enabled: false,
     port: 3000,
@@ -72,6 +80,9 @@ class NetworkService {
 
   // Enable/disable multi-user mode
   setEnabled(enabled: boolean): void {
+    if (enabled && !this.hasMultiUserEntitlement()) {
+      throw new Error('Multi-user LAN is not enabled on this license. Complete Platinum upgrade first.');
+    }
     this.config.enabled = enabled;
     this.status.isEnabled = enabled;
 
@@ -82,6 +93,9 @@ class NetworkService {
 
   // Start server mode
   async startServer(): Promise<boolean> {
+    if (!this.hasMultiUserEntitlement()) {
+      throw new Error('Multi-user LAN is locked for this license.');
+    }
     if (!this.config.enabled) {
       throw new Error('Multi-user mode must be enabled first');
     }
@@ -142,6 +156,9 @@ class NetworkService {
 
   // Connect to server
   async connectToServer(serverUrl: string): Promise<boolean> {
+    if (!this.hasMultiUserEntitlement()) {
+      throw new Error('Multi-user LAN is locked for this license.');
+    }
     try {
       const ok = await this.checkHost(serverUrl);
       if (!ok) {
@@ -191,6 +208,12 @@ class NetworkService {
       if (saved) {
         const parsed = JSON.parse(saved);
         this.config = { ...this.config, ...parsed };
+        if (this.config.enabled && !this.hasMultiUserEntitlement()) {
+          this.config.enabled = false;
+          this.config.isServer = false;
+          this.config.serverUrl = undefined;
+          localStorage.setItem('network_config', JSON.stringify(this.config));
+        }
         this.status.isEnabled = this.config.enabled;
         this.status.isServerRunning = this.config.isServer;
         this.status.serverUrl = this.config.serverUrl;

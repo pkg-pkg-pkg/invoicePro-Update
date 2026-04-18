@@ -12,8 +12,11 @@ const GROUPS = {
   dutiesTaxes: { id: 'grp-duties-taxes', name: 'Duties & Taxes', type: 'LIABILITY' as const },
 };
 
+/** Seeded chart group — same id as seedMasters / LedgerAccountForm */
+const GROUP_CASH_IN_HAND_ID = 'grp-cash-in-hand';
+
 const SYSTEM_LEDGERS = {
-  cash: { id: 'led-cash', name: 'Cash', groupId: GROUPS.cashBank.id, isCashBank: true, openingBalanceType: 'DEBIT' as LedgerBalanceType },
+  cash: { id: 'led-cash', name: 'Cash', groupId: GROUP_CASH_IN_HAND_ID, isCashBank: true, openingBalanceType: 'DEBIT' as LedgerBalanceType },
   sales: { id: 'led-sales', name: 'Sales', groupId: GROUPS.sales.id, openingBalanceType: 'CREDIT' as LedgerBalanceType },
   purchase: { id: 'led-purchase', name: 'Purchase', groupId: GROUPS.purchase.id, openingBalanceType: 'DEBIT' as LedgerBalanceType },
   purchaseReturns: {
@@ -111,6 +114,18 @@ const ensurePartyLedger = async (nameRaw: string, kind: 'customer' | 'supplier')
     const retryMatch = findLedgerByName(retryLedgers, name);
     if (retryMatch) return retryMatch.id;
     throw error;
+  }
+};
+
+/** Run once at app boot after groups are seeded: move default Cash from legacy grp-cash-bank to Cash-in-Hand. */
+export const migrateLegacySystemCashLedger = async (): Promise<void> => {
+  const ledgers = await ledgerAccountService.list({ includeInactive: true });
+  const cash = ledgers.find((l) => l.id === SYSTEM_LEDGERS.cash.id && l.groupId === GROUPS.cashBank.id);
+  if (!cash) return;
+  try {
+    await ledgerAccountService.update(cash.id, { groupId: GROUP_CASH_IN_HAND_ID });
+  } catch (e) {
+    console.warn('migrateLegacySystemCashLedger:', e);
   }
 };
 

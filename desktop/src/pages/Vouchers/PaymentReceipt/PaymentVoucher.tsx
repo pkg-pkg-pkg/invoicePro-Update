@@ -114,12 +114,24 @@ const PaymentReceiptVoucherPage = ({
         const ledgers = await ledgerAccountService.list({ includeInactive: false });
         
         // Create default cash/bank accounts if none exist
-        let cashBankLedgers = ledgers.filter(ledger => ledger.isCashBank);
+        let cashBankLedgers = ledgers.filter(
+          (ledger) =>
+            ledger.isCashBank ||
+            ledger.groupId === 'grp-cash-in-hand' ||
+            ledger.groupId === 'grp-bank-accounts' ||
+            ledger.groupId === 'grp-cash-bank'
+        );
         
         if (cashBankLedgers.length === 0) {
           // Try to get the cash ledger again after ensuring core
           const updatedLedgers = await ledgerAccountService.list({ includeInactive: false });
-          cashBankLedgers = updatedLedgers.filter(ledger => ledger.isCashBank);
+          cashBankLedgers = updatedLedgers.filter(
+            (ledger) =>
+              ledger.isCashBank ||
+              ledger.groupId === 'grp-cash-in-hand' ||
+              ledger.groupId === 'grp-bank-accounts' ||
+              ledger.groupId === 'grp-cash-bank'
+          );
         }
         
         setAvailableAccounts(cashBankLedgers);

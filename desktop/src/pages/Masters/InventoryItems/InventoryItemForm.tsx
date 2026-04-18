@@ -53,6 +53,11 @@ const priceFields = [
 
 const SCREEN_ID = 'inventory-item-form';
 const CATEGORY_DIALOG_SCREEN_ID = 'inventory-item-category-dialog';
+
+/** Select menus use a portal; stack above nested dialogs (e.g. quick-create item inside another dialog). */
+const SELECT_MENU_Z = { MenuProps: { PaperProps: { sx: { zIndex: 5000 } } } } as const;
+
+const NESTED_DIALOG_SX = { zIndex: 5000 };
 const PRICE_FIELD_ORDER_START = 20;
 const GODOWN_FIELD_ORDER_START = 200;
 
@@ -80,6 +85,14 @@ const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryIte
   const [categorySaving, setCategorySaving] = useState(false);
   const [categoryDialogError, setCategoryDialogError] = useState<string | null>(null);
 
+  const [godownQuickOpen, setGodownQuickOpen] = useState(false);
+  const [quickGodownName, setQuickGodownName] = useState('');
+  const [quickGodownCode, setQuickGodownCode] = useState('');
+  const [quickGodownSaving, setQuickGodownSaving] = useState(false);
+  const [quickGodownError, setQuickGodownError] = useState<string | null>(null);
+  const [bulkStockOpen, setBulkStockOpen] = useState(false);
+  const [bulkGodownId, setBulkGodownId] = useState('');
+
   const { entity, loading, saving, error, load, create, update, resetError } = useMasterForm<
     InventoryItem,
     InventoryItemInput
@@ -104,6 +117,19 @@ const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryIte
     }
   }, []);
 
+  const applyGodownList = useCallback((list: Godown[]) => {
+    setGodowns(list);
+    if (!isEditMode) {
+      setGodownInputs(
+        list.map((g) => ({
+          godownId: g.id,
+          name: g.name,
+          quantity: '',
+        }))
+      );
+    }
+  }, [isEditMode]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -124,20 +150,10 @@ const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryIte
       try {
         const list = await godownService.list({ includeInactive: false });
         if (cancelled) return;
-        setGodowns(list);
-        if (!isEditMode) {
-          setGodownInputs(
-            list.map((g) => ({
-              godownId: g.id,
-              name: g.name,
-              quantity: '',
-            }))
-          );
-        }
+        applyGodownList(list);
       } catch {
         if (!cancelled) {
-          setGodowns([]);
-          if (!isEditMode) setGodownInputs([]);
+          applyGodownList([]);
         }
       }
     };
@@ -151,7 +167,17 @@ const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryIte
     return () => {
       cancelled = true;
     };
-  }, [isEditMode, refreshCategories]);
+  }, [isEditMode, refreshCategories, applyGodownList]);
+
+  /** Pre-select default godown for “Apply full opening stock” dialog. */
+  useEffect(() => {
+    if (isEditMode || godowns.length === 0) return;
+    setBulkGodownId((prev) => {
+      if (prev && godowns.some((g) => g.id === prev)) return prev;
+      const def = godowns.find((g) => g.isDefault) ?? godowns[0];
+      return def?.id ?? '';
+    });
+  }, [isEditMode, godowns]);
 
   useEffect(() => {
     if (isEditMode && id) {
@@ -185,6 +211,17 @@ const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryIte
     reorderLevel: '',
     status: 'ACTIVE' as InventoryStatus,
   });
+
+  useEffect(() => {
+    if (isEditMode) return;
+    const qty = Number(formState.openingStock) || 0;
+    const rate = Number(formState.pricing.purchase) || 0;
+    const val = (qty * rate).toFixed(2);
+    setFormState((prev) => {
+      if (prev.openingValue === val) return prev;
+      return { ...prev, openingValue: val };
+    });
+  }, [isEditMode, formState.openingStock, formState.pricing.purchase]);
 
   const formDisabled = saving || loading;
 
@@ -401,6 +438,42 @@ const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryIte
     );
   };
 
+  const handleQuickCreateGodown = async () => {
+    if (!quickGodownName.trim()) {
+      setQuickGodownError('Godown name is required.');
+      return;
+    }
+    try {
+      setQuickGodownSaving(true);
+      setQuickGodownError(null);
+      await godownService.create({
+        name: quickGodownName.trim(),
+        code: quickGodownCode.trim() || undefined,
+      });
+      const list = await godownService.list({ includeInactive: false });
+      applyGodownList(list);
+      setGodownQuickOpen(false);
+      setQuickGodownName('');
+      setQuickGodownCode('');
+    } catch (err) {
+      setQuickGodownError((err as Error).message ?? 'Failed to create godown');
+    } finally {
+      setQuickGodownSaving(false);
+    }
+  };
+
+  const applyOpeningStockToSingleGodown = () => {
+    if (!bulkGodownId) return;
+    const qty = formState.openingStock ?? '0';
+    setGodownInputs((prev) =>
+      prev.map((e) => ({
+        ...e,
+        quantity: e.godownId === bulkGodownId ? String(qty) : '',
+      }))
+    );
+    setBulkStockOpen(false);
+  };
+
   const buildPayload = (): InventoryItemInput => {
     const parseNumber = (value: string, fallback = 0) => {
       const parsed = Number(value);
@@ -439,12 +512,19 @@ const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryIte
     };
 
     if (!isEditMode) {
-      const splits = godownInputs
+      const opening = parseNumber(formState.openingStock, 0);
+      let splits = godownInputs
         .map((entry) => ({
           godownId: entry.godownId,
           quantity: parseNumber(entry.quantity, 0),
         }))
         .filter((entry) => entry.quantity > 0);
+      if (opening > 0 && splits.length === 0) {
+        const defaultG = godowns.find((g) => g.isDefault) ?? godowns[0];
+        if (defaultG) {
+          splits = [{ godownId: defaultG.id, quantity: Number(opening.toFixed(4)) }];
+        }
+      }
       if (splits.length) {
         payload.godownStocks = splits;
       }
@@ -455,6 +535,7 @@ const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryIte
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    resetError();
     if (!canManage) {
       setSubmitError('You do not have permission to manage inventory.');
       return;
@@ -497,8 +578,8 @@ const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryIte
           navigate('/masters/inventory-items');
         }
       }
-    } catch (err) {
-      setSubmitError((err as Error).message ?? 'Failed to save inventory item');
+    } catch {
+      // useMasterForm sets `error` on create/update failure — avoid duplicate alerts.
     }
   };
 
@@ -552,22 +633,72 @@ const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryIte
         <Typography variant="subtitle1" fontWeight={600} gutterBottom>
           Godown Stock Allocation
         </Typography>
+        {!isEditMode && godownInputs.length > 0 ? (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+            If opening stock is greater than 0 and all godown quantities are left blank, the full quantity is saved to
+            your default godown automatically.
+          </Typography>
+        ) : null}
         {godownInputs.length === 0 ? (
-          <Alert severity="info">No active godowns found. Please create a godown to allocate stock.</Alert>
+          <Alert severity="warning" sx={{ mt: 0.5 }}>
+            <Typography variant="body2" sx={{ mb: 1.5 }}>
+              Koi active godown nahi mila. Pehle godown banayein, taaki opening stock save ho sake — warna item save par stock
+              allocate nahi hogi.
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+              <Button
+                variant="contained"
+                size="small"
+                disabled={formDisabled}
+                onClick={() => {
+                  setQuickGodownError(null);
+                  setQuickGodownName('');
+                  setQuickGodownCode('');
+                  setGodownQuickOpen(true);
+                }}
+              >
+                Yahan se godown banayein
+              </Button>
+              <Button variant="outlined" size="small" disabled={formDisabled} onClick={() => navigate('/masters/godowns/new')}>
+                Full godown form
+              </Button>
+            </Stack>
+          </Alert>
         ) : (
-          <Grid container spacing={2}>
-            {godownInputs.map((entry, index) => (
-              <Grid item xs={12} md={6} key={entry.godownId}>
-                <GodownQuantityInput
-                  label={entry.name}
-                  value={entry.quantity}
+          <>
+            {godownInputs.length > 1 ? (
+              <Alert severity="info" sx={{ mb: 1.5 }}>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  Ek se zyada godown hain — neeche har godown ke liye quantity likhein, ya ek click mein poora{' '}
+                  <strong>Opening Stock</strong> kisi ek godown mein bhar dein.
+                </Typography>
+                <Button
+                  variant="outlined"
+                  size="small"
                   disabled={formDisabled}
-                  order={GODOWN_FIELD_ORDER_START + index}
-                  onChange={(value) => handleGodownQuantityChange(entry.godownId, value)}
-                />
-              </Grid>
-            ))}
-          </Grid>
+                  onClick={() => {
+                    setBulkGodownId(godownInputs[0]?.godownId ?? '');
+                    setBulkStockOpen(true);
+                  }}
+                >
+                  Opening stock kis godown mein?
+                </Button>
+              </Alert>
+            ) : null}
+            <Grid container spacing={2}>
+              {godownInputs.map((entry, index) => (
+                <Grid item xs={12} md={6} key={entry.godownId}>
+                  <GodownQuantityInput
+                    label={entry.name}
+                    value={entry.quantity}
+                    disabled={formDisabled}
+                    order={GODOWN_FIELD_ORDER_START + index}
+                    onChange={(value) => handleGodownQuantityChange(entry.godownId, value)}
+                  />
+                </Grid>
+              ))}
+            </Grid>
+          </>
         )}
       </Box>
     );
@@ -702,6 +833,7 @@ const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryIte
                   onChange={(e) => handleChange('categoryId', e.target.value)}
                   required
                   inputRef={categoryFieldRef}
+                  {...SELECT_MENU_Z}
                 >
                   {categoryOptions.map((option) => (
                     <MenuItem key={option.value} value={option.value}>
@@ -734,6 +866,7 @@ const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryIte
                   onChange={(e) => handleChange('unitId', e.target.value)}
                   required
                   inputRef={primaryUnitFieldRef}
+                  {...SELECT_MENU_Z}
                 >
                   {unitOptions.map((unit) => (
                     <MenuItem key={unit.value} value={unit.value}>
@@ -754,6 +887,7 @@ const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryIte
                   value={formState.secondaryUnitId}
                   onChange={(e) => handleChange('secondaryUnitId', e.target.value)}
                   inputRef={secondaryUnitFieldRef}
+                  {...SELECT_MENU_Z}
                 >
                   <MenuItem value="">None</MenuItem>
                   {unitOptions.map((unit) => (
@@ -919,7 +1053,79 @@ const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryIte
         </CardContent>
       </Card>
 
-      <Dialog open={categoryDialogOpen} onClose={closeCategoryDialog} fullWidth maxWidth="sm">
+      <Dialog
+        open={godownQuickOpen}
+        onClose={() => !quickGodownSaving && setGodownQuickOpen(false)}
+        fullWidth
+        maxWidth="sm"
+        sx={NESTED_DIALOG_SX}
+      >
+        <DialogTitle>Naya godown</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ pt: 0.5 }}>
+            <TextField
+              label="Godown name"
+              value={quickGodownName}
+              onChange={(e) => setQuickGodownName(e.target.value)}
+              fullWidth
+              required
+              disabled={quickGodownSaving}
+            />
+            <TextField
+              label="Code (optional)"
+              value={quickGodownCode}
+              onChange={(e) => setQuickGodownCode(e.target.value)}
+              fullWidth
+              disabled={quickGodownSaving}
+            />
+            {quickGodownError ? <Alert severity="error">{quickGodownError}</Alert> : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => !quickGodownSaving && setGodownQuickOpen(false)} disabled={quickGodownSaving}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={() => void handleQuickCreateGodown()} disabled={quickGodownSaving}>
+            {quickGodownSaving ? 'Saving…' : 'Create godown'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={bulkStockOpen} onClose={() => setBulkStockOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Opening stock kis godown mein?</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel id="bulk-godown-label">Godown</InputLabel>
+              <Select
+                labelId="bulk-godown-label"
+                label="Godown"
+                value={bulkGodownId}
+                onChange={(e) => setBulkGodownId(String(e.target.value))}
+                {...SELECT_MENU_Z}
+              >
+                {godownInputs.map((g) => (
+                  <MenuItem key={g.godownId} value={g.godownId}>
+                    {g.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Typography variant="caption" color="text.secondary">
+              Opening Stock field ki value (<strong>{formState.openingStock || '0'}</strong>) sirf is godown ki quantity mein
+              daali jayegi; baaki godown ki quantities khali kar di jayengi.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkStockOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={applyOpeningStockToSingleGodown} disabled={!bulkGodownId}>
+            Apply
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={categoryDialogOpen} onClose={closeCategoryDialog} fullWidth maxWidth="sm" sx={NESTED_DIALOG_SX}>
         <DialogTitle>Add Category</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2}>

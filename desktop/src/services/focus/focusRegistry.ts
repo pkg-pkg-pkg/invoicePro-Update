@@ -206,6 +206,10 @@ class FocusRegistry {
 
   handleKeyDown = (event: KeyboardEvent) => {
     const target = event.target as HTMLElement | null;
+    // Modals (MUI Dialog, pickers) must receive Enter/Backspace — do not move voucher focus from behind the dialog.
+    if (target?.closest?.('[role="dialog"], [data-tally-picker-modal]')) {
+      return;
+    }
     const entry = this.getEntryByElement(target);
     if (!entry) return;
 

@@ -41,6 +41,123 @@ function normHeader(s: string): string {
     .replace(/\s+/g, '');
 }
 
+/** Non-empty string from row object using first matching key (Tally / Busy / Marg style headers). */
+function firstCellStr(o: Record<string, unknown>, keys: string[]): string {
+  for (const k of keys) {
+    const v = o[k];
+    if (v === null || v === undefined) continue;
+    const s = String(v).trim();
+    if (s) return s;
+  }
+  return '';
+}
+
+function firstCellNum(o: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const k of keys) {
+    const v = o[k];
+    if (v === null || v === undefined || v === '') continue;
+    if (typeof v === 'number' && !Number.isNaN(v)) return v;
+    const n = Number(String(v).replace(/,/g, ''));
+    if (!Number.isNaN(n)) return n;
+  }
+  return undefined;
+}
+
+function hasMeaningfulCell(v: unknown): boolean {
+  if (v === null || v === undefined) return false;
+  if (typeof v === 'number') return !Number.isNaN(v);
+  return String(v).trim() !== '';
+}
+
+/**
+ * Map common ERP export column names onto keys expected by {@link buildPartialFromRow}.
+ * Safe to call on every row; only fills targets when they are empty.
+ */
+export function applyInventoryErpAliases(o: Record<string, unknown>): void {
+  const setStr = (target: string, sources: string[]) => {
+    if (hasMeaningfulCell(o[target])) return;
+    const s = firstCellStr(o, sources);
+    if (s) o[target] = s;
+  };
+  const setNum = (target: string, sources: string[]) => {
+    if (hasMeaningfulCell(o[target])) return;
+    const n = firstCellNum(o, sources);
+    if (n !== undefined) o[target] = n;
+  };
+
+  setStr('name', [
+    'name',
+    'stockitemname',
+    'itemname',
+    'productname',
+    'description',
+    'particulars',
+    'stockitem',
+    'item',
+  ]);
+  setStr('sku', ['sku', 'itemcode', 'stockitemcode', 'productcode', 'code', 'skucode', 'alias']);
+  setStr('barcode', ['barcode', 'barcodenumber', 'ean']);
+  setStr('brand', ['brand', 'manufacturer', 'make']);
+  setStr('category', ['category', 'stockgroup', 'group', 'itemcategory', 'productcategory']);
+  setStr('categoryid', ['categoryid']);
+  setStr('unit', ['unit', 'uom', 'baseunit', 'unitofmeasurement', 'stockuom', 'unitname']);
+  setStr('unitid', ['unitid']);
+  setStr('secondaryunit', ['secondaryunit', 'altunit', 'alternateunit']);
+  setStr('hsncode', ['hsncode', 'hsn', 'hsnsac', 'hsn/sac']);
+
+  setNum('gstrate', ['gstrate', 'gst', 'gst%', 'gstpercent', 'taxrate', 'rateofgst']);
+  setNum('openingstock', ['openingstock', 'openingqty', 'openingbalance', 'opqty', 'opening']);
+  setNum('openingvalue', ['openingvalue', 'openingstockvalue', 'openingratevalue']);
+  setNum('currentstock', [
+    'currentstock',
+    'closingstock',
+    'stockonhand',
+    'stockinhand',
+    'availableqty',
+    'balanceqty',
+    'qty',
+    'quantity',
+  ]);
+  setNum('reorderlevel', ['reorderlevel', 'reorder', 'minlevel', 'minimumlevel']);
+
+  setNum('purchaseprice', ['purchaseprice', 'purchaserate', 'prate', 'costprice', 'buyingprice']);
+  setNum('saleprice', ['saleprice', 'salerate', 'sellingprice', 'salesrate']);
+  setNum('mrp', ['mrp', 'mrpprice', 'listprice']);
+  setNum('wholesale', ['wholesale', 'wsp', 'wholesalerate']);
+  setNum('distributor', ['distributor', 'dprate', 'distributorprice']);
+}
+
+/**
+ * After parsing from ERP Excel: ensure SKU, primary unit, and godown split when stock is non-zero.
+ */
+export function finalizeInventoryErpRows(
+  rows: Partial<InventoryItem>[],
+  opts: { defaultUnitId: string; defaultGodownId: string | null }
+): Partial<InventoryItem>[] {
+  return rows.map((row, index) => {
+    const next = { ...row };
+    const name = String(next.name ?? '').trim();
+    if (!next.sku || !String(next.sku).trim()) {
+      const slug = name
+        .replace(/[^a-zA-Z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 24)
+        .toUpperCase();
+      next.sku = `${slug || 'ITEM'}-${String(index + 1).padStart(4, '0')}`;
+    }
+    if (!next.unitId) {
+      next.unitId = opts.defaultUnitId;
+    }
+    const opening = Number(next.openingStock ?? 0);
+    const effectiveCurrent =
+      next.currentStock !== undefined ? Number(next.currentStock) : opening;
+    if (effectiveCurrent > 0 && opts.defaultGodownId && (!next.godownStocks || next.godownStocks.length === 0)) {
+      next.godownStocks = [{ godownId: opts.defaultGodownId, quantity: Number(effectiveCurrent.toFixed(4)) }];
+    }
+    return next;
+  });
+}
+
 function boolToCell(v: boolean | undefined): string {
   return v ? 'Y' : 'N';
 }
@@ -329,6 +446,7 @@ export async function parseInventoryExcelBuffer(
   for (let r = 2; r <= ws.rowCount; r += 1) {
     const o = rowObjectFromWorksheet(ws, colMap, r);
     if (!o) continue;
+    applyInventoryErpAliases(o);
     out.push(buildPartialFromRow(o, categories, units));
   }
 

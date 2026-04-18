@@ -2,14 +2,16 @@ export const APPEARANCE_CHANGED_EVENT = 'invoicepro-appearance-changed';
 
 export const LS_UI_MODE = 'invoicepro_ui_mode';
 export const LS_ACCENT_COLOR = 'invoicepro_accent_color';
+const LS_THEME_MIGRATION = 'invoicepro_theme_migration_v3';
 
 export type UiMode = 'premium-dark' | 'light';
 
-/** Matches InvoicePro user guide / brand green */
-export const DEFAULT_ACCENT = '#0f5132';
+/** Default to a more professional enterprise blue. */
+export const DEFAULT_ACCENT = '#1f4b7a';
 
 export const ACCENT_PRESETS: { label: string; value: string }[] = [
-  { label: 'InvoicePro green', value: '#0f5132' },
+  { label: 'Professional blue', value: '#1f4b7a' },
+  { label: 'PVE brand green', value: '#0f5132' },
   { label: 'Emerald', value: '#059669' },
   { label: 'Teal', value: '#0d9488' },
   { label: 'Blue', value: '#2563eb' },
@@ -36,11 +38,22 @@ export function readUiMode(): UiMode {
 
 export function readAccentColor(): string {
   try {
+    const migrated = localStorage.getItem(LS_THEME_MIGRATION) === '1';
     const raw = localStorage.getItem(LS_ACCENT_COLOR);
     if (raw) {
       const n = normalizeHex(raw);
-      if (n) return n;
+      if (n) {
+        // One-time migration: move legacy default green users to new professional blue pack.
+        if (!migrated && n === '#0f5132') {
+          localStorage.setItem(LS_ACCENT_COLOR, DEFAULT_ACCENT);
+          localStorage.setItem(LS_THEME_MIGRATION, '1');
+          return DEFAULT_ACCENT;
+        }
+        if (!migrated) localStorage.setItem(LS_THEME_MIGRATION, '1');
+        return n;
+      }
     }
+    if (!migrated) localStorage.setItem(LS_THEME_MIGRATION, '1');
   } catch {
     /* ignore */
   }

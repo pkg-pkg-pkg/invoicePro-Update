@@ -1,6 +1,7 @@
-import { useEffect, useState, ChangeEvent } from 'react';
+import { useEffect, useState, ChangeEvent, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Typography, Paper, Box, TextField, Button, Divider, Alert, Grid, IconButton, Tabs, Tab, FormControlLabel, Switch, Chip, Stack, Card, CardContent, ToggleButton, ToggleButtonGroup } from '@mui/material';
+import { Typography, Paper, Box, TextField, Button, Divider, Alert, Grid, IconButton, Tabs, Tab, FormControlLabel, Switch, Chip, Stack, Card, CardContent, ToggleButton, ToggleButtonGroup, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
+import { useTheme, alpha } from '@mui/material/styles';
 import EditIcon from '@mui/icons-material/Edit';
 import NavigationCustomization from '../components/NavigationCustomization';
 import PrintCustomization from '../components/PrintCustomization';
@@ -43,6 +44,8 @@ import {
   readUiMode,
   type UiMode,
 } from '../theme/appearanceSettings';
+import { APP_DISPLAY_NAME } from '@/constants/appBranding';
+import { settingsIdentityHeroGradient } from '../theme/authScreenChrome';
 
 // Password Change Form Component
 const PasswordChangeForm = () => {
@@ -226,7 +229,7 @@ function AppearanceSettingsSection() {
 
   return (
     <Grid item xs={12}>
-      <Paper sx={{ p: 3, mb: 3 }}>
+      <Paper sx={{ p: 3, mb: 3, bgcolor: 'var(--bg-card)', borderRadius: '16px', transition: 'all 0.2s ease' }}>
         <Typography variant="h6" gutterBottom>
           Colours & theme
         </Typography>
@@ -301,6 +304,7 @@ function AppearanceSettingsSection() {
 }
 
 export default function Settings() {
+  const theme = useTheme();
   const { canAccessFeature } = usePermissions();
   const canManageSettings = canAccessFeature('manage-settings');
   const canManageCompany = canAccessFeature('manage-company');
@@ -379,6 +383,7 @@ export default function Settings() {
   const [upgradeSubmitting, setUpgradeSubmitting] = useState(false);
   const [upgradeInfo, setUpgradeInfo] = useState<string | null>(null);
   const [upgradeRequest, setUpgradeRequest] = useState<any | null>(null);
+  const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
 
   const [gatewayValidUntilMs, setGatewayValidUntilMs] = useState<number | null>(null);
   const [gatewayUpdatesEntitled, setGatewayUpdatesEntitled] = useState<boolean>(true);
@@ -388,7 +393,7 @@ export default function Settings() {
   const [gatewayRenewRequest, setGatewayRenewRequest] = useState<any | null>(null);
 
   const loadCompanyProfile = (): CompanyProfile => ({
-    name: localStorage.getItem('companyName')?.trim() || 'GST Billing Software',
+    name: localStorage.getItem('companyName')?.trim() || APP_DISPLAY_NAME,
     address: localStorage.getItem('companyAddress')?.trim() || '',
     statePin: localStorage.getItem('companyStatePin')?.trim() || '',
     mobiles: localStorage.getItem('companyMobiles')?.trim() || '',
@@ -421,10 +426,19 @@ export default function Settings() {
   // Network settings handlers
   const handleMultiUserToggle = async (enabled: boolean) => {
     try {
+      if (enabled && !firestoreMultiUserLan) {
+        setUpgradeDialogOpen(true);
+        setUpgradeInfo('This license is currently Gold (single PC). Upgrade to Platinum for LAN multi-user.');
+        return;
+      }
       networkService.setEnabled(enabled);
       setNetworkStatus(networkService.getStatus());
+      if (!enabled) {
+        setLicenseError(null);
+      }
     } catch (error) {
       console.error('Failed to toggle multi-user mode:', error);
+      setLicenseError((error as any)?.message ?? 'Failed to toggle multi-user mode');
     }
   };
 
@@ -678,6 +692,20 @@ export default function Settings() {
       const { multiUserLan, gatewayValidUntilMs: gMs, gatewayUpdatesEntitled: gEnt } =
         await refreshMultiUserLanInCache();
       setFirestoreMultiUserLan(multiUserLan);
+      try {
+        localStorage.setItem('license_multi_user_lan', multiUserLan ? '1' : '0');
+      } catch {
+        // ignore
+      }
+      if (!multiUserLan) {
+        try {
+          networkService.setEnabled(false);
+          await networkService.disconnect();
+          setNetworkStatus(networkService.getStatus());
+        } catch {
+          // ignore
+        }
+      }
       setGatewayValidUntilMs(gMs);
       setGatewayUpdatesEntitled(gEnt);
       await syncHostMultiUserLanFromCloud(multiUserLan);
@@ -921,31 +949,57 @@ export default function Settings() {
   };
 
   return (
-    <Box p={2}>
-      <Typography variant="h4" gutterBottom>
+    <Box sx={{ p: 2.5, maxWidth: 1380, mx: 'auto', bgcolor: 'var(--bg-section)', borderRadius: '16px', transition: 'all 0.2s ease' }}>
+      <Box sx={{ mb: 1.5 }}>
+        <Typography variant="h4" sx={{ fontWeight: 800 }}>
         Settings
       </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Manage profile, layout, network, backup, and app behavior from one place.
+        </Typography>
+      </Box>
 
-      <Paper sx={{ mt: 2 }}>
+      <Paper
+        sx={(theme) => ({
+          mt: 2,
+          borderRadius: 3,
+          border: '1px solid var(--border)',
+          overflow: 'hidden',
+          background: 'var(--bg-card)',
+          transition: 'all 0.2s ease',
+        })}
+      >
         <Tabs
           value={activeTab}
           onChange={(_, newValue) => setActiveTab(newValue)}
           variant="scrollable"
           scrollButtons="auto"
           allowScrollButtonsMobile
-          sx={{ borderBottom: 1, borderColor: 'divider' }}
+          sx={(theme) => ({
+            minHeight: 52,
+            borderBottom: '1px solid var(--border)',
+            '& .MuiTabs-scrollButtons': {
+              color: theme.palette.text.secondary,
+              '&.Mui-disabled': { opacity: 0.3 },
+            },
+            '& .MuiTabs-indicator': {
+              height: 3,
+              borderRadius: 3,
+              background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+            },
+          })}
         >
-          <Tab label="Company Profile" />
-          <Tab label="Navigation" />
-          <Tab label="About & Updates" />
-          <Tab label="Print Settings" disabled={!canCustomizePrint} />
-          <Tab label="WhatsApp" />
-          <Tab label="User Management" disabled={!canManageUsers} />
-          <Tab label="Change Password" />
-          <Tab label="Network & Multi-User" />
-          <Tab label="Backup & Restore" disabled={!(canBackup || canRestore)} />
-          <Tab label="Layout" />
-          <Tab label="App Settings" />
+          <Tab label="Company Profile" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
+          <Tab label="Navigation" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
+          <Tab label="About & Updates" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
+          <Tab label="Print Settings" disabled={!canCustomizePrint} sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
+          <Tab label="WhatsApp" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
+          <Tab label="User Management" disabled={!canManageUsers} sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
+          <Tab label="Change Password" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
+          <Tab label="Network & Multi-User" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
+          <Tab label="Backup & Restore" disabled={!(canBackup || canRestore)} sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
+          <Tab label="Layout" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
+          <Tab label="App Settings" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
         </Tabs>
       </Paper>
 
@@ -953,11 +1007,11 @@ export default function Settings() {
         <Box sx={{ p: 0 }}>
           <Box sx={{ 
             p: 4, 
-            background: 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)', 
-            color: 'white',
+            background: settingsIdentityHeroGradient(theme), 
+            color: theme.palette.primary.contrastText,
             borderRadius: '0 0 24px 24px',
             mb: 4,
-            boxShadow: '0 10px 15px -3px rgba(37, 99, 235, 0.2)'
+            boxShadow: `0 10px 15px -3px ${alpha(theme.palette.primary.main, 0.28)}`
           }}>
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Box>
@@ -973,9 +1027,10 @@ export default function Settings() {
                   startIcon={<EditIcon />}
                   disabled={!canManageCompany}
                   sx={{ 
-                    bgcolor: 'rgba(255,255,255,0.2)', 
+                    bgcolor: alpha(theme.palette.background.paper, 0.2),
                     backdropFilter: 'blur(10px)',
-                    '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' }
+                    '&:hover': { bgcolor: alpha(theme.palette.background.paper, 0.3) },
+                    transition: 'all 0.2s ease',
                   }}
                 >
                   Edit Profile
@@ -994,15 +1049,16 @@ export default function Settings() {
                   <Box sx={{ 
                     width: '100%', 
                     height: 200, 
-                    border: '2px dashed #e2e8f0', 
+                    border: '2px dashed var(--border)',
                     borderRadius: 3,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    bgcolor: '#f8fafc',
+                    bgcolor: 'var(--bg-section)',
                     mb: 2,
                     position: 'relative',
-                    overflow: 'hidden'
+                    overflow: 'hidden',
+                    transition: 'all 0.2s ease',
                   }}>
                     {companyMedia.logo ? (
                       <Box component="img" src={companyMedia.logo} sx={{ maxWidth: '90%', maxHeight: '90%', objectFit: 'contain' }} />
@@ -1030,14 +1086,15 @@ export default function Settings() {
                   <Box sx={{ 
                     width: '100%', 
                     height: 120, 
-                    border: '2px dashed #e2e8f0', 
+                    border: '2px dashed var(--border)',
                     borderRadius: 3,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    bgcolor: '#f8fafc',
+                    bgcolor: 'var(--bg-section)',
                     mb: 2,
-                    overflow: 'hidden'
+                    overflow: 'hidden',
+                    transition: 'all 0.2s ease',
                   }}>
                     {companyMedia.signature ? (
                       <Box component="img" src={companyMedia.signature} sx={{ maxWidth: '90%', maxHeight: '90%', objectFit: 'contain' }} />
@@ -1213,10 +1270,10 @@ export default function Settings() {
         {activeTab === 7 && (
           <Box sx={{ mt: 3 }}>
             <Typography variant="h6" gutterBottom>
-              Network & Multi-User Settings
+              LAN Multi-User (Tally-style)
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Configure multi-user access over your local network for team collaboration.
+              Multi-user access works only over LAN. Run one PC as Host server and connect other PCs as Clients.
             </Typography>
 
             <Grid container spacing={3}>
@@ -1235,52 +1292,29 @@ export default function Settings() {
                     Gateway validity (updates &amp; new features)
                   </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Your <strong>license key stays valid</strong> for using the software. <strong>Gateway</strong> covers
-                    app updates and new features (similar to Tally). New activations include <strong>1 year</strong> free
-                    Gateway; after that renew yearly at <strong>{GATEWAY_PRICING_LABEL}</strong>.
+                    License use stays valid. Gateway covers updates/new features. Renew via UPI when expired.
                   </Typography>
                   {gatewayValidUntilMs != null ? (
                     <Alert severity={gatewayUpdatesEntitled ? 'success' : 'warning'} sx={{ mb: 2 }}>
-                      <strong>Valid until:</strong>{' '}
-                      {new Date(gatewayValidUntilMs).toLocaleString()}
-                      {!gatewayUpdatesEntitled && (
-                        <>
-                          <br />
-                          Gateway expired — renew below to receive updates and new features again.
-                        </>
-                      )}
+                      <strong>Valid until:</strong> {new Date(gatewayValidUntilMs).toLocaleString()}
                     </Alert>
                   ) : (
                     <Alert severity="info" sx={{ mb: 2 }}>
-                      Open the app online once after activation to sync Gateway dates from the server.
+                      Open app online once to sync Gateway validity from cloud.
                     </Alert>
                   )}
-
                   {gatewayRenewRequest?.status === 'pending' && (
                     <Alert severity="info" sx={{ mb: 2 }}>
-                      Renewal <strong>pending</strong> admin verification (UTR: {String(gatewayRenewRequest.utr ?? '')}).
+                      Renewal pending verification (UTR: {String(gatewayRenewRequest.utr ?? '')}).
                     </Alert>
                   )}
-                  {gatewayRenewRequest?.status === 'rejected' && (
-                    <Alert severity="error" sx={{ mb: 2 }}>
-                      Renewal rejected
-                      {gatewayRenewRequest.rejectReason ? `: ${gatewayRenewRequest.rejectReason}` : ''}.
-                    </Alert>
-                  )}
-
-                  <Typography variant="body2" sx={{ mb: 2 }}>
-                    Pay via UPI using the QR, then enter the bank <strong>UTR</strong>. Admin will verify and extend
-                    Gateway by <strong>1 year</strong> on your license.
-                  </Typography>
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'flex-start' }}>
-                    <Box>
                       <Box
                         component="img"
                         src={gatewayUpiQrImageUrl(220)}
                         alt="Gateway renewal UPI QR"
                         sx={{ width: 220, height: 220, border: 1, borderColor: 'divider', borderRadius: 1 }}
                       />
-                    </Box>
                     <Box sx={{ flex: '1 1 240px', minWidth: 240 }}>
                       <Typography variant="body2" sx={{ mb: 1 }}>
                         UPI ID: <strong>{GATEWAY_UPI_PAYEE}</strong>
@@ -1295,11 +1329,9 @@ export default function Settings() {
                         size="small"
                         fullWidth
                         sx={{ mb: 2 }}
-                        placeholder="Bank UTR / reference"
                       />
                       <Button
                         variant="contained"
-                        color="primary"
                         onClick={() => void handleSubmitGatewayRenewal()}
                         disabled={gatewayRenewSubmitting}
                       >
@@ -1318,28 +1350,23 @@ export default function Settings() {
               <Grid item xs={12}>
                 <Paper sx={{ p: 3 }}>
                   <Typography variant="h6" gutterBottom>
-                    Multi-user LAN license (paid upgrade)
+                    Single to Multi-user LAN upgrade
                   </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Single-user plans do not include unlimited LAN PCs. Pay {MULTI_USER_PRICING_LABEL} via UPI; after
-                    admin verifies your UTR, your Firestore license unlocks multi-workstation use and the host can
-                    serve clients on your LAN.
-                  </Typography>
-                  {firestoreMultiUserLan ? (
-                    <Alert severity="success" sx={{ mb: 2 }}>
-                      Multi-user LAN is active on your license. You can activate additional PCs with the same key and
-                      run the app on one admin PC as LAN host (Tauri).
-                    </Alert>
-                  ) : (
+                  <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+                    <Chip
+                      size="small"
+                      color={firestoreMultiUserLan ? 'success' : 'warning'}
+                      label={firestoreMultiUserLan ? 'Platinum license (LAN unlocked)' : 'Gold license (single PC)'}
+                    />
+                  </Stack>
+                  {!firestoreMultiUserLan ? (
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'flex-start' }}>
-                      <Box>
                         <Box
                           component="img"
                           src={multiUserUpiQrImageUrl(220)}
                           alt="UPI payment QR"
                           sx={{ width: 220, height: 220, border: 1, borderColor: 'divider', borderRadius: 1 }}
                         />
-                      </Box>
                       <Box sx={{ flex: '1 1 240px', minWidth: 240 }}>
                         <Typography variant="body2" sx={{ mb: 1 }}>
                           UPI ID: <strong>{MULTI_USER_UPI_PAYEE}</strong>
@@ -1348,13 +1375,12 @@ export default function Settings() {
                           Amount: <strong>₹11,800.00</strong> ({MULTI_USER_PRICING_LABEL})
                         </Typography>
                         <TextField
-                          label="UTR / reference after payment"
+                          label="UTR after payment"
                           value={upgradeUtr}
                           onChange={(e) => setUpgradeUtr(e.target.value)}
                           size="small"
                           fullWidth
                           sx={{ mb: 2 }}
-                          placeholder="Bank UTR from payment confirmation"
                         />
                         <Button
                           variant="contained"
@@ -1364,57 +1390,19 @@ export default function Settings() {
                         >
                           Submit UTR for approval
                         </Button>
-                        {upgradeRequest?.status === 'pending' && (
-                          <Alert severity="info" sx={{ mt: 2 }}>
-                            Your upgrade is <strong>pending</strong> admin verification (UTR: {String(upgradeRequest.utr ?? '')}
-                            ).
-                          </Alert>
-                        )}
-                        {upgradeRequest?.status === 'rejected' && (
-                          <Alert severity="error" sx={{ mt: 2 }}>
-                            Rejected
-                            {upgradeRequest.rejectReason ? `: ${upgradeRequest.rejectReason}` : ''}. Contact support if
-                            this looks wrong.
-                          </Alert>
-                        )}
-                        {upgradeRequest?.status === 'approved' && !firestoreMultiUserLan && (
-                          <Alert severity="warning" sx={{ mt: 2 }}>
-                            Request was approved — click <strong>Refresh status</strong> to sync your device.
-                          </Alert>
-                        )}
-                      </Box>
-                    </Box>
-                  )}
                   {upgradeInfo && (
                     <Alert severity={upgradeInfo.includes('sent') ? 'success' : 'warning'} sx={{ mt: 2 }}>
                       {upgradeInfo}
                     </Alert>
+                        )}
+                      </Box>
+                    </Box>
+                  ) : (
+                    <Alert severity="success">LAN multi-user is active on this license.</Alert>
                   )}
                   <Button variant="outlined" size="small" sx={{ mt: 2 }} onClick={() => void refreshNetworkLicenseFlags()}>
                     Refresh status
                   </Button>
-                </Paper>
-              </Grid>
-
-              <Grid item xs={12} md={6}>
-                <Paper sx={{ p: 3 }}>
-                  <Typography variant="h6" gutterBottom>
-                    Multi-User Mode
-                  </Typography>
-                  <Box sx={{ mb: 2 }}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={networkStatus.isEnabled}
-                          onChange={(e) => handleMultiUserToggle(e.target.checked)}
-                        />
-                      }
-                      label="Enable Multi-User Mode"
-                    />
-                  </Box>
-                  <Typography variant="body2" color="text.secondary">
-                    When enabled, other users on your network can access this application.
-                  </Typography>
                 </Paper>
               </Grid>
 
@@ -1429,15 +1417,20 @@ export default function Settings() {
                     onChange={(e) => setClientServerUrl(e.target.value)}
                     size="small"
                     fullWidth
-                    disabled={!networkStatus.isEnabled || networkStatus.isServerRunning}
+                    disabled={networkStatus.isServerRunning}
                     sx={{ mb: 2 }}
                     placeholder="http://192.168.1.10:3000"
                   />
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                     <Button
                       variant="contained"
-                      onClick={handleConnectClient}
-                      disabled={!networkStatus.isEnabled || networkStatus.isServerRunning || !clientServerUrl.trim() || !!networkStatus.isClientConnected}
+                      onClick={async () => {
+                        if (!networkStatus.isEnabled) {
+                          await handleMultiUserToggle(true);
+                        }
+                        await handleConnectClient();
+                      }}
+                      disabled={networkStatus.isServerRunning || !clientServerUrl.trim() || !!networkStatus.isClientConnected}
                     >
                       Connect
                     </Button>
@@ -1451,7 +1444,7 @@ export default function Settings() {
                     </Button>
                   </Box>
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-                    Use this on Client PCs. Enter the Host URL shown on the Host PC and click Connect.
+                    Use this on Client PCs. Enter Host URL and click Connect.
                   </Typography>
                 </Paper>
               </Grid>
@@ -1481,71 +1474,21 @@ export default function Settings() {
                       <Button
                         variant="contained"
                         color="success"
-                        onClick={handleStartServer}
-                        disabled={!networkStatus.isEnabled || (isTauriRuntime() && !licenseState?.activated)}
+                        onClick={async () => {
+                          if (!networkStatus.isEnabled) {
+                            await handleMultiUserToggle(true);
+                          }
+                          await handleStartServer();
+                        }}
+                        disabled={isTauriRuntime() && !licenseState?.activated}
                       >
                         Start Server
                       </Button>
                     )}
                   </Box>
                   <Typography variant="body2" color="text.secondary">
-                    Server must be running for multi-user access. {!networkStatus.isEnabled && 'Enable multi-user mode first.'}
-                    {networkStatus.isEnabled && isTauriRuntime() && !licenseState?.activated && ' Activate Host license first.'}
-                  </Typography>
-                </Paper>
-              </Grid>
-
-              <Grid item xs={12} md={6}>
-                <Paper sx={{ p: 3 }}>
-                  <Typography variant="h6" gutterBottom>
-                    Host License
-                  </Typography>
-                  <Box sx={{ mb: 2 }}>
-                    <Chip
-                      label={licenseState?.activated ? 'Activated' : 'Not Activated'}
-                      color={licenseState?.activated ? 'success' : 'default'}
-                      size="small"
-                      sx={{ mb: 2 }}
-                    />
-                    <TextField
-                      label="Machine ID"
-                      value={licenseState?.machineId ?? ''}
-                      size="small"
-                      fullWidth
-                      disabled
-                      sx={{ mb: 2 }}
-                    />
-                    <TextField
-                      label="License Key"
-                      value={licenseKeyInput}
-                      onChange={(e) => setLicenseKeyInput(e.target.value)}
-                      size="small"
-                      fullWidth
-                      disabled={licenseState?.activated || licenseLoading || activating}
-                      sx={{ mb: 2 }}
-                    />
-                    <TextField
-                      label="Activation Code"
-                      value={activationCodeInput}
-                      onChange={(e) => setActivationCodeInput(e.target.value)}
-                      size="small"
-                      fullWidth
-                      disabled={licenseState?.activated || licenseLoading || activating}
-                      sx={{ mb: 2 }}
-                    />
-                    {!licenseState?.activated && (
-                      <Button variant="contained" onClick={handleActivateHost} disabled={licenseLoading || activating}>
-                        Activate Host
-                      </Button>
-                    )}
-                    {licenseError && (
-                      <Box sx={{ mt: 2 }}>
-                        <Alert severity="warning">{licenseError}</Alert>
-                      </Box>
-                    )}
-                  </Box>
-                  <Typography variant="body2" color="text.secondary">
-                    Activate only on the Host PC. Client PCs can connect over LAN without license.
+                    LAN multi-user runs only with Host server + Client connection.
+                    {isTauriRuntime() && !licenseState?.activated && ' Activate Host license first.'}
                   </Typography>
                 </Paper>
               </Grid>
@@ -1593,11 +1536,16 @@ export default function Settings() {
                     </Box>
                   )}
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Start the server to enable multi-user access over your local network.
+                    Start Host server on one PC and connect Client PCs over LAN.
                   </Typography>
                   <Alert severity="info">
                     For multi-user: Start Server on Host PC, then Connect from Client PCs.
                   </Alert>
+                  {licenseError && (
+                    <Alert severity="warning" sx={{ mt: 2 }}>
+                      {licenseError}
+                    </Alert>
+                  )}
                 </Paper>
               </Grid>
             </Grid>

@@ -1,6 +1,7 @@
-import { LedgerAccount, LedgerGroup, LedgerBalanceType } from '../../types/masters';
+import { BankDetails, LedgerAccount, LedgerGroup, LedgerBalanceType } from '../../types/masters';
 import { generateId } from '../../utils/id';
 import { ledgerGroupService } from './ledgerGroupService';
+import { assertLedgerCanBeDeactivated } from './masterUsageGuard';
 import { nowIso, readList, sanitizeString, writeList } from './storageHelpers';
 
 const STORAGE_KEY = 'pve_ledger_accounts';
@@ -21,6 +22,37 @@ const normalizeNumber = (value: unknown, fallback = 0): number => {
   const num = Number(value);
   if (Number.isNaN(num)) return fallback;
   return num;
+};
+
+/** Non-empty bank credentials key for duplicate detection (multiple banks allowed; same IFSC+AC no not). */
+const bankCredentialKey = (acct: Pick<LedgerAccount, 'bankDetails'>): string | null => {
+  const b = acct.bankDetails;
+  if (!b) return null;
+  const acctNo = sanitizeString(b.accountNumber ?? null);
+  const ifsc = sanitizeString(b.ifscCode ?? null);
+  if (!acctNo || !ifsc) return null;
+  return `${ifsc.toUpperCase()}|${acctNo}`.toLowerCase();
+};
+
+const normalizeBankDetails = (payload: Partial<LedgerAccount>): BankDetails | null => {
+  if (!payload.isCashBank) return null;
+  const raw = payload.bankDetails;
+  if (!raw) return null;
+  const accountNumber = sanitizeString(raw.accountNumber ?? null);
+  const ifscCode = sanitizeString(raw.ifscCode ?? null);
+  const bankName = sanitizeString(raw.bankName ?? null);
+  const branchName = sanitizeString(raw.branchName ?? null);
+  const t = raw.accountType;
+  const accountType: BankDetails['accountType'] =
+    t === 'SAVINGS' || t === 'CURRENT' ? t : null;
+  if (!accountNumber && !ifscCode && !bankName && !branchName && !accountType) return null;
+  return {
+    accountNumber: accountNumber || null,
+    ifscCode: ifscCode ? ifscCode.toUpperCase() : null,
+    bankName: bankName || null,
+    branchName: branchName || null,
+    accountType: accountType ?? 'CURRENT',
+  };
 };
 
 const validateGroup = async (groupId: string): Promise<LedgerGroup> => {
@@ -83,6 +115,7 @@ const buildAccount = async (payload: Partial<LedgerAccount>, isCreate: boolean):
     currentBalance,
     gstDetails: payload.gstDetails ?? null,
     contactDetails: payload.contactDetails ?? null,
+    bankDetails: normalizeBankDetails(payload),
     isCashBank: Boolean(payload.isCashBank),
     isActive: payload.isActive ?? true,
     createdAt: payload.createdAt ?? nowIso(),
@@ -111,6 +144,14 @@ const ensureUniqueConstraints = (accounts: LedgerAccount[], candidate: LedgerAcc
     (acct, idx) => idx !== skipIndex && acct.name.toLowerCase() === candidate.name.toLowerCase()
   );
   if (nameExists) {
+    const dup = accounts.find(
+      (acct, idx) => idx !== skipIndex && acct.name.trim().toLowerCase() === candidate.name.trim().toLowerCase()
+    );
+    if (candidate.name.trim().toLowerCase() === 'cash' && dup?.isCashBank) {
+      throw new Error(
+        'A Cash ledger named "Cash" already exists (usually created automatically). Open Ledger Accounts and search for Cash to edit it, or use another name such as Counter Cash / Petty Cash.'
+      );
+    }
     throw new Error('Account name already exists');
   }
 
@@ -120,6 +161,14 @@ const ensureUniqueConstraints = (accounts: LedgerAccount[], candidate: LedgerAcc
     );
     if (codeExists) {
       throw new Error('Account code already exists');
+    }
+  }
+
+  const ck = bankCredentialKey(candidate);
+  if (ck) {
+    const dup = accounts.some((acct, idx) => idx !== skipIndex && bankCredentialKey(acct) === ck);
+    if (dup) {
+      throw new Error('A bank account with this IFSC and account number already exists');
     }
   }
 };
@@ -180,6 +229,7 @@ export const ledgerAccountService = {
   },
 
   async softDelete(id: string): Promise<void> {
+    await assertLedgerCanBeDeactivated(id);
     const accounts = await readList<LedgerAccount>(STORAGE_KEY);
     const index = accounts.findIndex((acct) => acct.id === id);
     if (index < 0) {

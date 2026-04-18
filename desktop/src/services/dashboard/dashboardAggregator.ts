@@ -18,6 +18,7 @@ import { inventoryItemService } from '../masters/inventoryItemService';
 import { ledgerAccountService } from '../masters/ledgerAccountService';
 import { ledgerGroupService } from '../masters/ledgerGroupService';
 import { voucherService } from '../vouchers/voucherService';
+import { sumPurchaseExclusivePreGst, sumSalesItemExclusiveRevenue } from '../reports/preGstProfitService';
 
 const SALES_TYPES = new Set<VoucherType>(['SALES']);
 const SALES_RETURN_TYPES = new Set<VoucherType>(['SALES_RETURN']);
@@ -45,6 +46,22 @@ const startOfDay = (date: Date): Date => {
   const copy = new Date(date);
   copy.setHours(0, 0, 0, 0);
   return copy;
+};
+
+const endOfDay = (date: Date): Date => {
+  const copy = new Date(date);
+  copy.setHours(23, 59, 59, 999);
+  return copy;
+};
+
+/** Inclusive range on calendar `fromYmd` / `toYmd` (yyyy-mm-dd). */
+const isInDateRangeInclusive = (dateISO: string | undefined | null, fromYmd: string, toYmd: string): boolean => {
+  const d = toDateSafe(dateISO ?? '');
+  if (!d) return false;
+  const from = startOfDay(parseISO(fromYmd.length > 10 ? fromYmd.slice(0, 10) : fromYmd));
+  const to = endOfDay(parseISO(toYmd.length > 10 ? toYmd.slice(0, 10) : toYmd));
+  const t = d.getTime();
+  return t >= from.getTime() && t <= to.getTime();
 };
 
 const isInPeriod = (dateISO: string, period: SummaryPeriod): boolean => {
@@ -181,6 +198,47 @@ const coalesceName = (preferred?: string | null, fallback?: string): string => {
   return (preferred ?? fallback ?? '').trim() || 'Unnamed';
 };
 
+const buildDashboardSummaryFromFiltered = (
+  filtered: Voucher[],
+  ledgers: LedgerAccount[],
+  groupMap: Map<string, LedgerGroup>
+): DashboardSummary => {
+  const sumForTypes = (types: Set<VoucherType>) =>
+    filtered.filter((voucher) => types.has(voucher.type)).reduce((sum, voucher) => sum + voucherAmount(voucher), 0);
+
+  const totalSales = sumForTypes(SALES_TYPES);
+  const totalSalesReturns = sumForTypes(SALES_RETURN_TYPES);
+  const netSales = Number(Math.max(totalSales - totalSalesReturns, 0).toFixed(2));
+  const salesCount = filtered.filter((voucher) => SALES_TYPES.has(voucher.type)).length;
+
+  const totalPurchases = sumForTypes(PURCHASE_TYPES);
+  const totalPurchaseReturns = sumForTypes(PURCHASE_RETURN_TYPES);
+  const netPurchase = Number(Math.max(totalPurchases - totalPurchaseReturns, 0).toFixed(2));
+  const purchaseCount = filtered.filter((voucher) => PURCHASE_TYPES.has(voucher.type)).length;
+
+  const { customers, suppliers, cashBalance, bankBalance } = summarizeLedgers(ledgers, groupMap);
+
+  const preGstSalesItems = sumSalesItemExclusiveRevenue(filtered);
+  const preGstPurchases = sumPurchaseExclusivePreGst(filtered);
+
+  return {
+    totalSales: netSales,
+    salesCount,
+    totalPurchase: netPurchase,
+    purchaseCount,
+    totalOutstanding: customers.reduce((sum, c) => sum + c.currentBalance, 0),
+    outstandingCount: customers.length,
+    totalPayable: suppliers.reduce((sum, s) => sum + s.currentBalance, 0),
+    payableCount: suppliers.length,
+    cashInHand: cashBalance,
+    bankBalance,
+    /** Pre-GST trading margin: taxable sales lines minus purchase subtotals (GST excluded). */
+    profitLoss: Number((preGstSalesItems - preGstPurchases).toFixed(2)),
+    overdueAmount: 0,
+    overdueCount: 0,
+  };
+};
+
 export const dashboardAggregator = {
   async summary(period: SummaryPeriod): Promise<DashboardSummary> {
     const [vouchers, ledgers, groups] = await Promise.all([
@@ -191,37 +249,19 @@ export const dashboardAggregator = {
 
     const groupMap = buildGroupMap(groups);
     const filtered = vouchers.filter((voucher) => isInPeriod(voucher.date, period));
+    return buildDashboardSummaryFromFiltered(filtered, ledgers, groupMap);
+  },
 
-    const sumForTypes = (types: Set<VoucherType>) =>
-      filtered.filter((voucher) => types.has(voucher.type)).reduce((sum, voucher) => sum + voucherAmount(voucher), 0);
-
-    const totalSales = sumForTypes(SALES_TYPES);
-    const totalSalesReturns = sumForTypes(SALES_RETURN_TYPES);
-    const netSales = Number(Math.max(totalSales - totalSalesReturns, 0).toFixed(2));
-    const salesCount = filtered.filter((voucher) => SALES_TYPES.has(voucher.type)).length;
-
-    const totalPurchases = sumForTypes(PURCHASE_TYPES);
-    const totalPurchaseReturns = sumForTypes(PURCHASE_RETURN_TYPES);
-    const netPurchase = Number(Math.max(totalPurchases - totalPurchaseReturns, 0).toFixed(2));
-    const purchaseCount = filtered.filter((voucher) => PURCHASE_TYPES.has(voucher.type)).length;
-
-    const { customers, suppliers, cashBalance, bankBalance } = summarizeLedgers(ledgers, groupMap);
-
-    return {
-      totalSales: netSales,
-      salesCount,
-      totalPurchase: netPurchase,
-      purchaseCount,
-      totalOutstanding: customers.reduce((sum, c) => sum + c.currentBalance, 0),
-      outstandingCount: customers.length,
-      totalPayable: suppliers.reduce((sum, s) => sum + s.currentBalance, 0),
-      payableCount: suppliers.length,
-      cashInHand: cashBalance,
-      bankBalance,
-      profitLoss: Number((netSales - netPurchase).toFixed(2)),
-      overdueAmount: 0,
-      overdueCount: 0,
-    };
+  /** Indian FY or any window: `fromYmd` / `toYmd` as `yyyy-mm-dd` (voucher `date` compared inclusively). */
+  async summaryForDateRange(fromYmd: string, toYmd: string): Promise<DashboardSummary> {
+    const [vouchers, ledgers, groups] = await Promise.all([
+      voucherService.list(),
+      ledgerAccountService.list({ includeInactive: true }),
+      ledgerGroupService.list({ includeInactive: true }),
+    ]);
+    const groupMap = buildGroupMap(groups);
+    const filtered = vouchers.filter((voucher) => isInDateRangeInclusive(voucher.date, fromYmd, toYmd));
+    return buildDashboardSummaryFromFiltered(filtered, ledgers, groupMap);
   },
 
   async salesAnalytics(params: { period: SummaryPeriod; groupBy: 'day' | 'week' | 'month' }): Promise<SalesAnalytics> {

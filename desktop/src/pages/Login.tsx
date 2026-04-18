@@ -39,6 +39,7 @@ import { setEncryptedItem } from "../services/secureStorage";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth } from "../firebase/firebase";
 import { resetUserPassword, sendPasswordResetEmail } from "../services/passwordResetService";
+import { APP_DISPLAY_NAME, APP_TAGLINE } from "../constants/appBranding";
 
 const LOCAL_LICENSE_CACHE_KEY = "enc_license_cache_v1";
 
@@ -395,10 +396,10 @@ const Login: React.FC = () => {
               <BusinessIcon sx={{ fontSize: 40 }} />
             </Avatar>
             <Typography variant="h4" fontWeight="bold" color="primary">
-              InvoicePro
+              {APP_DISPLAY_NAME}
             </Typography>
             <Typography variant="h6" color="text.secondary">
-              GST Billing Software
+              {APP_TAGLINE}
             </Typography>
             <Typography variant="body2" color="text.secondary" mt={1}>
               Sign in with your email and password

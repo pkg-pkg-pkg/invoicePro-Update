@@ -67,6 +67,8 @@ const initialState: ProductState = {
 
 const isOfflineRuntime = () => {
   try {
+    if ((navigator as any)?.userAgent && String((navigator as any).userAgent).toLowerCase().includes('electron')) return true;
+    if ((window as any)?.process?.type === 'renderer') return true;
     if ((window as any).__TAURI__ != null) return true;
     if ((window as any).__TAURI_INTERNALS__ != null) return true;
     if ((window as any).__TAURI_IPC__ != null) return true;
@@ -89,6 +91,7 @@ const isLanDocsEnabled = () => {
 };
 
 const PRODUCTS_STORAGE_KEY = 'pve_products';
+const INVENTORY_ITEMS_STORAGE_KEY = 'pve_inventory_items';
 const CATEGORIES_STORAGE_KEY = 'pve_product_categories';
 
 const SALES_INVOICES_STORAGE_KEY = 'pve_invoicepro_invoices';
@@ -98,10 +101,51 @@ const DEBIT_NOTES_STORAGE_KEY = 'pve_invoicepro_debit_notes';
 
 const getStoredProducts = (): Product[] => {
   try {
+    const mapInventoryToProducts = (invParsed: any[]): Product[] =>
+      invParsed.map((it: any, idx: number) => {
+        const name = String(it?.name ?? '').trim();
+        const sku = String(it?.sku ?? '').trim();
+        return {
+          id: String((it?.id ?? sku) || `itm-${Date.now()}-${idx}`),
+          name: name || `Item ${idx + 1}`,
+          brandName: String(it?.brand ?? 'Generic'),
+          companyName: String(it?.companyName ?? 'Generic'),
+          sku: sku || undefined,
+          code: sku || String(it?.id ?? `CODE-${idx + 1}`),
+          hsn: String(it?.hsnCode ?? it?.hsn ?? '0000'),
+          hsnCode: String(it?.hsnCode ?? it?.hsn ?? ''),
+          mrp: Number(it?.pricing?.mrp ?? 0) || 0,
+          salePrice: Number(it?.pricing?.sale ?? 0) || 0,
+          purchasePrice: Number(it?.pricing?.purchase ?? 0) || 0,
+          stock: Number(it?.currentStock ?? it?.openingStock ?? 0) || 0,
+          openingStock: Number(it?.openingStock ?? 0) || 0,
+          currentStock: Number(it?.currentStock ?? it?.openingStock ?? 0) || 0,
+          unit: String(it?.unitName ?? it?.unit ?? 'Pcs'),
+          gstRate: Number(it?.gstRate ?? 0) || 0,
+          lowStockAlert: Number(it?.reorderLevel ?? 0) || 0,
+          minStockLevel: Number(it?.reorderLevel ?? 0) || 0,
+          isActive: it?.status ? String(it.status).toUpperCase() === 'ACTIVE' : true,
+          barcode: String(it?.barcode ?? ''),
+          categoryId: String(it?.categoryId ?? ''),
+        } as Product;
+      });
+
     const raw = localStorage.getItem(PRODUCTS_STORAGE_KEY);
-    if (!raw) return [];
+    if (!raw) {
+      const invRaw = localStorage.getItem(INVENTORY_ITEMS_STORAGE_KEY);
+      if (!invRaw) return [];
+      const invParsed = JSON.parse(invRaw);
+      if (!Array.isArray(invParsed)) return [];
+      return mapInventoryToProducts(invParsed);
+    }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as Product[]) : [];
+    if (!Array.isArray(parsed)) return [];
+    if (parsed.length > 0) return parsed as Product[];
+    const invRaw = localStorage.getItem(INVENTORY_ITEMS_STORAGE_KEY);
+    if (!invRaw) return [];
+    const invParsed = JSON.parse(invRaw);
+    if (!Array.isArray(invParsed)) return [];
+    return mapInventoryToProducts(invParsed);
   } catch {
     return [];
   }

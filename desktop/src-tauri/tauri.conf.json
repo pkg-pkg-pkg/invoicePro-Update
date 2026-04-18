@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "InvoicePro",
+  "productName": "PVE InvoicePro 360",
   "version": "2.9.9",
   "identifier": "com.pve.invoicepro",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "InvoicePro",
+        "title": "PVE InvoicePro 360",
         "width": 800,
         "height": 600,
         "resizable": true,
@@ -22,7 +22,7 @@
       },
       {
         "label": "splashscreen",
-        "title": "InvoicePro",
+        "title": "PVE InvoicePro 360",
         "url": "/splashscreen.html",
         "width": 520,
         "height": 360,

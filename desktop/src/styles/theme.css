@@ -1,0 +1,170 @@
+/* Central CSS variables — toggled via document.documentElement[data-ui-theme] from App.tsx */
+
+:root {
+  color-scheme: light;
+}
+
+/* ----- Light (Stripe-style SaaS) ----- */
+:root[data-ui-theme='light'],
+:root:not([data-ui-theme]) {
+  color-scheme: light;
+
+  --bg-main: #f8faff;
+  --bg-section: #f1f5f9;
+  --bg-card: #ffffff;
+  --bg-sidebar: #ffffff;
+  --bg-topbar: #ffffff;
+
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --border: #e2ebf6;
+  --brand-accent: #1b4f8a;
+
+  --sidebar-active-bg: #eef4ff;
+  --sidebar-active-text: #1b4f8a;
+  --sidebar-hover: #f0f7ff;
+  --sidebar-active-hover: #e0e9ff;
+  --sidebar-icon: #64748b;
+  --sidebar-icon-active: #1b4f8a;
+
+  --header-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
+  --header-shadow-dark: 0 10px 30px rgba(0, 0, 0, 0.4);
+
+  --search-bg: #f8fafc;
+  --search-border: #e2e8f0;
+  --search-border-hover: #cbd5e1;
+  --search-border-focus: #1b4f8a;
+
+  --nav-badge-border-dark: rgba(255, 255, 255, 0.08);
+  --nav-badge-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --nav-badge-shadow-active: 0 6px 16px rgba(27, 79, 138, 0.18);
+  --nav-badge-overlay: rgba(255, 255, 255, 0.12);
+  --nav-badge-inset: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  --nav-badge-filter: none;
+  --nav-hover-shadow: 0 4px 12px rgba(27, 79, 138, 0.1);
+
+  --user-group-border-dark: rgba(255, 255, 255, 0.12);
+  --user-group-bg-dark: rgba(15, 23, 42, 0.35);
+  --user-group-bg-hover-dark: rgba(30, 41, 59, 0.55);
+
+  --panel-shadow: 0 10px 25px rgba(15, 23, 42, 0.06);
+  --panel-shadow-dark: 0 10px 30px rgba(0, 0, 0, 0.4);
+
+  --qa-bg: #ffffff;
+  --qa-hover-bg: #f0f7ff;
+  --qa-icon-bg: #eef4ff;
+  --qa-icon: #1b4f8a;
+
+  --metric-sales-start: #2563eb;
+  --metric-sales-end: #1d4ed8;
+  --metric-purchase-start: #16a34a;
+  --metric-purchase-end: #15803d;
+  --metric-outstanding-start: #d97706;
+  --metric-outstanding-end: #b45309;
+  --metric-payable-start: #dc2626;
+  --metric-payable-end: #991b1b;
+
+  --metric-text: #0f172a;
+  --metric-text-muted: rgba(15, 23, 42, 0.62);
+  --metric-text-subtle: rgba(15, 23, 42, 0.45);
+  --metric-overlay: rgba(255, 255, 255, 0.22);
+  --metric-overlay-icon: rgba(15, 23, 42, 0.85);
+
+  --metric-card-shadow-light: 0 10px 25px rgba(0, 0, 0, 0.05);
+  --stat-shadow-hover: 0 12px 28px rgba(27, 79, 138, 0.12);
+  --stat-shadow-dark: 0 10px 30px rgba(0, 0, 0, 0.45);
+
+  --chip-bg: #f1f5f9;
+  --chip-text: #334155;
+  --chip-positive-bg: #dcfce7;
+  --chip-positive-text: #166534;
+  --chip-negative-bg: #fee2e2;
+  --chip-negative-text: #991b1b;
+
+  --alert-bg: #fff7ed;
+  --alert-border: #fdba74;
+  --alert-icon: #ea580c;
+  --alert-text: #9a3412;
+}
+
+/* ----- Dark (layered premium) ----- */
+:root[data-ui-theme='premium-dark'] {
+  color-scheme: dark;
+
+  --bg-main: #0b1220;
+  --bg-section: #0f172a;
+  --bg-card: #111827;
+  --bg-sidebar: #0f172a;
+  --bg-topbar: #0f172a;
+
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --border: rgba(255, 255, 255, 0.08);
+  --brand-accent: #60a5fa;
+
+  --sidebar-active-bg: rgba(59, 130, 246, 0.15);
+  --sidebar-active-text: #e2e8f0;
+  --sidebar-hover: rgba(148, 163, 184, 0.08);
+  --sidebar-active-hover: rgba(59, 130, 246, 0.22);
+  --sidebar-icon: #94a3b8;
+  --sidebar-icon-active: #60a5fa;
+
+  --header-shadow: 0 1px 0 rgba(255, 255, 255, 0.05);
+  --header-shadow-dark: 0 10px 30px rgba(0, 0, 0, 0.4);
+
+  --search-bg: rgba(15, 23, 42, 0.65);
+  --search-border: rgba(255, 255, 255, 0.1);
+  --search-border-hover: rgba(255, 255, 255, 0.16);
+  --search-border-focus: #3b82f6;
+
+  --nav-badge-border-dark: rgba(255, 255, 255, 0.1);
+  --nav-badge-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+  --nav-badge-shadow-active: 0 10px 28px rgba(37, 99, 235, 0.35);
+  --nav-badge-overlay: rgba(255, 255, 255, 0.08);
+  --nav-badge-inset: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --nav-badge-filter: saturate(1.05) brightness(1.05);
+  --nav-hover-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+
+  --user-group-border-dark: rgba(255, 255, 255, 0.12);
+  --user-group-bg-dark: rgba(15, 23, 42, 0.55);
+  --user-group-bg-hover-dark: rgba(30, 41, 59, 0.75);
+
+  --panel-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --panel-shadow-dark: 0 10px 30px rgba(0, 0, 0, 0.45);
+
+  --qa-bg: #1f2937;
+  --qa-hover-bg: #374151;
+  --qa-icon-bg: rgba(96, 165, 250, 0.12);
+  --qa-icon: #60a5fa;
+
+  --metric-sales-start: #3b82f6;
+  --metric-sales-end: #1e40af;
+  --metric-purchase-start: #22c55e;
+  --metric-purchase-end: #15803d;
+  --metric-outstanding-start: #f59e0b;
+  --metric-outstanding-end: #b45309;
+  --metric-payable-start: #ef4444;
+  --metric-payable-end: #7f1d1d;
+
+  --metric-text: #f8fafc;
+  --metric-text-muted: rgba(248, 250, 252, 0.72);
+  --metric-text-subtle: rgba(248, 250, 252, 0.52);
+  --metric-overlay: rgba(255, 255, 255, 0.08);
+  --metric-overlay-icon: #f8fafc;
+
+  --metric-card-shadow-light: 0 10px 30px rgba(0, 0, 0, 0.4);
+  --stat-shadow-hover: 0 14px 34px rgba(0, 0, 0, 0.45);
+  --stat-shadow-dark: 0 10px 30px rgba(0, 0, 0, 0.5);
+
+  --chip-bg: rgba(148, 163, 184, 0.12);
+  --chip-text: #e2e8f0;
+  --chip-positive-bg: rgba(34, 197, 94, 0.15);
+  --chip-positive-text: #86efac;
+  --chip-negative-bg: rgba(239, 68, 68, 0.15);
+  --chip-negative-text: #fecaca;
+
+  --alert-bg: rgba(245, 158, 11, 0.08);
+  --alert-border: #f59e0b;
+  --alert-icon: #fbbf24;
+  --alert-text: #fde68a;
+}

@@ -39,6 +39,7 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   const handleSubmit = async () => {
     if (!subject.trim()) {
@@ -52,19 +53,22 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose }) => {
 
     setLoading(true);
     setError('');
+    setSuccessMessage('');
 
     try {
-      await feedbackService.sendFeedback({
+      const res = await feedbackService.sendFeedback({
         category,
         subject,
         message,
       });
+      setSuccessMessage(res?.message || 'Thank you! Your feedback has been sent successfully.');
       setSuccess(true);
       setTimeout(() => {
         setSubject('');
         setMessage('');
         setCategory('bug');
         setSuccess(false);
+        setSuccessMessage('');
         onClose();
       }, 2000);
     } catch (err: any) {
@@ -81,6 +85,7 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose }) => {
       setCategory('bug');
       setError('');
       setSuccess(false);
+      setSuccessMessage('');
       onClose();
     }
   };
@@ -100,7 +105,7 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose }) => {
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {success && (
             <Alert severity="success">
-              ✓ Thank you! Your feedback has been sent successfully.
+              ✓ {successMessage || 'Thank you! Your feedback has been sent successfully.'}
             </Alert>
           )}
 

@@ -1,5 +1,5 @@
 /** UPI collect for multi-user LAN license (₹9,999 + 18% GST). */
-export const MULTI_USER_UPI_PAYEE = '75490330630@okbizaxis';
+export const MULTI_USER_UPI_PAYEE = '7549030630@okbizaxis';
 
 /** Total payable in INR (inclusive of GST). */
 export const MULTI_USER_AMOUNT_INR = 11800;

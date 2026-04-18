@@ -7,16 +7,16 @@ import { APPEARANCE_CHANGED_EVENT, readAppearance } from "./theme/appearanceSett
 import { createAppTheme } from "./theme/createAppTheme";
 import CssBaseline from "@mui/material/CssBaseline";
 import { Box, Typography, CircularProgress } from "@mui/material";
+import { APP_DISPLAY_NAME } from "@/constants/appBranding";
 
 import Layout from "./components/Layout";
 import RequirePermission from "./components/RequirePermission";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
-import Products from "./pages/Products";
-import ProductForm from "./pages/Products/ProductForm";
 import PartyList from "./pages/Parties/PartyList";
 import PartyForm from "./pages/Parties/PartyForm";
 import PartyLedgerReport from "./pages/PartyLedgerReport";
+import LedgerStatementByLedgerId from "./pages/LedgerStatementByLedgerId";
 import PurchaseInvoices from "./pages/PurchaseInvoices";
 import DebitNotes from "./pages/DebitNotes";
 import Reports from "./pages/Reports";
@@ -42,11 +42,11 @@ import LedgerAccountForm from "./pages/Masters/LedgerAccounts/LedgerAccountForm"
 import InventoryItemList from "./pages/Masters/InventoryItems/InventoryItemList";
 import InventoryItemForm from "./pages/Masters/InventoryItems/InventoryItemForm";
 import GodownList from "./pages/Masters/Godowns/GodownList";
+import ImportFromErp from "./pages/ImportFromErp";
 import GodownForm from "./pages/Masters/Godowns/GodownForm";
 import BankLedgerList from "./pages/Masters/LedgerAccounts/BankLedgerList";
 import SalesVoucherList from "./pages/Vouchers/Sales/SalesVoucherList";
 import SalesVoucherForm from "./pages/Vouchers/Sales/SalesVoucherForm";
-import StagedSalesVoucherForm from "./pages/Vouchers/Sales/StagedSalesVoucherForm";
 import SalesReturnVoucherList from "./pages/Vouchers/SalesReturn/SalesReturnVoucherList";
 import SalesReturnVoucherForm from "./pages/Vouchers/SalesReturn/SalesReturnVoucherForm";
 import PurchaseVoucherList from "./pages/Vouchers/Purchase/PurchaseVoucherList";
@@ -57,6 +57,8 @@ import PaymentVoucherList from "./pages/Vouchers/Payment/PaymentVoucherList";
 import ReceiptVoucherList from "./pages/Vouchers/Receipt/ReceiptVoucherList";
 import JournalVoucherList from "./pages/Vouchers/Journal/JournalVoucherList";
 import JournalVoucherForm from "./pages/Vouchers/Journal/JournalVoucherForm";
+import VouchersHub from "./pages/Vouchers/VouchersHub";
+import MoneyVouchersHub from "./pages/Vouchers/MoneyVouchersHub";
 
 import { useAuth } from "./pages/contexts/auth";
 import FocusProvider from "./contexts/FocusProvider";
@@ -84,6 +86,10 @@ function App() {
     window.addEventListener(APPEARANCE_CHANGED_EVENT, onAppearance);
     return () => window.removeEventListener(APPEARANCE_CHANGED_EVENT, onAppearance);
   }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-ui-theme', appearance.mode);
+  }, [appearance.mode]);
 
   const theme = useMemo(
     () => createAppTheme({ mode: appearance.mode, accentMain: appearance.accent }),
@@ -183,11 +189,29 @@ function App() {
           console.log('✅ License validation passed');
           setLicenseValid(true);
           setLicenseCheckReason('');
+          try {
+            localStorage.setItem('license_multi_user_lan', result.multiUserLan ? '1' : '0');
+          } catch {
+            // ignore
+          }
+          if (!result.multiUserLan) {
+            try {
+              networkService.setEnabled(false);
+              await networkService.disconnect();
+            } catch {
+              // ignore
+            }
+          }
           await syncHostMultiUserLanFromCloud(Boolean(result.multiUserLan));
         } else {
           console.log('❌ License validation failed:', result.reason);
           setLicenseValid(false);
           setLicenseCheckReason(result.reason || 'License validation failed');
+          try {
+            localStorage.setItem('license_multi_user_lan', '0');
+          } catch {
+            // ignore
+          }
           await syncHostMultiUserLanFromCloud(false);
 
           // Do not send users to #/activate while still "signed in" — they get stuck and Back to Login breaks
@@ -435,7 +459,7 @@ function App() {
           gap: 2
         }}>
           <CircularProgress size={60} />
-          <Typography variant="h6">Loading InvoicePro...</Typography>
+          <Typography variant="h6">Loading {APP_DISPLAY_NAME}...</Typography>
           <Typography variant="body2" color="text.secondary">
             {loading ? 'Checking authentication...' : 'Validating license...'}
           </Typography>
@@ -604,14 +628,18 @@ function App() {
                   <Route path="/" element={<Layout />}>
                     <Route index element={<Navigate to="/dashboard" replace />} />
                     <Route path="dashboard" element={<Dashboard />} />
-                    <Route path="products" element={<Products />} />
-                    <Route path="products/new" element={<ProductForm />} />
-                    <Route path="products/edit/:id" element={<ProductForm />} />
+                    {/* Legacy product routes kept as redirects to unified Inventory Items module */}
+                    <Route path="products" element={<Navigate to="/masters/inventory-items" replace />} />
+                    <Route path="products/new" element={<Navigate to="/masters/inventory-items/new" replace />} />
+                    <Route path="products/edit/:id" element={<Navigate to="/masters/inventory-items" replace />} />
                     <Route path="parties" element={<PartyList />} />
                     <Route path="parties/new" element={<PartyForm />} />
                     <Route path="parties/:id" element={<PartyForm />} />
                     <Route path="parties/ledger-report" element={<PartyLedgerReport />} />
+                    <Route path="parties/party-ledger/:ledgerId" element={<LedgerStatementByLedgerId />} />
                     <Route path="invoices" element={<Navigate to="/vouchers/sales" replace />} />
+                    <Route path="vouchers" element={<VouchersHub />} />
+                    <Route path="vouchers/money" element={<MoneyVouchersHub />} />
                     <Route path="purchase-invoices" element={<PurchaseInvoices />} />
                     <Route path="debit-notes" element={<DebitNotes />} />
                     <Route path="/payments/*" element={<Payments />} />
@@ -711,6 +739,7 @@ function App() {
                         </RequirePermission>
                       }
                     />
+                    <Route path="import/erp" element={<ImportFromErp />} />
                     <Route
                       path="vouchers/sales"
                       element={
@@ -731,7 +760,7 @@ function App() {
                       path="vouchers/sales/new-staged"
                       element={
                         <RequirePermission permission="create-vouchers">
-                          <StagedSalesVoucherForm />
+                          <Navigate to="/vouchers/sales/new" replace />
                         </RequirePermission>
                       }
                     />

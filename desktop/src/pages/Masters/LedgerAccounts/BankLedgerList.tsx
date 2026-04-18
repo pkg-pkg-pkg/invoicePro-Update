@@ -22,6 +22,7 @@ import {
   Typography,
   Paper,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -92,7 +93,11 @@ const BankLedgerList = () => {
           <Tooltip title="Refresh Data">
             <IconButton 
               onClick={refresh} 
-              sx={{ bgcolor: 'white', border: '1px solid #e2e8f0', p: 1.5 }}
+              sx={(theme) => ({
+                bgcolor: alpha(theme.palette.background.paper, 0.9),
+                border: `1px solid ${alpha(theme.palette.text.primary, 0.14)}`,
+                p: 1.5,
+              })}
             >
               <RefreshIcon />
             </IconButton>
@@ -103,7 +108,12 @@ const BankLedgerList = () => {
               size="large"
               startIcon={<AddIcon />}
               onClick={() => navigate('/masters/ledger-accounts/new', { state: { isCashBank: true } })}
-              sx={{ px: 4, py: 1.5, borderRadius: 3, boxShadow: '0 10px 15px -3px rgba(37, 99, 235, 0.3)' }}
+              sx={(theme) => ({
+                px: 4,
+                py: 1.5,
+                borderRadius: 3,
+                boxShadow: `0 10px 15px -3px ${alpha(theme.palette.primary.main, 0.3)}`,
+              })}
             >
               Add New Account
             </Button>
@@ -163,15 +173,31 @@ const BankLedgerList = () => {
         </Grid>
       </Grid>
 
-      <Paper sx={{ p: 0, overflow: 'hidden', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}>
-        <Box sx={{ p: 3, borderBottom: '1px solid #e2e8f0', bgcolor: '#f8fafc' }}>
+      <Paper
+        sx={(theme) => ({
+          p: 0,
+          overflow: 'hidden',
+          border: `1px solid ${alpha(theme.palette.text.primary, 0.14)}`,
+          boxShadow: `0 4px 12px ${alpha(theme.palette.common.black, 0.18)}`,
+        })}
+      >
+        <Box
+          sx={(theme) => ({
+            p: 3,
+            borderBottom: `1px solid ${alpha(theme.palette.text.primary, 0.12)}`,
+            bgcolor: alpha(theme.palette.background.default, 0.36),
+          })}
+        >
           <TextField
             placeholder="Search by name, account number or bank..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             fullWidth
             InputProps={{
-              sx: { bgcolor: 'white', borderRadius: 2 }
+              sx: (theme) => ({
+                bgcolor: alpha(theme.palette.background.paper, 0.95),
+                borderRadius: 2,
+              }),
             }}
           />
         </Box>
@@ -179,7 +205,7 @@ const BankLedgerList = () => {
         <TableContainer>
           <Table>
             <TableHead>
-              <TableRow sx={{ bgcolor: '#f8fafc' }}>
+              <TableRow sx={(theme) => ({ bgcolor: alpha(theme.palette.background.default, 0.42) })}>
                 <TableCell sx={{ fontWeight: 800, py: 2 }}>Account Name</TableCell>
                 <TableCell sx={{ fontWeight: 800, py: 2 }}>Type & Institution</TableCell>
                 <TableCell sx={{ fontWeight: 800, py: 2 }}>A/c Details</TableCell>
@@ -217,7 +243,16 @@ const BankLedgerList = () => {
                           <Typography variant="body1" fontWeight={700}>
                             {account.name}
                           </Typography>
-                          <Typography variant="caption" sx={{ bgcolor: '#f1f5f9', px: 1, borderRadius: 1, fontWeight: 600 }}>
+                          <Typography
+                            variant="caption"
+                            sx={(theme) => ({
+                              bgcolor: alpha(theme.palette.text.primary, 0.1),
+                              px: 1,
+                              borderRadius: 1,
+                              fontWeight: 600,
+                              color: theme.palette.text.primary,
+                            })}
+                          >
                             {account.code || 'NO-CODE'}
                           </Typography>
                         </Box>
@@ -259,7 +294,10 @@ const BankLedgerList = () => {
                         <IconButton
                           onClick={() => navigate(`/masters/ledger-accounts/${account.id}/edit`)}
                           disabled={!canManage}
-                          sx={{ border: '1px solid #e2e8f0', '&:hover': { bgcolor: 'primary.light', color: 'primary.main' } }}
+                          sx={(theme) => ({
+                            border: `1px solid ${alpha(theme.palette.text.primary, 0.2)}`,
+                            '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.14), color: theme.palette.primary.main },
+                          })}
                         >
                           <EditIcon fontSize="small" />
                         </IconButton>

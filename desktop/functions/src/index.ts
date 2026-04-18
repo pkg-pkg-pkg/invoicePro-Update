@@ -54,7 +54,7 @@ const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 /** Multi-user LAN upgrade: base + 18% GST (matches in-app UPI QR). */
 const MULTI_USER_UPGRADE_INR = 11800;
-const MULTI_USER_UPI_PAYEE = "75490330630@okbizaxis";
+const MULTI_USER_UPI_PAYEE = "7549030630@okbizaxis";
 
 /** Annual Gateway (updates + new features): ₹699 + 18% GST ≈ ₹824.82 — rounded for UPI. */
 const GATEWAY_RENEWAL_INR = 825;

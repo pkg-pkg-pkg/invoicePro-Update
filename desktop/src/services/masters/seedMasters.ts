@@ -88,4 +88,6 @@ export const seedLedgerGroups = async () => {
 
 export const initMasters = async () => {
   await seedLedgerGroups();
+  const { migrateLegacySystemCashLedger } = await import('./autoLedgerService');
+  await migrateLegacySystemCashLedger();
 };

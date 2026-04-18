@@ -1,6 +1,6 @@
 {
   "appId": "com.gstbilling.desktop",
-  "productName": "GST Billing Software",
+  "productName": "PVE InvoicePro 360",
   "icon": "electron/icon.ico",
   "asarUnpack": [
     "dist/SQLOGO.png",
@@ -43,10 +43,11 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "GST Billing Software",
+    "shortcutName": "PVE InvoicePro 360",
     "artifactName": "${productName}-Setup-${version}.${ext}"
   },
   "portable": {
     "artifactName": "${productName}-${version}.exe"
-  }
+  },
+  "npmRebuild": false
 }

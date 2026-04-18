@@ -1,5 +1,5 @@
 /** Annual Gateway renewal: ₹699 + 18% GST (updates + new features; license itself stays valid). */
-export const GATEWAY_UPI_PAYEE = '75490330630@okbizaxis';
+export const GATEWAY_UPI_PAYEE = '7549030630@okbizaxis';
 
 /** Total INR payable (699 × 1.18 ≈ 824.82, rounded for UPI). */
 export const GATEWAY_RENEWAL_AMOUNT_INR = 825;
@@ -12,7 +12,7 @@ export function buildGatewayUpiPayUrl(): string {
     pn: 'PVEB',
     am: GATEWAY_RENEWAL_AMOUNT_INR.toFixed(2),
     cu: 'INR',
-    tn: 'InvoicePro Gateway renewal',
+    tn: 'PVE InvoicePro 360 Gateway renewal',
   });
   return `upi://pay?${params.toString()}`;
 }

@@ -55,6 +55,10 @@ mobile/ios/Pods/
 desktop/dist/
 desktop/out/
 desktop/.vite/
+desktop/releases/
+
+# Nested clone (Expo app) — not part of this repository
+GSTBillingMobile/
 
 # Backend
 backend/uploads/

@@ -1,7 +1,7 @@
 {
   "name": "@gst-billing/mobile",
   "version": "1.0.0",
-  "description": "Mobile application for GST Billing Software",
+  "description": "Mobile companion for PVE InvoicePro 360",
   "main": "index.js",
   "scripts": {
     "android": "react-native run-android",

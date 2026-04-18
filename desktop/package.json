@@ -1,8 +1,8 @@
 {
   "name": "@gst-billing/desktop",
-  "version": "2.9.9",
-  "description": "Desktop application for GST Billing Software",
-  "author": "GST Billing Team",
+  "version": "3.0.1",
+  "description": "PVE InvoicePro 360 — desktop GST billing",
+  "author": "PVE",
   "repository": {
     "type": "git",
     "url": "https://github.com/pkg-pkg-pkg/invoicePro-Update.git"
@@ -20,7 +20,7 @@
     "tauri:build": "tauri build",
     "electron": "cross-env NODE_ENV=production electron -r ts-node/register .",
     "electron:dev": "cross-env NODE_ENV=development concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron -r ts-node/register .\"",
-    "build:icons": "node scripts/build-app-icon.cjs",
+    "build:icons": "node scripts/build-app-icon.cjs && node scripts/build-nsis-assets.cjs",
     "dist": "npm run build:prod && npm run build:icons && electron-builder",
     "dist:dir": "npm run build:prod && npm run build:icons && electron-builder --dir",
     "dist:publish": "npm run build:prod && npm run build:icons && electron-builder --publish always",

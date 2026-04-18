@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box } from '@mui/material';
+import { APP_DISPLAY_NAME } from '../constants/appBranding';
 
 interface LogoProps {
   size?: 'small' | 'medium' | 'large' | 'xl';
@@ -24,7 +25,7 @@ const Logo: React.FC<LogoProps> = ({ size = 'medium', className = '', onClick })
     <Box
       component="img"
       src="/invoicepro-logo.png"
-      alt="InvoicePro Logo"
+      alt={`${APP_DISPLAY_NAME} logo`}
       sx={{
         width: width,
         height: height,

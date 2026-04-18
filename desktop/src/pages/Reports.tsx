@@ -14,6 +14,7 @@ import {
   AccountBalance as AccountBalanceIcon,
   People as PeopleIcon,
   Payment as PaymentIcon,
+  TrendingUp as TrendingUpIcon,
 } from '@mui/icons-material';
 import SalesReports from './Reports/SalesReports';
 import PurchaseReports from './Reports/PurchaseReports';
@@ -21,6 +22,7 @@ import StockReports from './Reports/StockReports';
 import FinancialReports from './Reports/FinancialReports';
 import PartyReports from './Reports/PartyReports';
 import PaymentReports from './Reports/PaymentReports';
+import PreGstProfitReports from './Reports/PreGstProfitReports';
 import { usePermissions } from '../hooks/usePermissions';
 
 interface TabPanelProps {
@@ -40,7 +42,7 @@ function TabPanel(props: TabPanelProps) {
       aria-labelledby={`reports-tab-${index}`}
       {...other}
     >
-      {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
+      {value === index && <Box sx={{ p: 3, bgcolor: 'var(--bg-section)', borderRadius: '16px', transition: 'all 0.2s ease' }}>{children}</Box>}
     </div>
   );
 }
@@ -82,6 +84,12 @@ const reportCategories = [
     icon: <PaymentIcon />,
     description: 'Payment received, payment made, pending cheques',
   },
+  {
+    id: 'pre-gst-profit',
+    label: 'Profit (pre-GST)',
+    icon: <TrendingUpIcon />,
+    description: 'Item, bill, and customer-wise gross profit excluding GST',
+  },
 ];
 
 export default function Reports() {
@@ -104,7 +112,7 @@ export default function Reports() {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 3, bgcolor: 'var(--bg-section)', borderRadius: '16px', transition: 'all 0.2s ease' }}>
       <Typography variant="h4" gutterBottom>
         Reports
       </Typography>
@@ -112,13 +120,13 @@ export default function Reports() {
         Comprehensive business reports with filters, export options, and detailed analytics
       </Typography>
 
-      <Paper sx={{ mb: 3 }}>
+      <Paper sx={{ mb: 3, bgcolor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', transition: 'all 0.2s ease' }}>
         <Tabs
           value={activeTab}
           onChange={handleTabChange}
           variant="scrollable"
           scrollButtons="auto"
-          sx={{ borderBottom: 1, borderColor: 'divider' }}
+          sx={{ borderBottom: '1px solid var(--border)' }}
         >
           {reportCategories.map((category) => (
             <Tab
@@ -148,6 +156,9 @@ export default function Reports() {
         </TabPanel>
         <TabPanel value={activeTab} index={5}>
           <PaymentReports canExport={canExport} />
+        </TabPanel>
+        <TabPanel value={activeTab} index={6}>
+          <PreGstProfitReports canExport={canExport} />
         </TabPanel>
       </Paper>
     </Box>

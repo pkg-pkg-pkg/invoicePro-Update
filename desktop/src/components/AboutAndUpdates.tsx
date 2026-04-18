@@ -21,6 +21,7 @@ import {
   CheckCircle as CheckCircleIcon,
   ContactSupport as ContactSupportIcon,
 } from '@mui/icons-material';
+import { APP_DISPLAY_NAME, APP_TAGLINE } from '../constants/appBranding';
 
 interface UpdateInfo {
   updateAvailable: boolean;
@@ -189,7 +190,7 @@ const AboutAndUpdates: React.FC = () => {
   return (
     <Box sx={{ mt: 3 }}>
       <Typography variant="h6" gutterBottom>
-        About GST Billing Software
+        About {APP_DISPLAY_NAME}
       </Typography>
 
             <Grid container spacing={3}>
@@ -219,7 +220,7 @@ const AboutAndUpdates: React.FC = () => {
             </Box>
 
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              GST Billing Software - Professional invoice and billing management
+              {APP_DISPLAY_NAME} — {APP_TAGLINE}; professional invoice and billing management.
             </Typography>
 
             <Divider sx={{ my: 2 }} />

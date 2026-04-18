@@ -14,7 +14,14 @@ type InventoryItemMasterDialogProps = {
  */
 export function InventoryItemMasterDialog({ open, onClose, onSaved }: InventoryItemMasterDialogProps) {
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth scroll="paper">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="md"
+      fullWidth
+      scroll="paper"
+      sx={{ zIndex: (t) => t.zIndex.modal + 80 }}
+    >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pr: 1 }}>
         <Typography variant="h6" component="span">
           New inventory item

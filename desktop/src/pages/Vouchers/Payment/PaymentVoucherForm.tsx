@@ -193,7 +193,7 @@ const PaymentVoucherForm = () => {
         lines: voucherLines,
       });
       
-      navigate('/vouchers/payments');
+      navigate('/vouchers/payment-vouchers');
     } catch (err) {
       setError((err as Error).message ?? 'Failed to create payment voucher');
     } finally {

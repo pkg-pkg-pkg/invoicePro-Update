@@ -27,7 +27,7 @@ export default function StockReports({ canExport }: StockReportsProps) {
       <Grid container spacing={2}>
         <Grid item xs={12} md={6} lg={4}>
           <Card>
-            <CardActionArea onClick={() => navigate('/products')}>
+            <CardActionArea onClick={() => navigate('/masters/inventory-items')}>
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                   <InventoryIcon color="primary" />
@@ -43,7 +43,7 @@ export default function StockReports({ canExport }: StockReportsProps) {
 
         <Grid item xs={12} md={6} lg={4}>
           <Card>
-            <CardActionArea onClick={() => navigate('/products')}>
+            <CardActionArea onClick={() => navigate('/masters/inventory-items')}>
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                   <TrendingDownIcon color="primary" />
@@ -59,7 +59,7 @@ export default function StockReports({ canExport }: StockReportsProps) {
 
         <Grid item xs={12} md={6} lg={4}>
           <Card>
-            <CardActionArea onClick={() => navigate('/products')}>
+            <CardActionArea onClick={() => navigate('/masters/inventory-items')}>
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                   <TrendingUpIcon color="primary" />

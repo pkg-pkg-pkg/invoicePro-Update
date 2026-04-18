@@ -13,6 +13,7 @@ import {
   Divider,
   Alert,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import {
   DragIndicator as DragIndicatorIcon,
   Dashboard as DashboardIcon,
@@ -39,30 +40,12 @@ import {
   ChatBubbleOutline as ChatBubbleOutlineIcon,
   BugReport as BugReportIcon,
   Message as MessageIcon,
+  CloudUpload as CloudUploadIcon,
 } from '@mui/icons-material';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { useNavigationCustomization, MenuItem } from '../hooks/useNavigationCustomization';
 import GstStampIcon from './GstStampIcon';
-
-const getNavIconGradient = (key: string) => {
-  const k = key.toLowerCase();
-  if (k.includes('dashboard')) return 'linear-gradient(135deg, #3b82f6 0%, #7c3aed 100%)';
-  if (k.includes('products') || k.includes('inventory')) return 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)';
-  if (k.includes('customers') || k.includes('suppliers') || k.includes('people') || k.includes('parties'))
-    return 'linear-gradient(135deg, #f97316 0%, #f43f5e 100%)';
-  if (k.includes('transactions') || k.includes('invoices') || k.includes('receipt'))
-    return 'linear-gradient(135deg, #a855f7 0%, #ec4899 100%)';
-  if (k.includes('payments') || k.includes('payment')) return 'linear-gradient(135deg, #14b8a6 0%, #0ea5e9 100%)';
-  if (k.includes('accounts') || k.includes('account')) return 'linear-gradient(135deg, #6366f1 0%, #3b82f6 100%)';
-  if (k.includes('expenses')) return 'linear-gradient(135deg, #ef4444 0%, #f97316 100%)';
-  if (k.includes('gst')) return 'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)';
-  if (k.includes('schemes')) return 'linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%)';
-  if (k.includes('reports') || k.includes('assessment')) return 'linear-gradient(135deg, #06b6d4 0%, #22c55e 100%)';
-  if (k.includes('settings')) return 'linear-gradient(135deg, #64748b 0%, #334155 100%)';
-  if (k.includes('feedback') || k.includes('support')) return 'linear-gradient(135deg, #ec4899 0%, #f43f5e 100%)';
-  if (k.includes('feature') || k.includes('request')) return 'linear-gradient(135deg, #f59e0b 0%, #f97316 100%)';
-  return 'linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%)';
-};
+import { navIconGradientForKey } from '../theme/navIconGradients';
 
 const getNavIconBadgeSx = (options: { gradient: string; enabled: boolean; size?: number }) => {
   const size = options.size ?? 34;
@@ -127,6 +110,7 @@ const iconMap: Record<string, React.ComponentType<any>> = {
   ChatBubbleOutline: ChatBubbleOutlineIcon,
   BugReport: BugReportIcon,
   Message: MessageIcon,
+  CloudUpload: CloudUploadIcon,
 };
 
 const getNavIconComponent = (idOrKey: string | undefined, fallbackIconKey: string | undefined) => {
@@ -157,6 +141,7 @@ const getNavIconComponent = (idOrKey: string | undefined, fallbackIconKey: strin
     feedback: ChatBubbleOutlineIcon,
     'feedback-issues': BugReportIcon,
     'feature-request': LightbulbIcon,
+    'import-from-erp': CloudUploadIcon,
   };
 
   const fromId = byId[id];
@@ -165,6 +150,7 @@ const getNavIconComponent = (idOrKey: string | undefined, fallbackIconKey: strin
 };
 
 export default function NavigationCustomization() {
+  const theme = useTheme();
   const {
     menuItems,
     isLoaded,
@@ -190,7 +176,7 @@ export default function NavigationCustomization() {
 
   const renderMenuItem = (item: MenuItem, index: number) => {
     const IconComponent = getNavIconComponent(item.id, item.icon);
-    const gradient = getNavIconGradient(item.id || item.icon);
+    const gradient = navIconGradientForKey(item.id || item.icon, theme.palette.primary.main);
 
     return (
       <Draggable key={item.id} draggableId={item.id} index={index}>

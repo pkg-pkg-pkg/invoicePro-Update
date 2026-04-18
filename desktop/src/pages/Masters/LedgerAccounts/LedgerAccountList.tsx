@@ -33,12 +33,12 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 
 import { ledgerAccountService } from '../../../services/masters/ledgerAccountService';
 import { ledgerGroupService } from '../../../services/masters/ledgerGroupService';
-import { LedgerGroup } from '../../../types/masters';
+import { LedgerAccount, LedgerGroup } from '../../../types/masters';
 import { useMasterList } from '../../../hooks/useMasterList';
 import { usePermission } from '../../../hooks/usePermission';
 import { useEffect } from 'react';
 
-type LedgerRole = 'Customer' | 'Supplier' | 'Sales' | 'Purchase' | 'GST' | 'Cash/Bank';
+type LedgerRole = 'Customer' | 'Supplier' | 'Sales' | 'Purchase' | 'GST' | 'Cash' | 'Bank' | 'Overdraft';
 
 const LEDGER_ROLE_ROOTS: Record<LedgerRole, string[]> = {
   Customer: ['grp-sundry-debtors'],
@@ -46,7 +46,9 @@ const LEDGER_ROLE_ROOTS: Record<LedgerRole, string[]> = {
   Sales: ['grp-sales-accounts', 'grp-service-income'],
   Purchase: ['grp-purchase-accounts'],
   GST: ['grp-duties-taxes'],
-  'Cash/Bank': ['grp-bank-accounts', 'grp-cash-in-hand', 'grp-bank-overdraft'],
+  Cash: ['grp-cash-in-hand'],
+  Bank: ['grp-bank-accounts'],
+  Overdraft: ['grp-bank-overdraft'],
 };
 
 const ROLE_COLOR_MAP: Record<LedgerRole, 'primary' | 'secondary' | 'success' | 'warning' | 'info' | 'default'> = {
@@ -55,8 +57,25 @@ const ROLE_COLOR_MAP: Record<LedgerRole, 'primary' | 'secondary' | 'success' | '
   Sales: 'success',
   Purchase: 'warning',
   GST: 'info',
-  'Cash/Bank': 'default',
+  Cash: 'success',
+  Bank: 'info',
+  Overdraft: 'warning',
 };
+
+/** Auto / Tally-style “Cash & Bank” subgroup: show Bank vs Cash from stored bank fields. */
+const GROUP_CASH_BANK = 'grp-cash-bank';
+
+function displayRoleForLedger(account: LedgerAccount, groupRole: LedgerRole | null): LedgerRole | null {
+  if (account.groupId === GROUP_CASH_BANK) {
+    const b = account.bankDetails;
+    const hasBank =
+      Boolean(b?.accountNumber?.trim()) ||
+      Boolean(b?.ifscCode?.trim()) ||
+      Boolean(b?.bankName?.trim());
+    return hasBank ? 'Bank' : 'Cash';
+  }
+  return groupRole;
+}
 
 const LedgerAccountList = () => {
   const navigate = useNavigate();
@@ -316,7 +335,7 @@ const LedgerAccountList = () => {
                   </TableRow>
                 ) : (
                   filteredAccounts.map((account) => {
-                    const role = groupRoleMap.get(account.groupId ?? '') ?? null;
+                    const role = displayRoleForLedger(account, groupRoleMap.get(account.groupId ?? '') ?? null);
                     return (
                       <TableRow key={account.id} hover>
                         <TableCell>{account.name}</TableCell>
