@@ -3,10 +3,11 @@ declare global {
     interface Request {
       user?: {
         id: string;
-        username: string;  // ADD THIS LINE
+        username: string;
         email: string;
-        role: 'ADMIN' | 'MANAGER' | 'SALESPERSON' | 'ACCOUNTANT';
-        companyId: string;
+        fullName?: string;
+        role: 'ADMIN' | 'MANAGER' | 'SALESPERSON' | 'ACCOUNTANT' | 'STAFF' | 'USER';
+        companyId?: string;
       };
       file?: {
         fieldname: string;

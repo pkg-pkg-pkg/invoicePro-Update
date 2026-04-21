@@ -5,8 +5,11 @@ const prisma = new PrismaClient();
 
 export const getUsers = async (req: Request, res: Response) => {
   try {
+    if (!req.user?.companyId) {
+      return res.status(400).json({ error: 'Company context missing' });
+    }
     const users = await prisma.user.findMany({
-      where: { companyId: req.user?.id },
+      where: { companyId: req.user.companyId },
       select: {
         id: true,
         username: true,

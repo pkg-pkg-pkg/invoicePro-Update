@@ -31,16 +31,18 @@ router.post("/login", async (req: Request, res: Response) => {
     console.log("📥 LOGIN REQUEST");
     console.log("Body:", req.body);
 
-    const { email, password } = req.body as {
+    const { email, usernameOrMobile, password } = req.body as {
       email?: string;
+      usernameOrMobile?: string;
       password?: string;
     };
 
-    if (!email) {
-      console.log("❌ Email missing");
+    const loginId = String(email ?? usernameOrMobile ?? '').trim();
+    if (!loginId) {
+      console.log("❌ Login identifier missing");
       return res.status(400).json({
         success: false,
-        error: "Email is required",
+        error: "email or usernameOrMobile is required",
       });
     }
 
@@ -52,11 +54,19 @@ router.post("/login", async (req: Request, res: Response) => {
       });
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedEmail = loginId.toLowerCase().trim();
+    const digits = loginId.replace(/\D/g, '');
+    const normalizedMobile = digits.length >= 10 ? `+91${digits.slice(-10)}` : null;
     console.log("✅ Looking for user:", normalizedEmail);
 
-    const user = await prisma.user.findUnique({
-      where: { email: normalizedEmail },
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: normalizedEmail },
+          { username: loginId },
+          ...(normalizedMobile ? [{ mobileNumber: normalizedMobile }] : []),
+        ],
+      },
       include: { company: true },
     });
 
@@ -122,8 +132,12 @@ router.post("/login", async (req: Request, res: Response) => {
         id: user.id,
         username: user.username,
         email: user.email,
+        mobileNumber: user.mobileNumber,
         fullName: user.fullName,
         role: user.role,
+        isMobileUser: user.isMobileUser,
+        mustChangePassword: user.mustChangePassword,
+        mobilePermissions: user.mobilePermissions,
         companyId: user.companyId,
         company: user.company,
       },

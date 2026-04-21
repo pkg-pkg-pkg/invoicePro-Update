@@ -24,6 +24,7 @@ import dashboardRoutes from './routes/dashboard';
 import syncRoutes from './routes/sync';
 import gstRoutes from './routes/gst';
 import settingsRoutes from './routes/settings.routes';
+import mobileRoutes from './routes/mobile';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler';
@@ -44,6 +45,7 @@ app.get('/health', (req, res) => {
 
 // Public routes
 app.use('/api/auth', authRoutes);
+app.use('/api/mobile', mobileRoutes);
 
 // Protected routes
 app.use('/api/users', authenticate, userRoutes);
