@@ -5,6 +5,14 @@ const prisma = new PrismaClient();
 
 const VALID_GST_RATES = [0, 0.25, 3, 5, 12, 18, 28];
 
+/** Accept 18 or 0.18 from clients; persist as percentage (18). */
+const normalizeGstRate = (raw: unknown): number => {
+  const n = Number(raw ?? 0);
+  if (Number.isNaN(n) || n < 0) return 0;
+  if (n > 0 && n < 1) return Number((n * 100).toFixed(4));
+  return n;
+};
+
 // Get company ID from user
 const getUserCompanyId = async (userId: string): Promise<string> => {
   const user = await prisma.user.findUnique({
@@ -160,6 +168,7 @@ export const createProduct = async (req: Request, res: Response) => {
       code,
       barcode,
       categoryId,
+      gstRate,
       hsnCode,
       sacCode,
       unit,
@@ -186,6 +195,10 @@ export const createProduct = async (req: Request, res: Response) => {
 
     if (!unit) {
       return res.status(400).json({ error: 'Unit is required' });
+    }
+    const normalizedGstRate = normalizeGstRate(gstRate);
+    if (!VALID_GST_RATES.includes(normalizedGstRate as any)) {
+      return res.status(400).json({ error: `GST rate must be one of: ${VALID_GST_RATES.join(', ')}` });
     }
 
     if (purchasePrice < 0 || salePrice < 0 || (mrp && mrp < 0)) {
@@ -230,6 +243,7 @@ export const createProduct = async (req: Request, res: Response) => {
         code: code?.trim() || `PROD-${Date.now()}`,
         barcode: barcode?.trim() || null,
         categoryId: categoryId || null,
+        gstRate: normalizedGstRate,
         hsnCode: hsnCode?.trim() || null,
         sacCode: sacCode?.trim() || null,
         unit,
@@ -281,6 +295,7 @@ export const updateProduct = async (req: Request, res: Response) => {
       code,
       barcode,
       categoryId,
+      gstRate,
       hsnCode,
       sacCode,
       unit,
@@ -309,6 +324,10 @@ export const updateProduct = async (req: Request, res: Response) => {
 
     if (salePrice !== undefined && salePrice < 0) {
       return res.status(400).json({ error: 'Sale price must be >= 0' });
+    }
+    const normalizedGstRate = normalizeGstRate(gstRate);
+    if (gstRate !== undefined && !VALID_GST_RATES.includes(normalizedGstRate as any)) {
+      return res.status(400).json({ error: `GST rate must be one of: ${VALID_GST_RATES.join(', ')}` });
     }
 
     // Check duplicate code (excluding current product)
@@ -348,6 +367,7 @@ export const updateProduct = async (req: Request, res: Response) => {
         ...(code !== undefined && { code: code?.trim() || null }),
         ...(barcode !== undefined && { barcode: barcode?.trim() || null }),
         ...(categoryId !== undefined && { categoryId: categoryId || null }),
+        ...(gstRate !== undefined && { gstRate: normalizedGstRate }),
         ...(hsnCode !== undefined && { hsnCode: hsnCode?.trim() || null }),
         ...(sacCode !== undefined && { sacCode: sacCode?.trim() || null }),
         ...(unit && { unit }),
