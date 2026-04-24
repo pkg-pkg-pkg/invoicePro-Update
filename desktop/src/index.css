@@ -4,6 +4,15 @@
   box-sizing: border-box;
 }
 
+/* App shell: no document-level scrollbar (keeps Electron / desktop UI clean). */
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
@@ -28,5 +37,62 @@ input[type='number']::-webkit-inner-spin-button {
 
 input[type='number'] {
   -moz-appearance: textfield;
+}
+
+/* Universal primary save/create placement: fixed right-bottom for form submit buttons. */
+main form button[type='submit'].MuiButton-contained {
+  position: fixed;
+  right: 24px;
+  bottom: 20px;
+  z-index: 1200;
+  min-width: 128px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+}
+
+/* Keep dialog form submit buttons inline to avoid breaking modal layouts. */
+.MuiDialog-root form button[type='submit'].MuiButton-contained {
+  position: static;
+  min-width: initial;
+  box-shadow: none;
+}
+
+@media (max-width: 600px) {
+  main form button[type='submit'].MuiButton-contained {
+    right: 14px;
+    bottom: 14px;
+    min-width: 112px;
+  }
+}
+
+/* Tally/Busy-style dense workspace (scoped via data-erp-dense on Layout main). */
+[data-erp-dense] {
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+[data-erp-dense] .MuiTableCell-root,
+[data-erp-dense] .MuiTableCell-head {
+  font-size: 0.8125rem;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border-color: #cbd5e1;
+}
+
+[data-erp-dense] .MuiTable-root {
+  border-collapse: collapse;
+}
+
+[data-erp-dense] .MuiTableCell-root {
+  border-right: 1px solid #e2e8f0;
+}
+
+[data-erp-dense] .MuiTableRow-root:hover {
+  background-color: rgba(255, 193, 7, 0.22);
+}
+
+[data-erp-dense] .MuiDataGrid-root .MuiDataGrid-cell,
+[data-erp-dense] .MuiDataGrid-root .MuiDataGrid-columnHeader {
+  font-size: 0.8125rem;
+  border-color: #cbd5e1 !important;
 }
 

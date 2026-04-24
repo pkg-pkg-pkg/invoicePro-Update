@@ -20,6 +20,7 @@ import { generateId } from '../../../utils/id';
 import { autoLedgerService } from '../../../services/masters/autoLedgerService';
 import { determineTaxType, bifurcateTax } from '../../../services/vouchers/gstBifurcationEngine';
 import { normalizeStateToCode, statesMatch } from '../../../utils/stateMapping';
+import { getNormalizedCompanyProfile } from '../../../utils/companyProfile';
 
 type ItemLineState = ItemDetailFormValues;
 
@@ -70,6 +71,17 @@ const SalesVoucherFormNew = () => {
   const [showPostSaveDialog, setShowPostSaveDialog] = useState(false);
   const [showQuickCreateCustomer, setShowQuickCreateCustomer] = useState(false);
   const [customerState, setCustomerState] = useState<string>('');
+  const company = useMemo(() => {
+    const normalized = getNormalizedCompanyProfile();
+    return {
+      name: normalized.name || normalized.businessName,
+      address: normalized.address,
+      gstin: normalized.gstin,
+      phone: normalized.phone,
+      email: normalized.email,
+      state: normalized.state,
+    };
+  }, []);
 
   const [formState, setFormState] = useState({
     date: dayjs().format('YYYY-MM-DD'),
@@ -94,15 +106,17 @@ const SalesVoucherFormNew = () => {
       .list({ includeInactive: false })
       .then((list) => {
         const active = list.filter((godown) => godown.isActive !== false);
+        const preferred = active.find((godown) => godown.isDefault) ?? active[0] ?? null;
         setGodowns(active);
         setFormState((prev) => {
-          if (prev.defaultGodownId || active.length === 0) return prev;
-          return { ...prev, defaultGodownId: active[0].id };
+          if (!preferred) return prev;
+          if (prev.defaultGodownId === preferred.id) return prev;
+          return { ...prev, defaultGodownId: preferred.id };
         });
         setLines((prev) =>
-          prev.map((line, idx) => {
-            if (idx === 0 && !line.godownId && active.length) {
-              return { ...line, godownId: active[0].id };
+          prev.map((line) => {
+            if (!line.godownId && preferred) {
+              return { ...line, godownId: preferred.id };
             }
             return line;
           })
@@ -116,6 +130,13 @@ const SalesVoucherFormNew = () => {
       .then((data) => setParties(data || []))
       .catch(() => setParties([]));
   }, []);
+
+  useEffect(() => {
+    if (!formState.defaultGodownId) return;
+    setLines((prev) =>
+      prev.map((line) => (line.godownId ? line : { ...line, godownId: formState.defaultGodownId }))
+    );
+  }, [formState.defaultGodownId]);
 
   // When customer name changes, resolve the customer state from party master
   useEffect(() => {
@@ -357,6 +378,7 @@ const SalesVoucherFormNew = () => {
           mode={mode}
           formState={{ number: formState.number, date: formState.date, dueDate: '', paymentTerms: '' }}
           onChange={(patch) => setFormState((prev) => ({ ...prev, ...patch }))}
+          company={company}
           onPrint={() => window.print()}
           onClose={() => navigate('/vouchers/sales')}
         />
@@ -581,7 +603,7 @@ const SalesVoucherFormNew = () => {
               const companySignature = localStorage.getItem('companySignature') || '';
               const companyInfo = companyInfoRaw ? JSON.parse(companyInfoRaw) : {};
               const company = {
-                name: String(companyInfo?.name || localStorage.getItem('companyName') || 'Company'),
+                name: String(companyInfo?.name || companyInfo?.businessName || localStorage.getItem('companyName') || 'Company'),
                 address: String(companyInfo?.address || ''),
                 gstin: String(companyInfo?.gstin || ''),
                 logo: companyLogo || undefined,
@@ -659,7 +681,7 @@ const SalesVoucherFormNew = () => {
               const companySignature = localStorage.getItem('companySignature') || '';
               const companyInfo = companyInfoRaw ? JSON.parse(companyInfoRaw) : {};
               const company = {
-                name: String(companyInfo?.name || localStorage.getItem('companyName') || 'Company'),
+                name: String(companyInfo?.name || companyInfo?.businessName || localStorage.getItem('companyName') || 'Company'),
                 address: String(companyInfo?.address || ''),
                 gstin: String(companyInfo?.gstin || ''),
                 logo: companyLogo || undefined,
@@ -770,7 +792,7 @@ const SalesVoucherFormNew = () => {
             const companySignature = localStorage.getItem('companySignature') || '';
             const companyInfo = companyInfoRaw ? JSON.parse(companyInfoRaw) : {};
             const company = {
-              name: String(companyInfo?.name || localStorage.getItem('companyName') || 'Company'),
+              name: String(companyInfo?.name || companyInfo?.businessName || localStorage.getItem('companyName') || 'Company'),
               address: String(companyInfo?.address || ''),
               gstin: String(companyInfo?.gstin || ''),
               logo: companyLogo || undefined,
@@ -841,7 +863,7 @@ const SalesVoucherFormNew = () => {
             const companySignature = localStorage.getItem('companySignature') || '';
             const companyInfo = companyInfoRaw ? JSON.parse(companyInfoRaw) : {};
             const company = {
-              name: String(companyInfo?.name || localStorage.getItem('companyName') || 'Company'),
+              name: String(companyInfo?.name || companyInfo?.businessName || localStorage.getItem('companyName') || 'Company'),
               address: String(companyInfo?.address || ''),
               gstin: String(companyInfo?.gstin || ''),
               logo: companyLogo || undefined,

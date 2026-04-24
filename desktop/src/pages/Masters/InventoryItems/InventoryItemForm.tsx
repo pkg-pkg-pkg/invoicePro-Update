@@ -64,11 +64,12 @@ const GODOWN_FIELD_ORDER_START = 200;
 export type InventoryItemFormProps = {
   /** Open inside Sales Voucher dialog — create only, no navigation. */
   embedded?: boolean;
+  initialBarcode?: string;
   onSaved?: (item: InventoryItem) => void;
   onCancel?: () => void;
 };
 
-const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryItemFormProps = {}) => {
+const InventoryItemForm = ({ embedded = false, initialBarcode, onSaved, onCancel }: InventoryItemFormProps = {}) => {
   const params = useParams<{ id: string }>();
   const id = embedded ? undefined : params.id;
   const isEditMode = Boolean(id);
@@ -189,7 +190,7 @@ const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryIte
     name: '',
     sku: '',
     brand: '',
-    barcode: '',
+    barcode: initialBarcode ?? '',
     categoryId: '',
     unitId: '',
     secondaryUnitId: '',
@@ -211,6 +212,13 @@ const InventoryItemForm = ({ embedded = false, onSaved, onCancel }: InventoryIte
     reorderLevel: '',
     status: 'ACTIVE' as InventoryStatus,
   });
+
+  useEffect(() => {
+    if (isEditMode) return;
+    const next = String(initialBarcode ?? '').trim();
+    if (!next) return;
+    setFormState((prev) => (prev.barcode === next ? prev : { ...prev, barcode: next }));
+  }, [initialBarcode, isEditMode]);
 
   useEffect(() => {
     if (isEditMode) return;

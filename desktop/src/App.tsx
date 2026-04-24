@@ -454,7 +454,7 @@ function App() {
           display: 'flex', 
           justifyContent: 'center', 
           alignItems: 'center', 
-          height: '100vh',
+          height: '100%',
           flexDirection: 'column',
           gap: 2
         }}>
@@ -500,6 +500,16 @@ function App() {
           <div>path={window.location.pathname}{window.location.hash}</div>
         </Box>
       )}
+      <Box
+        sx={{
+          height: '100%',
+          width: '100%',
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
       {isAuthenticated &&
         profileCompleted &&
         setupCompleted &&
@@ -524,6 +534,7 @@ function App() {
           />
         )}
       <FocusProvider>
+        <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <Router>
           {/* Setup Wizard */}
           <SetupWizard
@@ -914,7 +925,9 @@ function App() {
           />
           </Routes>
         </Router>
+        </Box>
       </FocusProvider>
+      </Box>
     </ThemeProvider>
   );
 }

@@ -5,6 +5,7 @@ import { InventoryItem } from '../types/masters';
 
 type InventoryItemMasterDialogProps = {
   open: boolean;
+  initialBarcode?: string;
   onClose: () => void;
   onSaved: (item: InventoryItem) => void;
 };
@@ -12,7 +13,7 @@ type InventoryItemMasterDialogProps = {
 /**
  * Full New Inventory Item form inside a dialog (e.g. from Sales Voucher line).
  */
-export function InventoryItemMasterDialog({ open, onClose, onSaved }: InventoryItemMasterDialogProps) {
+export function InventoryItemMasterDialog({ open, initialBarcode, onClose, onSaved }: InventoryItemMasterDialogProps) {
   return (
     <Dialog
       open={open}
@@ -32,6 +33,7 @@ export function InventoryItemMasterDialog({ open, onClose, onSaved }: InventoryI
       </DialogTitle>
       <DialogContent dividers sx={{ pt: 1 }}>
         <InventoryItemForm
+          initialBarcode={initialBarcode}
           embedded
           onSaved={(item) => {
             onSaved(item);

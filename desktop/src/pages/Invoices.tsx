@@ -39,6 +39,7 @@ import { docApi, getHostBaseUrl } from '../services/docApi';
 import { getAppSettings, getDefaultTodayForEntry, validateTransactionDate } from '../services/appSettingsService';
 import { usePermissions } from '../hooks/usePermissions';
 import { APP_DISPLAY_NAME } from "../constants/appBranding";
+import { getNormalizedCompanyProfile } from "../utils/companyProfile";
 
 import type { RootState } from "../store";
 import type { AppDispatch } from "../store";
@@ -300,20 +301,14 @@ const perUnitInclusivePrice = (rate: number, gstRate: number) =>
 
 const loadInvoicePrintPrefs = () => {
   const rawSettings = localStorage.getItem('invoice-settings');
-  const rawCompany = localStorage.getItem('company-info');
   const selectedFormat = localStorage.getItem('selected-format') || 'classic';
   let settings: any = null;
-  let company: any = null;
   try {
     settings = rawSettings ? JSON.parse(rawSettings) : null;
   } catch {
     settings = null;
   }
-  try {
-    company = rawCompany ? JSON.parse(rawCompany) : null;
-  } catch {
-    company = null;
-  }
+  const company = getNormalizedCompanyProfile();
   return {
     selectedFormat,
     settings: settings || {},
@@ -1090,138 +1085,34 @@ const Invoices: React.FC = () => {
   };
 
   const printHtml = (html: string) => {
-    const isTauriRuntime = () => {
-      try {
-        if ((window as any).__TAURI__ != null) return true;
-        if ((window as any).__TAURI_INTERNALS__ != null) return true;
-        if ((window as any).__TAURI_IPC__ != null) return true;
-        if ((window as any).__TAURI_METADATA__ != null) return true;
-        if ((navigator as any)?.userAgent && String((navigator as any).userAgent).toLowerCase().includes('tauri')) return true;
-        if (window.location.hostname === 'tauri.localhost') return true;
-        const p = window.location.protocol;
-        return p === 'tauri:' || p === 'file:';
-      } catch {
-        return false;
-      }
-    };
-
-    if (isTauriRuntime()) {
-      try {
-        localStorage.setItem('pve_print_html', html);
-      } catch {
-        // ignore
-      }
-
-      try {
-        const label = `print_${Date.now()}`;
-        const url = '/#/print';
-        const w = new WebviewWindow(label, {
-          url,
-          title: 'Print',
-          width: 900,
-          height: 650,
-          resizable: true,
-          focus: true,
-          visible: true,
-        });
-        w.once('tauri://error', (e: any) => {
-          try {
-            alert(`Print window failed: ${String(e?.payload ?? e ?? '')}`);
-          } catch {
-            // ignore
-          }
-        });
-        return;
-      } catch {
-        // fallthrough to iframe
-      }
+    try {
+      localStorage.setItem('pve_print_html', html);
+    } catch {
+      // ignore
     }
 
-    if (!isTauriRuntime()) {
-      const printWindow = window.open('', '_blank');
-      if (printWindow) {
-        printWindow.document.open();
-        printWindow.document.write(html);
-        printWindow.document.close();
-        const doPrint = () => {
-          try {
-            printWindow.focus();
-            printWindow.print();
-          } catch {
-            alert('Printing blocked. Please allow print or try again.');
-          }
-        };
-
-        setTimeout(doPrint, 250);
-        return;
-      }
-    }
-
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.left = '-10000px';
-    iframe.style.top = '0';
-    iframe.style.width = '1px';
-    iframe.style.height = '1px';
-    iframe.style.border = '0';
-    document.body.appendChild(iframe);
-
-    const cleanup = () => {
-      try {
-        if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
-      } catch {
-        // ignore
-      }
-    };
-
-    const cw = iframe.contentWindow;
-    if (!cw) {
-      cleanup();
-      alert('Printing blocked. Please try again.');
-      return;
-    }
-
-    const attachCleanup = () => {
-      try {
-        cw.onafterprint = () => cleanup();
-      } catch {
-        // ignore
-      }
-      setTimeout(cleanup, 15000);
-    };
-
-    const attemptPrint = () => {
-      try {
-        cw.focus();
-        cw.print();
-        attachCleanup();
-        return true;
-      } catch {
-        return false;
-      }
-    };
-
-    // Fallback: some runtimes only allow printing once the iframe load event fires.
-    iframe.onload = () => {
-      if (!attemptPrint()) {
-        alert('Printing blocked. Please try again.');
-        cleanup();
+    const openBrowserPreview = () => {
+      const target = `${window.location.origin}/#/print`;
+      const popup = window.open(target, '_blank', 'noopener,noreferrer');
+      if (!popup) {
+        alert('Unable to open print preview. Please allow popups and try again.');
       }
     };
 
     try {
-      (iframe as any).srcdoc = html;
+      const label = `print_${Date.now()}`;
+      const w = new WebviewWindow(label, {
+        url: '/#/print',
+        title: 'Print Preview',
+        width: 980,
+        height: 720,
+        resizable: true,
+        focus: true,
+        visible: true,
+      });
+      w.once('tauri://error', () => openBrowserPreview());
     } catch {
-      const cd = iframe.contentDocument || cw.document;
-      cd.open();
-      cd.write(html);
-      cd.close();
-    }
-
-    // Primary path: try printing immediately in the same user-gesture tick.
-    // If the content isn't ready yet, iframe.onload above will retry.
-    if (!attemptPrint()) {
-      // no-op, onload will retry
+      openBrowserPreview();
     }
   };
 

@@ -12,6 +12,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/auth';
 import { saveCompanyDetailsToCloud } from '../services/companyDetailsCloudService';
+import { getNormalizedCompanyProfile } from '../utils/companyProfile';
 
 type FormState = {
   businessName: string;
@@ -62,17 +63,19 @@ export default function BusinessProfile(): JSX.Element {
         setLoading(true);
         setError(null);
         const p: any = (() => {
+          const normalized = getNormalizedCompanyProfile();
           try {
             const raw = localStorage.getItem('company-info');
-            return raw ? JSON.parse(raw) : {};
+            const parsed = raw ? JSON.parse(raw) : {};
+            return { ...parsed, ...normalized };
           } catch {
-            return {};
+            return normalized;
           }
         })();
 
         if (!cancelled) {
           setForm({
-            businessName: String(p?.businessName ?? '').trim(),
+            businessName: String(p?.businessName ?? p?.name ?? '').trim(),
             ownerName: String(p?.name ?? '').trim(),
             address: String(p?.address ?? '').trim(),
             city: String(p?.city ?? '').trim(),
@@ -133,7 +136,8 @@ export default function BusinessProfile(): JSX.Element {
       const next = {
         ...prev,
         businessName,
-        name: ownerName,
+        name: businessName,
+        ownerName,
         address,
         city,
         state,

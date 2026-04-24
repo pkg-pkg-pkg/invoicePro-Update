@@ -1,27 +1,17 @@
 // D:\PVEB\desktop\src\components\Layout.tsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useTheme, alpha } from "@mui/material/styles";
-import { Outlet, useNavigate, useLocation, To } from "react-router-dom";
+import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import {
   Box,
-  Drawer,
-  AppBar,
   Toolbar,
-  List,
   Typography,
   Divider,
   IconButton,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
   Menu,
   MenuItem,
   Avatar,
-  Collapse,
   Alert,
   Button,
-  Stack,
   TextField,
   InputAdornment,
   Badge,
@@ -31,36 +21,14 @@ import {
 import MenuIcon from "@mui/icons-material/Menu";
 import SearchIcon from "@mui/icons-material/Search";
 import NotificationsOutlinedIcon from "@mui/icons-material/NotificationsOutlined";
-import DashboardIcon from "@mui/icons-material/Dashboard";
-import InventoryIcon from "@mui/icons-material/Inventory";
-import PeopleIcon from "@mui/icons-material/People";
-import ReceiptIcon from "@mui/icons-material/Receipt";
-import AssessmentIcon from "@mui/icons-material/Assessment";
 import SettingsIcon from "@mui/icons-material/Settings";
 import LogoutIcon from "@mui/icons-material/Logout";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import ExpandLessIcon from "@mui/icons-material/ExpandLess";
-import BusinessIcon from "@mui/icons-material/Business";
-import PersonIcon from "@mui/icons-material/Person";
-import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
-import PaymentIcon from "@mui/icons-material/Payment";
-import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
-import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
-import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
+import FeedbackIcon from "@mui/icons-material/Feedback";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import UndoIcon from "@mui/icons-material/Undo";
-import RedoIcon from "@mui/icons-material/Redo";
-import LocalOfferIcon from "@mui/icons-material/LocalOffer";
-import BarChartIcon from "@mui/icons-material/BarChart";
-import MenuBookIcon from "@mui/icons-material/MenuBook";
-import FeedbackIcon from "@mui/icons-material/Feedback";
-import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 
 import { useAuth } from "../pages/contexts/auth";
-import { useNavigationCustomization } from "../hooks/useNavigationCustomization";
 import { usePermissions } from "../hooks/usePermissions";
-import GstStampIcon from "./GstStampIcon";
 import { getAppSettings } from '../services/appSettingsService';
 import FeedbackDialog from "./FeedbackDialog";
 import { checkForAppUpdate, type AppReleaseInfo } from "../services/appUpdateService";
@@ -70,122 +38,18 @@ import ElectronTitleBar, {
   electronUsesFramelessChrome,
 } from "./ElectronTitleBar";
 import AppTopBar from "./AppTopBar";
-import { appBarGradient, appBarForeground, appBarMutedForeground } from "../theme/shellChrome";
-import { navIconGradientForKey } from "../theme/navIconGradients";
-import { APP_DISPLAY_NAME } from "@/constants/appBranding";
-
-const drawerWidth = 240;
-
-const getNavIconBadgeSx = (options: { gradient: string; selected: boolean; size?: number; lightMode?: boolean }) => {
-  const size = options.size ?? 34;
-  const iconSize = Math.max(16, Math.round(size * 0.58));
-  const lightMode = Boolean(options.lightMode);
-
-  return {
-    width: size,
-    height: size,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: Math.max(8, Math.round(size * 0.28)),
-    background: lightMode ? (options.selected ? 'var(--sidebar-active-bg)' : 'transparent') : options.gradient,
-    border: lightMode ? '1px solid var(--border)' : '1px solid var(--nav-badge-border-dark)',
-    position: 'relative',
-    overflow: 'hidden',
-    transform: options.selected && !lightMode ? 'translateY(-1px)' : 'translateY(0px)',
-    boxShadow: lightMode
-      ? 'none'
-      : options.selected
-        ? 'var(--nav-badge-shadow-active)'
-        : 'var(--nav-badge-shadow)',
-    transition: 'background-color 0.2s ease, transform 150ms ease, box-shadow 150ms ease, filter 150ms ease',
-    '&::before': lightMode ? { display: 'none' } : {
-      content: '""',
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      height: '48%',
-      background: 'var(--nav-badge-overlay)',
-      zIndex: 0,
-    },
-    '&::after': lightMode ? { display: 'none' } : {
-      content: '""',
-      position: 'absolute',
-      inset: 0,
-      boxShadow: 'var(--nav-badge-inset)',
-      zIndex: 0,
-    },
-    '& svg': {
-      position: 'relative',
-      zIndex: 1,
-      color: options.selected ? 'var(--sidebar-icon-active)' : 'var(--sidebar-icon)',
-      fontSize: iconSize,
-      filter: lightMode ? 'none' : 'var(--nav-badge-filter)',
-    },
-  } as const;
-};
-
-const iconMap: Record<string, React.ComponentType<any>> = {
-  Dashboard: DashboardIcon,
-  Inventory: InventoryIcon,
-  People: PeopleIcon,
-  Person: PersonIcon,
-  Business: BusinessIcon,
-  Receipt: ReceiptIcon,
-  ShoppingCart: ShoppingCartIcon,
-  Payment: PaymentIcon,
-  AccountBalance: AccountBalanceIcon,
-  ReceiptLong: ReceiptLongIcon,
-  Assessment: AssessmentIcon,
-  AdminPanelSettings: AdminPanelSettingsIcon,
-  Settings: SettingsIcon,
-  Undo: UndoIcon,
-  Redo: RedoIcon,
-  CloudUpload: CloudUploadIcon,
-};
-
-const getNavIconComponent = (idOrKey: string | undefined, fallbackIconKey: string | undefined) => {
-  const id = String(idOrKey ?? '').toLowerCase();
-
-  const byId: Record<string, React.ComponentType<any>> = {
-    dashboard: DashboardIcon,
-    products: InventoryIcon,
-
-    parties: PeopleIcon,
-    customers: PersonIcon,
-    suppliers: BusinessIcon,
-    'party-ledger-report': MenuBookIcon,
-
-    transactions: ReceiptIcon,
-    invoices: ReceiptIcon,
-    'purchase-invoices': ShoppingCartIcon,
-    'credit-notes': UndoIcon,
-    'debit-notes': RedoIcon,
-    godowns: InventoryIcon,
-
-    vouchers: ReceiptLongIcon,
-    'sales-vouchers': ReceiptIcon,
-    'sales-return-vouchers': UndoIcon,
-    'purchase-vouchers': ShoppingCartIcon,
-    'purchase-return-vouchers': RedoIcon,
-    'payment-vouchers': PaymentIcon,
-    'receipt-vouchers': ReceiptIcon,
-    'journal-vouchers': AccountBalanceIcon,
-
-    payments: PaymentIcon,
-    accounts: AccountBalanceIcon,
-    gst: GstStampIcon,
-    schemes: LocalOfferIcon,
-    reports: BarChartIcon,
-    settings: SettingsIcon,
-    'import-from-erp': CloudUploadIcon,
-  };
-
-  const fromId = byId[id];
-  if (fromId) return fromId;
-  return iconMap[String(fallbackIconKey ?? '')] || SettingsIcon;
-};
+import { APP_DISPLAY_NAME, APP_VERSION } from "@/constants/appBranding";
+import {
+  DesktopErpTitleBar,
+  DesktopErpMenuBar,
+  DesktopErpStatusBar,
+  ERP_MENU_ROW_PX,
+  ERP_TEXT,
+  ERP_TITLE_ROW_PX,
+  ERP_WORKSPACE_BG,
+  getErpFlatNavLinks,
+  erpNavigateTo,
+} from "./erp/DesktopErpChrome";
 
 // Page title mapping
 const getPageTitle = (pathname: string): { title: string; showBackButton: boolean } => {
@@ -327,8 +191,8 @@ function readCompanyOwnerName(): string {
   try {
     const raw = localStorage.getItem("company-info");
     if (!raw) return "";
-    const p = JSON.parse(raw) as { name?: string };
-    return String(p?.name ?? "").trim();
+    const p = JSON.parse(raw) as { name?: string; businessName?: string };
+    return String(p?.name ?? p?.businessName ?? localStorage.getItem('companyName') ?? "").trim();
   } catch {
     return "";
   }
@@ -356,9 +220,8 @@ function resolveHeaderDisplayName(user: Record<string, unknown> | null | undefin
 }
 
 const Layout: React.FC = () => {
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileNavAnchor, setMobileNavAnchor] = useState<null | HTMLElement>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [appUpdate, setAppUpdate] = useState<{
     currentVersion: string;
@@ -378,7 +241,6 @@ const Layout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
-  const { getEnabledMenuItems } = useNavigationCustomization();
   const { canAccessFeature } = usePermissions();
 
   const [companyOwnerName, setCompanyOwnerName] = useState(() => readCompanyOwnerName());
@@ -413,7 +275,11 @@ const Layout: React.FC = () => {
   const normalizedPathname =
     String(location.pathname ?? '').replace(/\/+$/, '') || '/';
   const { title: pageTitle, showBackButton } = getPageTitle(normalizedPathname);
-  const enabledMenuItems = getEnabledMenuItems();
+  const gstEnabled = Boolean(appSettings?.features?.gstEnabled);
+  const erpMobileLinks = useMemo(
+    () => getErpFlatNavLinks(canAccessFeature, gstEnabled),
+    [canAccessFeature, gstEnabled]
+  );
 
   useEffect(() => {
     const onSettings = () => setAppSettings(getAppSettings());
@@ -474,60 +340,6 @@ const Layout: React.FC = () => {
       setUpdateChecking(false);
     }
   }, [applyUpdateCheckResult]);
-
-  const isFeatureEnabled = (menuId: string) => {
-    const id = String(menuId ?? '').toLowerCase();
-    if (id === 'gst') return Boolean(appSettings?.features?.gstEnabled);
-    return true;
-  };
-
-  const hasMenuPermission = (menuId: string) => {
-    const id = String(menuId ?? '').toLowerCase();
-
-    const permissionMap: Record<string, string> = {
-      dashboard: 'dashboard',
-      products: 'view-products',
-
-      'party-ledger-report': 'view-reports',
-
-      invoices: 'view-invoices',
-      'purchase-invoices': 'view-invoices',
-      'credit-notes': 'view-invoices',
-      'debit-notes': 'view-invoices',
-
-      payments: 'view-payments',
-      accounts: 'view-bank',
-      reports: 'view-reports',
-      gst: 'view-gst',
-
-      settings: 'manage-settings',
-    };
-
-    const required = permissionMap[id];
-    if (!required) return true;
-    try {
-      return canAccessFeature(required);
-    } catch {
-      return false;
-    }
-  };
-
-  const filteredMenuItems = enabledMenuItems
-    .map((item: any) => {
-      if (item && 'items' in item && Array.isArray(item.items)) {
-        const nextItems = item.items
-          .filter((sub: any) => hasMenuPermission(String(sub?.id ?? '')))
-          .filter((sub: any) => isFeatureEnabled(String(sub?.id ?? '')));
-        return { ...item, items: nextItems };
-      }
-      return item;
-    })
-    .filter((item: any) => {
-      if (item && 'items' in item && Array.isArray(item.items)) {
-        return item.items.length > 0;
-      }
-      return hasMenuPermission(String(item?.id ?? '')) && isFeatureEnabled(String(item?.id ?? ''));
-    });
 
   const handleBackNavigation = useCallback(() => {
     const raw = String(location.pathname ?? '');
@@ -649,9 +461,17 @@ const Layout: React.FC = () => {
     return () => window.removeEventListener('keydown', onEscape);
   }, [location.pathname, handleBackNavigation]);
 
-  const handleDrawerToggle = () => {
-    setMobileOpen(!mobileOpen);
-  };
+  /** F1 → About & Updates (when permitted), Tally-style help entry. */
+  useEffect(() => {
+    const onF1 = (e: KeyboardEvent) => {
+      if (e.key !== 'F1') return;
+      if (!canAccessFeature('manage-settings')) return;
+      e.preventDefault();
+      navigate({ pathname: '/settings', search: '?tab=about' });
+    };
+    window.addEventListener('keydown', onF1);
+    return () => window.removeEventListener('keydown', onF1);
+  }, [navigate, canAccessFeature]);
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -661,58 +481,7 @@ const Layout: React.FC = () => {
     setAnchorEl(null);
   };
 
-  // Load expanded groups from localStorage
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('sidebar_expanded_groups');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        setExpandedGroups(new Set(parsed));
-      }
-    } catch (error) {
-      console.warn('Failed to load sidebar expansion state:', error);
-    }
-  }, []);
-
-  // Save expanded groups to localStorage whenever it changes
-  useEffect(() => {
-    try {
-      localStorage.setItem('sidebar_expanded_groups', JSON.stringify(Array.from(expandedGroups)));
-    } catch (error) {
-      console.warn('Failed to save sidebar expansion state:', error);
-    }
-  }, [expandedGroups]);
-
-  /** Accounts + Vouchers: only one expanded at a time (accordion). */
-  const ACCORDION_GROUPS = new Set<string>(['accounts', 'vouchers']);
-
-  const handleGroupToggle = (groupId: string) => {
-    const newExpanded = new Set(expandedGroups);
-    if (newExpanded.has(groupId)) {
-      newExpanded.delete(groupId);
-    } else {
-      if (ACCORDION_GROUPS.has(groupId)) {
-        ACCORDION_GROUPS.forEach((id) => {
-          if (id !== groupId) newExpanded.delete(id);
-        });
-      }
-      newExpanded.add(groupId);
-    }
-    setExpandedGroups(newExpanded);
-  };
-
   const [headerSearch, setHeaderSearch] = useState('');
-
-  const headerDateLine = useMemo(
-    () =>
-      new Intl.DateTimeFormat(undefined, {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-      }).format(new Date()),
-    []
-  );
 
   const handleLogout = () => {
     // AuthContext se logout
@@ -721,248 +490,6 @@ const Layout: React.FC = () => {
     // turant login page par redirect
     navigate("/login");
   };
-
-  const theme = useTheme();
-  const navItemSelectedSx = useMemo(
-    () => ({
-      "&.Mui-selected": {
-        bgcolor: 'var(--sidebar-active-bg)',
-        color: 'var(--text-primary)',
-        borderLeft: '3px solid var(--sidebar-icon-active)',
-        boxShadow: 'none',
-        '& .MuiListItemText-primary': { color: 'var(--text-primary)' },
-        "&:hover": {
-          bgcolor: 'var(--sidebar-active-hover)',
-        },
-      },
-      "&:hover": {
-        bgcolor: 'var(--sidebar-hover)',
-      },
-    }),
-    [theme]
-  );
-
-  const drawer = (
-    <Box
-      sx={{
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        background: theme.palette.mode === 'light'
-          ? 'var(--bg-sidebar)'
-          : 'linear-gradient(180deg, #020617 0%, var(--bg-sidebar) 100%)',
-        color: 'var(--text-secondary)',
-        borderRight: { sm: "1px solid" },
-        borderColor: 'var(--border)',
-      }}
-    >
-      <Box
-        sx={{
-          flex: '1 1 auto',
-          overflowY: 'auto',
-          px: 2,
-          pb: 2,
-          pt: 2,
-          /* Keep sidebar scroll functional but hide the scrollbar in real UI */
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none',
-          '&::-webkit-scrollbar': {
-            width: 0,
-            height: 0,
-            display: 'none',
-          },
-        }}
-      >
-        <List sx={{ gap: 0.5, display: 'flex', flexDirection: 'column' }}>
-        {filteredMenuItems
-          .filter((item) => {
-            // Only restrict access to sensitive features, allow everything else
-            const restrictedFeatures: Record<string, string> = {
-              'user-management': 'manage-users',
-              'settings': 'manage-settings',
-            };
-
-            // Check if this is a restricted feature
-            const requiredPermission = restrictedFeatures[item.id];
-            if (requiredPermission) {
-              try {
-                return canAccessFeature(requiredPermission);
-              } catch (error) {
-                // If permission check fails (e.g., no user logged in), hide restricted features
-                return false;
-              }
-            }
-
-            // For menu groups, always show them (sub-items will be filtered individually if needed)
-            if ('items' in item) {
-              return true;
-            }
-
-            // Allow all other menu items by default
-            return true;
-          })
-          .map((item) => {
-            // Check if it's a group
-            if ('items' in item) {
-              // It's a MenuGroup - sidebar collapsible groups (parties, transactions)
-              const IconComponent = getNavIconComponent(item.id, item.icon);
-              const isExpanded = expandedGroups.has(item.id);
-              const isGroupSelected = item.items.some(
-                (sub: { path: string; }) => location.pathname === sub.path || location.pathname.startsWith(sub.path + '/')
-              );
-              const groupGradient = navIconGradientForKey(
-                String(item.id ?? item.icon ?? ''),
-                theme.palette.primary.main
-              );
-
-              return (
-                <React.Fragment key={item.id}>
-                  <ListItem disablePadding sx={{ mb: 0.5 }}>
-                    <ListItemButton 
-                      onClick={() => handleGroupToggle(item.id)}
-                      sx={{ 
-                        borderRadius: 2,
-                        ...navItemSelectedSx,
-                      }}
-                    >
-                      <ListItemIcon sx={{ minWidth: 48 }}>
-                        <Box
-                          sx={{
-                            ...getNavIconBadgeSx({
-                              gradient: groupGradient,
-                              selected: isGroupSelected,
-                              lightMode: theme.palette.mode === 'light',
-                            }),
-                            ...(isExpanded
-                              ? { filter: 'saturate(1.15) brightness(1.05)' }
-                              : undefined),
-                            '.MuiListItemButton-root:hover &': {
-                              transform: 'translateY(-2px)',
-                              boxShadow: 'var(--nav-hover-shadow)',
-                            },
-                          }}
-                        >
-                          <IconComponent />
-                        </Box>
-                      </ListItemIcon>
-                      <ListItemText 
-                        primary={item.text} 
-                        primaryTypographyProps={{ 
-                          fontWeight: isGroupSelected ? 700 : 600,
-                          fontSize: '0.9rem',
-                          color: isGroupSelected
-                            ? 'var(--text-primary)'
-                            : 'var(--text-secondary)',
-                        }} 
-                      />
-                      {isExpanded ? <ExpandLessIcon sx={{ fontSize: '1.2rem', opacity: 0.5 }} /> : <ExpandMoreIcon sx={{ fontSize: '1.2rem', opacity: 0.5 }} />}
-                    </ListItemButton>
-                  </ListItem>
-                  <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-                    <List component="div" disablePadding sx={{ pl: 1 }}>
-                      {item.items.map((subItem: any) => {
-                        const SubIconComponent = getNavIconComponent(String(subItem.id ?? ''), subItem.icon);
-                        const isSubSelected =
-                          location.pathname === subItem.path ||
-                          location.pathname.startsWith(subItem.path + '/');
-                        const subGradient = navIconGradientForKey(
-                          String(subItem.id ?? subItem.icon ?? ''),
-                          theme.palette.primary.main
-                        );
-                        return (
-                          <ListItem key={subItem.id} disablePadding sx={{ mb: 0.5 }}>
-                            <ListItemButton
-                              selected={isSubSelected}
-                              onClick={() => navigate(subItem.path)}
-                              sx={{ 
-                                borderRadius: 2,
-                                pl: 2,
-                                ...navItemSelectedSx,
-                              }}
-                            >
-                              <ListItemIcon sx={{ minWidth: 44 }}>
-                                <Box
-                                  sx={{
-                                    ...getNavIconBadgeSx({
-                                      gradient: subGradient,
-                                      selected: isSubSelected,
-                                      size: 28,
-                                      lightMode: theme.palette.mode === 'light',
-                                    }),
-                                  }}
-                                >
-                                  <SubIconComponent />
-                                </Box>
-                              </ListItemIcon>
-                              <ListItemText 
-                                primary={subItem.text} 
-                                primaryTypographyProps={{ 
-                                  fontWeight: isSubSelected ? 700 : 500,
-                                  fontSize: '0.85rem',
-                                  color: isSubSelected
-                                    ? 'var(--text-primary)'
-                                    : 'var(--text-secondary)',
-                                }} 
-                              />
-                            </ListItemButton>
-                          </ListItem>
-                        );
-                      })}
-                    </List>
-                  </Collapse>
-                </React.Fragment>
-              );
-            } else {
-              // It's a MenuItem
-          const IconComponent = getNavIconComponent(item.id, item.icon);
-          const isSelected = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
-          const gradient = navIconGradientForKey(item.id || item.icon, theme.palette.primary.main);
-          return (
-            <ListItem key={item.id} disablePadding sx={{ mb: 0.5 }}>
-              <ListItemButton
-                selected={isSelected}
-                onClick={() => navigate(item.path)}
-                sx={{ 
-                  borderRadius: 2,
-                  ...navItemSelectedSx,
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: 48 }}>
-                  <Box
-                    sx={{
-                      ...getNavIconBadgeSx({
-                        gradient,
-                        selected: isSelected,
-                        lightMode: theme.palette.mode === 'light',
-                      }),
-                      '.MuiListItemButton-root:hover &': {
-                        transform: 'translateY(-2px)',
-                        boxShadow: 'var(--nav-hover-shadow)',
-                      },
-                    }}
-                  >
-                    <IconComponent />
-                  </Box>
-                </ListItemIcon>
-                <ListItemText 
-                  primary={item.text} 
-                  primaryTypographyProps={{ 
-                    fontWeight: isSelected ? 700 : 600,
-                    fontSize: '0.9rem',
-                    color: isSelected
-                      ? 'var(--text-primary)'
-                      : 'var(--text-secondary)',
-                  }} 
-                />
-              </ListItemButton>
-            </ListItem>
-          );
-            }
-        })}
-        </List>
-      </Box>
-    </Box>
-  );
 
   const shouldShowHeaderSearch = !showBackButton;
 
@@ -1009,66 +536,63 @@ const Layout: React.FC = () => {
   };
 
   const titleBarOffset = electronUsesFramelessChrome() ? ELECTRON_TITLEBAR_HEIGHT_PX : 0;
-  /** Single full-width AppBar sits below title bar; drawer nav starts under it */
-  const drawerPaperTopSx =
-    titleBarOffset > 0
-      ? {
-          top: `${titleBarOffset + 56}px`,
-          height: `calc(100% - ${titleBarOffset + 56}px)`,
-          '@media (min-width: 600px)': {
-            top: `${titleBarOffset + 64}px`,
-            height: `calc(100% - ${titleBarOffset + 64}px)`,
-          },
-        }
-      : {
-          top: '56px',
-          height: 'calc(100% - 56px)',
-          '@media (min-width: 600px)': {
-            top: '64px',
-            height: 'calc(100% - 64px)',
-          },
-        };
+  const TOOLBAR_ROW_XS = 56;
+  const TOOLBAR_ROW_SM = 60;
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%', minHeight: '100vh' }}>
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        width: '100%',
+        height: '100%',
+        maxHeight: '100%',
+        overflow: 'hidden',
+      }}
+    >
       <ElectronTitleBar />
-      <Box sx={{ display: 'flex', flex: 1, width: '100%', minHeight: 0 }}>
-      <AppBar
-        position="fixed"
-        elevation={0}
-        sx={(t) => ({
-          top: titleBarOffset,
-          left: 0,
-          right: 0,
-          width: '100%',
-          ml: 0,
-          zIndex: t.zIndex.drawer + 1,
-          background: appBarGradient(t),
-          borderBottom: '1px solid var(--border)',
-          borderRadius: 0,
-          boxShadow: t.palette.mode === 'dark' ? 'var(--header-shadow-dark)' : 'var(--header-shadow)',
-          color: appBarForeground(t),
-          transition: 'background-color 0.2s ease',
-        })}
-      >
-        <Toolbar
-          disableGutters
-          sx={{
-            gap: 0,
-            minHeight: { xs: 56, sm: 64 },
-            py: { xs: 0.5, sm: 0.75 },
-            px: 0,
-            color: appBarForeground(theme),
-          }}
+      <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, width: '100%', minHeight: 0, overflow: 'hidden' }}>
+        <Box
+          sx={(t) => ({
+            position: 'fixed',
+            top: titleBarOffset,
+            left: 0,
+            right: 0,
+            zIndex: t.zIndex.drawer + 1,
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 1px 0 rgba(15,23,42,0.12)',
+            overflow: 'visible',
+          })}
         >
+          <DesktopErpTitleBar />
+          <Box sx={{ display: { xs: 'none', sm: 'block' }, overflow: 'visible' }}>
+            <DesktopErpMenuBar
+              navigate={navigate}
+              canAccessFeature={canAccessFeature}
+              gstEnabled={gstEnabled}
+            />
+          </Box>
+          <Toolbar
+            disableGutters
+            sx={{
+              gap: 0,
+              minHeight: { xs: TOOLBAR_ROW_XS, sm: TOOLBAR_ROW_SM },
+              py: { xs: 0.25, sm: 0.35 },
+              px: 0,
+              bgcolor: '#E8EEF4',
+              borderBottom: '1px solid #cbd5e1',
+              color: ERP_TEXT,
+            }}
+          >
           <AppTopBar
             left={
               <>
                 <IconButton
                   color="inherit"
-                  aria-label="open drawer"
+                  aria-label="Open menu"
                   edge="start"
-                  onClick={handleDrawerToggle}
+                  onClick={(e) => setMobileNavAnchor(e.currentTarget)}
                   sx={{ display: { sm: 'none' }, color: 'inherit' }}
                 >
                   <MenuIcon />
@@ -1078,24 +602,24 @@ const Layout: React.FC = () => {
                     color="inherit"
                     onClick={handleBackNavigation}
                     sx={{ color: 'inherit' }}
-                    title="Go Back"
+                    title="Go Back (Esc)"
                   >
                     <ArrowBackIcon />
                   </IconButton>
                 )}
                 <Box sx={{ minWidth: 0, pl: { xs: 0, sm: 0.5 } }}>
                   <Typography
-                    variant="h6"
+                    variant="subtitle1"
                     noWrap
                     component="div"
                     sx={{
                       fontWeight: 700,
                       letterSpacing: '-0.02em',
                       color: 'inherit',
-                      fontSize: { xs: '1rem', sm: '1.1rem' },
+                      fontSize: { xs: '0.95rem', sm: '1rem' },
                       lineHeight: 1.2,
                     }}
-                    title={`${APP_DISPLAY_NAME} — ${pageTitle}`}
+                    title={pageTitle}
                   >
                     {pageTitle}
                   </Typography>
@@ -1103,14 +627,13 @@ const Layout: React.FC = () => {
                     variant="caption"
                     noWrap
                     sx={{
-                      display: { xs: 'none', sm: 'block' },
-                      color: 'var(--brand-accent)',
-                      fontSize: '0.72rem',
-                      mt: 0.25,
+                      fontSize: '0.68rem',
+                      opacity: 0.85,
+                      mt: 0.15,
                     }}
-                    title={`${headerDateLine}`}
+                    title={`Version ${APP_VERSION}`}
                   >
-                    {headerDateLine}
+                    v{APP_VERSION}
                   </Typography>
                 </Box>
               </>
@@ -1135,7 +658,7 @@ const Layout: React.FC = () => {
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
-                        <SearchIcon sx={{ color: appBarMutedForeground(theme), fontSize: 20 }} />
+                        <SearchIcon sx={{ color: '#64748b', fontSize: 20 }} />
                       </InputAdornment>
                     ),
                   }}
@@ -1143,30 +666,29 @@ const Layout: React.FC = () => {
                     width: '100%',
                     maxWidth: { xs: '100%', sm: 480, md: 560 },
                     '& .MuiOutlinedInput-root': {
-                      height: 40,
-                      bgcolor: theme.palette.mode === 'light' ? 'var(--search-bg)' : 'var(--search-bg)',
-                      borderRadius: 2,
-                      color: 'inherit',
+                      height: 36,
+                      bgcolor: '#fff',
+                      borderRadius: 0,
+                      color: ERP_TEXT,
                       fontSize: '0.8125rem',
-                      transition: 'background-color 0.2s ease',
                       '& fieldset': {
-                        borderColor: 'var(--search-border)',
+                        borderColor: '#94a3b8',
                       },
                       '&:hover fieldset': {
-                        borderColor: 'var(--search-border-hover)',
+                        borderColor: ERP_TEXT,
                       },
                       '&.Mui-focused fieldset': {
-                        borderColor: 'var(--search-border-focus)',
+                        borderColor: ERP_TEXT,
                       },
                     },
                     '& .MuiInputBase-input::placeholder': {
-                      color: appBarMutedForeground(theme),
+                      color: '#64748b',
                       opacity: 1,
                     },
                   }}
                 />
               ) : (
-                <Box sx={{ width: '100%', maxWidth: { xs: '100%', sm: 480, md: 560 }, height: 40 }} />
+                <Box sx={{ width: '100%', maxWidth: { xs: '100%', sm: 480, md: 560 }, height: 36 }} />
               )
             }
             right={
@@ -1177,16 +699,9 @@ const Layout: React.FC = () => {
                   gap: 1,
                   px: 1.25,
                   py: 0.5,
-                  borderRadius: 999,
-                  border: (t) =>
-                    `1px solid ${t.palette.mode === 'dark' ? 'var(--user-group-border-dark)' : 'var(--border)'}`,
-                  bgcolor: (t) =>
-                    t.palette.mode === 'dark' ? 'var(--user-group-bg-dark)' : 'var(--bg-card)',
-                  transition: 'background-color 0.2s ease',
-                  '&:hover': {
-                    bgcolor: (t) =>
-                      t.palette.mode === 'dark' ? 'var(--user-group-bg-hover-dark)' : 'var(--sidebar-hover)',
-                  },
+                  borderRadius: 1,
+                  border: '1px solid #cbd5e1',
+                  bgcolor: '#fff',
                 }}
               >
                 <IconButton
@@ -1336,7 +851,7 @@ const Layout: React.FC = () => {
               </Typography>
             </MenuItem>
             <Divider />
-            {hasMenuPermission('settings') ? (
+            {canAccessFeature('manage-settings') ? (
               <MenuItem
                 onClick={() => {
                   navigate("/settings");
@@ -1361,78 +876,76 @@ const Layout: React.FC = () => {
               Logout
             </MenuItem>
           </Menu>
+          <Menu
+            anchorEl={mobileNavAnchor}
+            open={Boolean(mobileNavAnchor)}
+            onClose={() => setMobileNavAnchor(null)}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+            slotProps={{ paper: { sx: { minWidth: 260, maxHeight: '70vh', mt: 0.5 } } }}
+            MenuListProps={{ dense: true }}
+          >
+            {erpMobileLinks.map((it) => (
+              <MenuItem
+                key={`${it.path}-${it.label}`}
+                onClick={() => {
+                  erpNavigateTo(navigate, it.path);
+                  setMobileNavAnchor(null);
+                }}
+              >
+                <Box>
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ lineHeight: 1.2 }}>
+                    {it.group}
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+                    {it.label}
+                  </Typography>
+                </Box>
+              </MenuItem>
+            ))}
+          </Menu>
         </Toolbar>
-      </AppBar>
-      <Box
-        component="nav"
-        sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}
-      >
-        <Drawer
-          variant="temporary"
-          open={mobileOpen}
-          onClose={handleDrawerToggle}
-          ModalProps={{
-            keepMounted: true,
-          }}
-          sx={{
-            display: { xs: "block", sm: "none" },
-            "& .MuiDrawer-paper": {
-              boxSizing: "border-box",
-              width: drawerWidth,
-              overflow: 'hidden',
-              ...drawerPaperTopSx,
-              scrollbarWidth: 'none',
-              msOverflowStyle: 'none',
-              '&::-webkit-scrollbar': {
-                width: 0,
-                height: 0,
-                display: 'none',
-              },
-            },
-          }}
-        >
-          {drawer}
-        </Drawer>
-        <Drawer
-          variant="permanent"
-          sx={{
-            display: { xs: "none", sm: "block" },
-            "& .MuiDrawer-paper": {
-              boxSizing: "border-box",
-              width: drawerWidth,
-              overflow: 'hidden',
-              ...drawerPaperTopSx,
-              scrollbarWidth: 'none',
-              msOverflowStyle: 'none',
-              '&::-webkit-scrollbar': {
-                width: 0,
-                height: 0,
-                display: 'none',
-              },
-            },
-          }}
-          open
-        >
-          {drawer}
-        </Drawer>
-      </Box>
+        </Box>
       <Box
         component="main"
         sx={{
-          flexGrow: 1,
-          p: 3,
-          width: { sm: `calc(100% - ${drawerWidth}px)` },
-          bgcolor: "background.content",
+          flex: 1,
+          minWidth: 0,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          bgcolor: ERP_WORKSPACE_BG,
+          overflow: 'hidden',
         }}
       >
-        <Toolbar
+        <Box
+          data-erp-dense
           sx={{
-            minHeight: `${titleBarOffset + 56}px !important`,
-            '@media (min-width: 600px)': {
-              minHeight: `${titleBarOffset + 64}px !important`,
+            flex: 1,
+            minHeight: 0,
+            overflowX: 'hidden',
+            overflowY: 'auto',
+            px: { xs: 1.25, sm: 2 },
+            py: 1.25,
+            color: ERP_TEXT,
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none',
+            '&::-webkit-scrollbar': {
+              width: 0,
+              height: 0,
+              display: 'none',
             },
           }}
-        />
+        >
+          <Box
+            sx={{
+              flexShrink: 0,
+              height: `calc(${titleBarOffset}px + ${ERP_TITLE_ROW_PX}px + ${TOOLBAR_ROW_XS}px)`,
+              '@media (min-width: 600px)': {
+                height: `calc(${titleBarOffset}px + ${ERP_TITLE_ROW_PX}px + ${ERP_MENU_ROW_PX}px + ${TOOLBAR_ROW_SM}px)`,
+              },
+            }}
+          />
         {appUpdate && (
           <Alert
             severity={appUpdate.info.mandatory ? 'warning' : 'info'}
@@ -1475,7 +988,8 @@ const Layout: React.FC = () => {
           </Alert>
         )}
         <Outlet />
-        
+        </Box>
+        <DesktopErpStatusBar userLabel={userFullName.toUpperCase()} canAccessFeature={canAccessFeature} />
       </Box>
       </Box>
       <FeedbackDialog

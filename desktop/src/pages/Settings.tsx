@@ -472,7 +472,9 @@ export default function Settings() {
     try {
       const raw = localStorage.getItem('company-info');
       const prev = raw ? JSON.parse(raw) : {};
-      const next = { ...prev, ...partial };
+      const merged = { ...prev, ...partial };
+      const normalizedName = String(merged?.name || merged?.businessName || localStorage.getItem('companyName') || '').trim();
+      const next = { ...merged, name: normalizedName, businessName: normalizedName };
       localStorage.setItem('company-info', JSON.stringify(next));
       if (Object.prototype.hasOwnProperty.call(partial, 'logo')) {
         localStorage.setItem('companyLogo', String(partial.logo ?? ''));

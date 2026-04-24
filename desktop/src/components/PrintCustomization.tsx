@@ -17,6 +17,7 @@ import {
   Upload as UploadIcon
 } from '@mui/icons-material';
 import { usePrintCustomization } from '../hooks/usePrintCustomization';
+import { getNormalizedCompanyProfile } from '../utils/companyProfile';
 
 const sampleInvoice = {
   invoiceNumber: 'INV-PREVIEW-001',
@@ -112,10 +113,20 @@ export default function PrintCustomization() {
   const loadSettings = () => {
     try {
       const saved = localStorage.getItem('invoice-settings');
-      const savedCompany = localStorage.getItem('company-info');
       const savedFormat = localStorage.getItem('selected-format');
       if (saved) setSettings(JSON.parse(saved));
-      if (savedCompany) setCompanyInfo(JSON.parse(savedCompany));
+      const normalizedCompany = getNormalizedCompanyProfile();
+      setCompanyInfo((prev) => ({
+        ...prev,
+        name: normalizedCompany.name || normalizedCompany.businessName,
+        address: normalizedCompany.address,
+        phone: normalizedCompany.phone,
+        email: normalizedCompany.email,
+        gstin: normalizedCompany.gstin,
+        logo: normalizedCompany.logo,
+        signature: normalizedCompany.signature,
+        termsAndConditions: normalizedCompany.termsAndConditions,
+      }));
       if (savedFormat) setSelectedFormat(savedFormat);
     } catch (e) {
       console.log('No saved settings');
@@ -190,8 +201,9 @@ export default function PrintCustomization() {
 
   const saveSettings = () => {
     try {
+      const normalizedName = String(companyInfo.name || '').trim();
       localStorage.setItem('invoice-settings', JSON.stringify(settings));
-      localStorage.setItem('company-info', JSON.stringify(companyInfo));
+      localStorage.setItem('company-info', JSON.stringify({ ...companyInfo, name: normalizedName, businessName: normalizedName }));
       localStorage.setItem('companyLogo', String((companyInfo as any)?.logo ?? ''));
       localStorage.setItem('companySignature', String((companyInfo as any)?.signature ?? ''));
       localStorage.setItem('selected-format', selectedFormat);
@@ -332,6 +344,21 @@ export default function PrintCustomization() {
     window.location.href = `mailto:${sampleInvoice.customer.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
+  const resolvePageSizeForCss = () => {
+    const orientation = settings.orientation === 'landscape' ? 'landscape' : 'portrait';
+    if (settings.pageSize === 'THERMAL_80') return '80mm auto';
+    if (settings.pageSize === 'THERMAL_58') return '58mm auto';
+    return `${settings.pageSize} ${orientation}`;
+  };
+
+  const resolvePreviewMaxWidth = () => {
+    if (settings.pageSize === 'A4') return settings.orientation === 'landscape' ? '297mm' : '210mm';
+    if (settings.pageSize === 'A5') return settings.orientation === 'landscape' ? '210mm' : '148mm';
+    if (settings.pageSize === 'THERMAL_80') return '80mm';
+    if (settings.pageSize === 'THERMAL_58') return '58mm';
+    return '210mm';
+  };
+
   const generateInvoiceHTML = () => {
     const companyName = String(companyInfo.name || '').trim() || 'Your Company';
     const itemsHTML = sampleInvoice.items.map((item, idx) => `
@@ -348,12 +375,12 @@ export default function PrintCustomization() {
 
     const commonStyles = `
       @media print {
-        @page { size: ${settings.pageSize}; margin: 15mm; }
+        @page { size: ${resolvePageSizeForCss()}; margin: ${settings.pageSize.startsWith('THERMAL_') ? '3mm' : '15mm'}; }
         body { margin: 0; }
       }
       * { box-sizing: border-box; }
       body { font-family: ${settings.fontFamily}, sans-serif; font-size: ${settings.fontSize}px; color: black; line-height: 1.5; margin: 0; padding: 20px; }
-      .invoice-container { max-width: ${settings.pageSize === 'A4' ? '210mm' : '216mm'}; margin: 0 auto; position: relative; }
+      .invoice-container { max-width: ${resolvePreviewMaxWidth()}; margin: 0 auto; position: relative; }
       .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 3px solid ${settings.primaryColor}; }
       .company-info { flex: 1; }
       .company-name { font-size: 24px; font-weight: bold; color: ${settings.primaryColor}; margin: 0 0 10px 0; }

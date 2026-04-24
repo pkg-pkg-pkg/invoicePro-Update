@@ -41,11 +41,13 @@ import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import { inventoryItemService } from '../../../services/masters/inventoryItemService';
 import { itemCategoryService } from '../../../services/masters/itemCategoryService';
 import { unitOfMeasureService } from '../../../services/masters/unitOfMeasureService';
+import { godownService } from '../../../services/masters/godownService';
 import { InventoryItem, InventoryStatus, ItemCategory, UnitOfMeasure } from '../../../types/masters';
 import { useMasterList } from '../../../hooks/useMasterList';
 import { usePermission } from '../../../hooks/usePermission';
 import {
   exportInventoryItemsExcel,
+  finalizeInventoryErpRows,
   parseInventoryExcelBuffer,
 } from './inventoryItemBulkExcel';
 
@@ -108,6 +110,7 @@ const InventoryItemList = () => {
 
   const [categories, setCategories] = useState<ItemCategory[]>([]);
   const [units, setUnits] = useState<UnitOfMeasure[]>([]);
+  const [defaultGodownId, setDefaultGodownId] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<'ALL' | 'UNCATEGORIZED' | string>('ALL');
@@ -135,6 +138,14 @@ const InventoryItemList = () => {
       .list({ includeInactive: false })
       .then(setUnits)
       .catch(() => setUnits([]));
+    godownService
+      .list({ includeInactive: false })
+      .then((godowns) => {
+        const active = godowns.filter((g) => g.isActive !== false);
+        const preferred = active.find((g) => g.isDefault) ?? active[0] ?? null;
+        setDefaultGodownId(preferred?.id ?? null);
+      })
+      .catch(() => setDefaultGodownId(null));
   }, []);
 
   useEffect(() => {
@@ -297,6 +308,11 @@ const InventoryItemList = () => {
         const rows = await parseInventoryExcelBuffer(buffer, categories, units);
         normalized = normalizeBulkRows(rows);
       }
+      const primaryUnitId = units[0]?.id;
+      if (!primaryUnitId) {
+        throw new Error('No active unit found. Please create at least one Unit before bulk upload.');
+      }
+      normalized = finalizeInventoryErpRows(normalized, { defaultUnitId: primaryUnitId, defaultGodownId });
       setBulkParsedRows(normalized);
     } catch (err) {
       setBulkParsingError((err as Error).message || 'Failed to read uploaded file');

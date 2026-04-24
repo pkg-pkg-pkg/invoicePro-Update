@@ -2,6 +2,7 @@ import { FC } from 'react';
 import { Box, Card, CardContent, Chip, Grid, IconButton, Stack, TextField, Typography, useMediaQuery, useTheme } from '@mui/material';
 import PrintIcon from '@mui/icons-material/Print';
 import CloseIcon from '@mui/icons-material/Close';
+import { getNormalizedCompanyProfile } from '../../../../utils/companyProfile';
 
 export type VoucherMode = 'edit' | 'view';
 
@@ -46,6 +47,10 @@ export const InvoiceHeader: FC<InvoiceHeaderProps> = ({
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const companyFallback = getNormalizedCompanyProfile();
+  const companyName = company?.name || companyFallback.name || 'Your Company Name';
+  const companyAddress = company?.address || companyFallback.address || 'Company address goes here';
+  const companyGstin = company?.gstin || companyFallback.gstin || '';
 
   return (
     <Card variant="outlined">
@@ -54,13 +59,13 @@ export const InvoiceHeader: FC<InvoiceHeaderProps> = ({
           <Stack direction="row" justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }}>
             <Box>
               <Typography variant="h5" fontWeight={600}>
-                {company?.name || 'Your Company Name'}
+                {companyName}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                {company?.address || 'Company address goes here'}
+                {companyAddress}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                {company?.gstin ? `GSTIN: ${company.gstin}` : 'GSTIN not set'}
+                {companyGstin ? `GSTIN: ${companyGstin}` : 'GSTIN not set'}
               </Typography>
             </Box>
             <Stack direction="row" spacing={1}>

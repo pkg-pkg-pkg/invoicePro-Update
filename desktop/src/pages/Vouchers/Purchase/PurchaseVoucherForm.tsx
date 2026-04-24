@@ -16,6 +16,7 @@ import { autoLedgerService } from '../../../services/masters/autoLedgerService';
 import { generateId } from '../../../utils/id';
 import QuickCreateSupplierDialog from '../../../components/QuickCreateSupplierDialog';
 import QuickCreateLedgerDialog from '../../../components/QuickCreateLedgerDialog';
+import InventoryItemMasterDialog from '../../../components/InventoryItemMasterDialog';
 import { decideGSTType } from '../../../services/vouchers/gstDecisionEngine';
 import { bifurcateTax } from '../../../services/vouchers/gstBifurcationEngine';
 import { normalizeStateToCode } from '../../../utils/stateMapping';
@@ -57,6 +58,8 @@ const PurchaseVoucherForm = () => {
   const [error, setError] = useState<string | null>(null);
   const [showQuickCreateSupplier, setShowQuickCreateSupplier] = useState(false);
   const [showQuickCreatePurchase, setShowQuickCreatePurchase] = useState(false);
+  const [showQuickCreateItem, setShowQuickCreateItem] = useState(false);
+  const [pendingScannedBarcode, setPendingScannedBarcode] = useState('');
   const [companyState, setCompanyState] = useState<string>('');
   const [supplierState, setSupplierState] = useState<string>('');
   const [enableRoundOff, setEnableRoundOff] = useState(true);
@@ -121,15 +124,17 @@ const PurchaseVoucherForm = () => {
       .list({ includeInactive: false })
       .then((list) => {
         const active = list.filter((godown) => godown.isActive !== false);
+        const preferred = active.find((godown) => godown.isDefault) ?? active[0] ?? null;
         setGodowns(active);
         setFormState((prev) => {
-          if (prev.defaultGodownId || active.length === 0) return prev;
-          return { ...prev, defaultGodownId: active[0].id };
+          if (!preferred) return prev;
+          if (prev.defaultGodownId === preferred.id) return prev;
+          return { ...prev, defaultGodownId: preferred.id };
         });
         setLines((prev) =>
-          prev.map((line, idx) => {
-            if (idx === 0 && !line.godownId && active.length) {
-              return { ...line, godownId: active[0].id };
+          prev.map((line) => {
+            if (!line.godownId && preferred) {
+              return { ...line, godownId: preferred.id };
             }
             return line;
           })
@@ -138,15 +143,26 @@ const PurchaseVoucherForm = () => {
       .catch(() => setGodowns([]));
   }, []);
 
+  useEffect(() => {
+    if (!formState.defaultGodownId) return;
+    setLines((prev) =>
+      prev.map((line) => (line.godownId ? line : { ...line, godownId: formState.defaultGodownId }))
+    );
+  }, [formState.defaultGodownId]);
+
   const itemMap = useMemo(() => {
     const map = new Map<string, InventoryItem>();
     inventoryItems.forEach((item) => map.set(item.id, item));
     return map;
   }, [inventoryItems]);
 
+  const supplierLedgerId = useMemo(
+    () => parties.find((p) => p.id === formState.partyId)?.ledgerId ?? '',
+    [parties, formState.partyId]
+  );
+
   const updateLine = useCallback(
     (index: number, patch: Partial<ItemLineState>) => {
-      const supplierLedgerId = parties.find((p) => p.id === formState.partyId)?.ledgerId ?? '';
       setLines((prev) =>
         prev.map((line, idx) => {
           if (idx !== index) return line;
@@ -167,8 +183,96 @@ const PurchaseVoucherForm = () => {
         })
       );
     },
-    [itemMap, parties, formState.partyId]
+    [itemMap, supplierLedgerId]
   );
+
+  const placeItemFromScan = useCallback(
+    (item: InventoryItem) => {
+      const mem = supplierLedgerId && item.id ? rateMemory.getLastPurchaseExclusive(supplierLedgerId, item.id) : null;
+      const basePur = Number(item.pricing?.purchase ?? 0);
+      const rate = mem ?? (Number.isFinite(basePur) ? basePur : 0);
+      const gst = Number(item.gstRate ?? 0);
+
+      setLines((prev) => {
+        const next = [...prev];
+        let targetIdx = next.findIndex((line) => !line.itemId);
+        if (targetIdx < 0) {
+          const lastIdx = next.length - 1;
+          const last = next[lastIdx];
+          if (isLineDataValid(last)) {
+            next.push(createLine(last.godownId || formState.defaultGodownId));
+            targetIdx = next.length - 1;
+          } else {
+            targetIdx = lastIdx;
+          }
+        }
+        next[targetIdx] = {
+          ...next[targetIdx],
+          itemId: item.id,
+          rate: rate > 0 ? String(rate) : next[targetIdx].rate,
+          gstPercent: String(gst),
+        };
+        return next;
+      });
+    },
+    [formState.defaultGodownId, supplierLedgerId]
+  );
+
+  const handleScannedBarcode = useCallback(
+    (raw: string) => {
+      const scanned = raw.trim();
+      if (!scanned) return;
+      const found = inventoryItems.find(
+        (it) => String(it.barcode ?? '').trim().toLowerCase() === scanned.toLowerCase()
+      );
+      if (found) {
+        setError(null);
+        placeItemFromScan(found);
+        return;
+      }
+      setPendingScannedBarcode(scanned);
+      setShowQuickCreateItem(true);
+      setError(`Barcode "${scanned}" item list mein nahi mila. Naya item create kar sakte hain.`);
+    },
+    [inventoryItems, placeItemFromScan]
+  );
+
+  useEffect(() => {
+    const buffer = { value: '', lastAt: 0 };
+    const GAP_MS = 90;
+    const MIN_LEN = 4;
+
+    const shouldIgnoreTarget = (target: EventTarget | null) => {
+      const el = target as HTMLElement | null;
+      if (!el?.isConnected) return true;
+      if (el.closest('[role="dialog"], .MuiMenu-root, .MuiPopover-root')) return true;
+      return false;
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      if (showQuickCreateSupplier || showQuickCreatePurchase || showQuickCreateItem) return;
+      if (shouldIgnoreTarget(e.target)) return;
+
+      const now = Date.now();
+      if (now - buffer.lastAt > GAP_MS) buffer.value = '';
+      buffer.lastAt = now;
+
+      if (e.key === 'Enter') {
+        const code = buffer.value.trim();
+        buffer.value = '';
+        if (code.length >= MIN_LEN) {
+          e.preventDefault();
+          handleScannedBarcode(code);
+        }
+        return;
+      }
+      if (e.key.length === 1) buffer.value += e.key;
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleScannedBarcode, showQuickCreateItem, showQuickCreatePurchase, showQuickCreateSupplier]);
 
   const addLine = () => setLines((prev) => [...prev, createLine(formState.defaultGodownId)]);
 
@@ -246,6 +350,13 @@ const PurchaseVoucherForm = () => {
     formState.partyId.trim().length > 0 &&
     lines.some(isLineDataValid) &&
     !saving;
+
+  const handleInventoryMasterSaved = (newItem: InventoryItem) => {
+    setInventoryItems((prev) => [...prev, newItem]);
+    placeItemFromScan(newItem);
+    setPendingScannedBarcode('');
+    setShowQuickCreateItem(false);
+  };
 
   const postingPreview = useMemo(() => {
     const entries: { ledgerId: string; ledgerName: string; debit: number; credit: number; description?: string }[] = [];
@@ -612,9 +723,14 @@ const PurchaseVoucherForm = () => {
               <Typography variant="subtitle1" fontWeight={600}>
                 Inventory Items
               </Typography>
-              <Button variant="text" startIcon={<AddIcon />} onClick={addLine}>
-                Add Item
-              </Button>
+              <Stack direction="row" spacing={1}>
+                <Button variant="text" onClick={() => setShowQuickCreateItem(true)}>
+                  + New Item
+                </Button>
+                <Button variant="text" startIcon={<AddIcon />} onClick={addLine}>
+                  Add Item
+                </Button>
+              </Stack>
             </Stack>
             <Box sx={{ overflowX: 'auto' }}>
             <Table size="small" sx={{ '& td': { verticalAlignment: 'top' }, minWidth: 900 }}>
@@ -854,6 +970,16 @@ const PurchaseVoucherForm = () => {
           onSave={(ledgerId) => {
             setFormState((prev) => ({ ...prev, purchaseLedgerId: ledgerId }));
           }}
+        />
+
+        <InventoryItemMasterDialog
+          open={showQuickCreateItem}
+          initialBarcode={pendingScannedBarcode}
+          onClose={() => {
+            setShowQuickCreateItem(false);
+            setPendingScannedBarcode('');
+          }}
+          onSaved={handleInventoryMasterSaved}
         />
       </Stack>
     </CardContent>
