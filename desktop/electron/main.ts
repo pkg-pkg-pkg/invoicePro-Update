@@ -1,7 +1,8 @@
-const { app, BrowserWindow, ipcMain, Notification, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, Menu, shell } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
 const Database = require('better-sqlite3');
 
 let mainWindow: any = null;
@@ -307,6 +308,56 @@ function formatReleaseNotes(info: any): string | undefined {
 }
 
 function configureAutoUpdater() {
+  let lastUpdateInfo: any = null;
+
+  const resolveGitHubRepo = (): { owner: string; repo: string } | null => {
+    try {
+      const pkg = require('../package.json');
+      const raw = String(pkg?.repository?.url ?? '').trim();
+      const m = raw.match(/github\.com[/:]([^/]+)\/([^/.]+)(?:\.git)?$/i);
+      if (!m) return null;
+      return { owner: m[1], repo: m[2] };
+    } catch {
+      return null;
+    }
+  };
+
+  const urlExists = (url: string): Promise<boolean> =>
+    new Promise((resolve) => {
+      const req = https.request(url, { method: 'HEAD' }, (res: any) => {
+        const code = Number(res?.statusCode ?? 0);
+        resolve(code >= 200 && code < 400);
+      });
+      req.on('error', () => resolve(false));
+      req.end();
+    });
+
+  const buildFallbackAssetUrls = (version: string): string[] => {
+    const repo = resolveGitHubRepo();
+    if (!repo || !version) return [];
+    const tag = `v${String(version).replace(/^v/i, '')}`;
+    const base = `https://github.com/${repo.owner}/${repo.repo}/releases/download/${tag}/`;
+    const rawNames = [
+      `PVE-InvoicePro-360-Setup-${version}.exe`,
+      `PVE InvoicePro 360-Setup-${version}.exe`,
+      `PVE-InvoicePro-360-${version}.exe`,
+      `PVE InvoicePro 360-${version}.exe`,
+    ];
+    return rawNames.flatMap((n) => [base + n, base + encodeURIComponent(n)]);
+  };
+
+  const tryFallbackManualDownload = async (version: string): Promise<string | null> => {
+    const candidates = buildFallbackAssetUrls(version);
+    for (const url of candidates) {
+      // eslint-disable-next-line no-await-in-loop
+      if (await urlExists(url)) {
+        await shell.openExternal(url);
+        return url;
+      }
+    }
+    return null;
+  };
+
   if (!app.isPackaged) {
     ipcMain.handle('check-for-updates', async () => ({
       updateAvailable: false,
@@ -319,6 +370,7 @@ function configureAutoUpdater() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on('update-available', (info) => {
+    lastUpdateInfo = info;
     broadcastUpdate('update-available', info);
     if (Notification.isSupported()) {
       try {
@@ -353,6 +405,7 @@ function configureAutoUpdater() {
       const result = await autoUpdater.checkForUpdates();
       const cur = app.getVersion();
       if (result?.updateInfo) {
+        lastUpdateInfo = result.updateInfo;
         return {
           updateAvailable: Boolean(result.isUpdateAvailable),
           currentVersion: cur,
@@ -368,8 +421,28 @@ function configureAutoUpdater() {
     }
   });
   ipcMain.handle('download-update', async () => {
-    await autoUpdater.downloadUpdate();
-    return true;
+    try {
+      await autoUpdater.downloadUpdate();
+      return true;
+    } catch (e: any) {
+      const message = String(e?.message || e || '');
+      const isNotFound = /status\s*404/i.test(message) || /Not Found/i.test(message);
+      if (!isNotFound) throw e;
+
+      const targetVersion = String(lastUpdateInfo?.version ?? '').trim();
+      if (targetVersion) {
+        const fallbackUrl = await tryFallbackManualDownload(targetVersion);
+        if (fallbackUrl) {
+          throw new Error(
+            `Auto-update asset mismatch (404). Manual installer opened: ${fallbackUrl}. ` +
+              'Please upload latest.yml + setup exe for seamless in-app updates.'
+          );
+        }
+      }
+      throw new Error(
+        'Auto-update asset not found on release (404). Please upload latest.yml and matching setup exe to the tagged release.'
+      );
+    }
   });
   ipcMain.handle('install-update', async () => {
     autoUpdater.quitAndInstall(false, true);

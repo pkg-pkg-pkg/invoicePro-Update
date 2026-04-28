@@ -44,10 +44,10 @@
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
     "shortcutName": "PVE InvoicePro 360",
-    "artifactName": "${productName}-Setup-${version}.${ext}"
+    "artifactName": "PVE-InvoicePro-360-Setup-${version}.${ext}"
   },
   "portable": {
-    "artifactName": "${productName}-${version}.exe"
+    "artifactName": "PVE-InvoicePro-360-${version}.exe"
   },
   "npmRebuild": false
 }
