@@ -6,8 +6,11 @@ import {
   updateCategory,
   deleteCategory
 } from '../controllers/categories';
+import { blockMobileUpdateDelete } from '../middleware/mutationPolicy';
 
 const router = Router();
+
+router.use(blockMobileUpdateDelete);
 
 router.get('/', getCategories);
 router.get('/:id', getCategory);

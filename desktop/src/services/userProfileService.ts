@@ -8,16 +8,15 @@ function normalizeEmail(email: string): string {
 }
 
 /**
- * Sync plain-text password to Firestore user profile.
- * This is used so passwords typed on any device are backed up centrally
- * and can be restored/synced to other devices.
+ * Sync non-sensitive security metadata to Firestore user profile.
  *
- * NOTE: This is NOT a replacement for Firebase Auth; it is an app-level
- * backup. Firestore rules must protect this field appropriately.
+ * IMPORTANT:
+ * Passwords must never be stored in Firestore (plain-text or encrypted).
+ * Authentication password state is managed by Firebase Auth / backend only.
  */
 export async function syncPasswordToFirestore(
   email: string,
-  password: string,
+  _password: string,
   extra?: Record<string, any>,
 ): Promise<void> {
   try {
@@ -26,8 +25,7 @@ export async function syncPasswordToFirestore(
     const userRef = doc(db, USERS_COLLECTION, normalizedEmail);
 
     const payload: any = {
-      password,
-      passwordLastUpdated: serverTimestamp(),
+      credentialsUpdatedAt: serverTimestamp(),
     };
 
     if (extra) {

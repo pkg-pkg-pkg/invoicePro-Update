@@ -19,6 +19,8 @@ export interface AuthUser extends JwtPayload {
   fullName?: string;
   role: UserRole;
   companyId?: string;
+  isMobileUser?: boolean;
+  mobilePermissions?: unknown;
 }
 
 declare global {
@@ -29,7 +31,10 @@ declare global {
   }
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || "your-default-secret";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  throw new Error("Security misconfiguration: JWT_SECRET must be set and at least 32 chars long");
+}
 
 /**
  * Authenticate:

@@ -186,23 +186,13 @@ function App() {
     protocol,
   });
 
-  // 🔥 LICENSE VALIDATION ON APP STARTUP (BYPASS IN DEVELOPMENT)
+  // License validation on app startup
   useEffect(() => {
     let cancelled = false;
     const gen = ++licenseCheckGeneration.current;
 
     const checkLicense = async () => {
       if (!isAuthenticated || licenseCheckDone) return;
-
-      // 🚀 DEVELOPMENT BYPASS - Skip license check in development
-      const isDevelopment = process.env.NODE_ENV === 'development';
-      if (isDevelopment) {
-        console.log('🚀 Development mode detected - bypassing license check');
-        setLicenseValid(true);
-        setLicenseCheckReason('');
-        setLicenseCheckDone(true);
-        return;
-      }
 
       console.log('🔍 Starting license validation check...');
       

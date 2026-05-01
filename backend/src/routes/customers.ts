@@ -2,8 +2,11 @@
 
 import { Router, Request, Response } from "express";
 import { authenticate, authorize } from "../middleware/auth";
+import { blockMobileUpdateDelete } from "../middleware/mutationPolicy";
 
 const router = Router();
+
+router.use(blockMobileUpdateDelete);
 
 /**
  * GET /api/customers

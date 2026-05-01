@@ -9,8 +9,11 @@ import {
   getSupplierPayable,
   getPayableList
 } from '../controllers/suppliers';
+import { blockMobileUpdateDelete } from '../middleware/mutationPolicy';
 
 const router = Router();
+
+router.use(blockMobileUpdateDelete);
 
 router.get('/', getSuppliers);
 router.get('/payable', getPayableList);

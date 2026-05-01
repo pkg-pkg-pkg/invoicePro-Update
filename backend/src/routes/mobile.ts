@@ -11,7 +11,10 @@ import {
 const router = Router();
 const prisma = new PrismaClient();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  throw new Error('Security misconfiguration: JWT_SECRET must be set and at least 32 chars long');
+}
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 function normalizeIndianMobile(raw: string): string {
@@ -64,6 +67,8 @@ router.post('/auth/login', async (req: Request, res: Response) => {
         email: user.email,
         role: user.role,
         companyId: user.companyId ?? undefined,
+        isMobileUser: true,
+        mobilePermissions: user.mobilePermissions ?? {},
       },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN } as jwt.SignOptions

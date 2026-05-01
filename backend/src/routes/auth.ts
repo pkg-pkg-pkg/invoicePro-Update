@@ -14,8 +14,10 @@ const router = Router();
 const prisma = new PrismaClient();
 
 // Types ko explicitly define kar rahe hain:
-const JWT_SECRET: string =
-  process.env.JWT_SECRET || "your-secret-key";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  throw new Error("Security misconfiguration: JWT_SECRET must be set and at least 32 chars long");
+}
 
 const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN || "7d") as string;
 
@@ -115,6 +117,8 @@ router.post("/login", async (req: Request, res: Response) => {
       fullName: user.fullName || undefined,
       role: user.role as UserRole,
       companyId: user.companyId ? String(user.companyId) : undefined,
+      isMobileUser: Boolean(user.isMobileUser),
+      mobilePermissions: user.mobilePermissions ?? undefined,
     };
 
     // Yahan pe types fix kiye hain (JWT_SECRET: Secret, expiresIn: SignOptions["expiresIn"])

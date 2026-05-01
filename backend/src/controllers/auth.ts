@@ -73,9 +73,17 @@ router.post('/login', async (req: Request, res: Response) => {
 
     console.log('Generating token with payload:', tokenPayload);
 
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret || jwtSecret.length < 32) {
+      return res.status(500).json({
+        success: false,
+        error: 'Server security misconfiguration (JWT secret)',
+      });
+    }
+
     const token = jwt.sign(
       tokenPayload,
-      process.env.JWT_SECRET || 'your-secret-key-here',
+      jwtSecret,
       { expiresIn: '7d' }
     );
 

@@ -64,7 +64,7 @@ router.post('/send', async (req: Request, res: Response) => {
       },
     });
 
-    const toEmail = String(body.recipientEmail || DEFAULT_FEEDBACK_TO).trim() || DEFAULT_FEEDBACK_TO;
+    const toEmail = DEFAULT_FEEDBACK_TO;
     const fromUser = String(body.userName || req.user?.username || 'Unknown').trim();
     const fromEmail = String(body.userEmail || req.user?.email || '').trim();
     const company = String(body.companyName || '').trim();

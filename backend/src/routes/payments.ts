@@ -7,8 +7,11 @@ import {
   deletePayment,
   getPaymentSummary,
 } from '../controllers/payments';
+import { blockMobileUpdateDelete } from '../middleware/mutationPolicy';
 
 const router = Router();
+
+router.use(blockMobileUpdateDelete);
 
 router.get('/', getPayments);
 router.get('/summary', getPaymentSummary);

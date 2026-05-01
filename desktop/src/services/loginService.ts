@@ -27,8 +27,49 @@ import { syncPasswordToFirestore } from './userProfileService';
 
 const USERS_STORAGE_KEY = 'gst_billing_users';
 const LOCAL_LICENSE_CACHE_KEY = 'enc_license_cache_v1';
+const MAX_OFFLINE_LICENSE_CACHE_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 const norm = (v: any) => String(v ?? '').trim().toLowerCase();
+const isOnline = () => {
+  try {
+    return navigator.onLine !== false;
+  } catch {
+    return true;
+  }
+};
+
+const toExpiryMs = (raw: any): number | null => {
+  if (raw == null) return null;
+  if (typeof raw === 'number') return raw;
+  if (typeof raw?.toMillis === 'function') return Number(raw.toMillis());
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const isConnectivityError = (err: any): boolean => {
+  const code = String(err?.code || '').toLowerCase();
+  const msg = String(err?.message || '').toLowerCase();
+  return (
+    code.includes('network') ||
+    code.includes('unavailable') ||
+    code.includes('timeout') ||
+    msg.includes('network') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('timeout')
+  );
+};
+
+async function readLocalLicenseCache(deviceId: string): Promise<{
+  uid?: string;
+  email?: string;
+  licenseKey?: string;
+  activationKey?: string;
+  licenseExpiry?: any;
+  cachedAt?: number;
+  multiUserLan?: boolean;
+} | null> {
+  return (await getEncryptedItem(LOCAL_LICENSE_CACHE_KEY, deviceId)) as any;
+}
 
 export type LocalUser = {
   id: string;
@@ -102,6 +143,7 @@ export async function performLogin(
 
   const users = loadLocalUsers();
   const deviceId = await getDeviceId();
+  let localActivationHint = '';
 
   // --- Step 1: Check local user first (for existing accounts)
   const localUser = users.find((x) => norm(x?.email) === norm(ident) || norm(x?.username) === norm(ident));
@@ -109,34 +151,37 @@ export async function performLogin(
   if (localUser && String(localUser.password) === String(password)) {
     console.log('✅ Local user authentication successful for:', ident);
     
-    // Get activation key from local user or form
-    let activationKey = activationKeyFromForm?.trim() || localUser.activationKey || '';
+    // Get activation hint from local user or form.
+    // Security: this is a hint only; login still requires Firebase + server license verification.
+    localActivationHint = activationKeyFromForm?.trim() || localUser.activationKey || '';
     
-    if (!activationKey) {
+    if (!localActivationHint) {
       // Try to get from localStorage
-      activationKey = localStorage.getItem(`activation_key_${norm(ident)}`) || '';
+      localActivationHint = localStorage.getItem(`activation_key_${norm(ident)}`) || '';
     }
 
-    if (activationKey) {
-      console.log('✅ Using stored activation key:', activationKey);
-      
-      // Cache and bind device
-      await setEncryptedItem(LOCAL_LICENSE_CACHE_KEY, deviceId, {
-        email: ident,
-        // store under licenseKey so startup validation can see it
-        licenseKey: activationKey,
-        cachedAt: new Date().toISOString(),
-      });
+    if (localActivationHint) {
+      console.log('✅ Local activation hint found; proceeding with online verification');
+    }
 
-      // Also ensure Firestore has the latest password for this user.
-      await syncPasswordToFirestore(ident, password);
-      
-      return { success: true, user: localUser };
-    } else {
-      return { 
-        success: false, 
-        needsActivation: true, 
-        reason: 'Local user found but no activation key. Please enter activation key.' 
+    // Offline-first: if internet is not available, allow login from local secure cache
+    // after strict device-binding and license-expiry checks.
+    if (!isOnline()) {
+      const deviceCheck = await detectDeviceChange();
+      if (!deviceCheck.changed) {
+        const cache = await readLocalLicenseCache(deviceId);
+        const cachedKey = String(cache?.licenseKey || cache?.activationKey || '').trim();
+        const cacheEmail = norm(cache?.email || ident);
+        const expiryMs = toExpiryMs(cache?.licenseExpiry);
+        const notExpired = !expiryMs || expiryMs >= Date.now();
+        if (cachedKey && cacheEmail === norm(ident) && notExpired) {
+          return { success: true, user: localUser };
+        }
+      }
+      return {
+        success: false,
+        needsActivation: true,
+        reason: 'Offline login denied: valid local activation cache not found.',
       };
     }
   }
@@ -151,7 +196,7 @@ export async function performLogin(
     console.log('✅ Firebase authentication successful for:', ident);
 
     // --- Step 3: Get activation key from Firestore by email
-    let activationKey = activationKeyFromForm?.trim() || '';
+    let activationKey = activationKeyFromForm?.trim() || localActivationHint || '';
     let licenseData: any = null;
 
     if (!activationKey) {
@@ -284,15 +329,12 @@ export async function validateLicenseAndDevice(): Promise<{
 }> {
   try {
     const deviceId = await getDeviceId();
-
-    // Development bypass - remove this in production
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔧 Development mode: Bypassing license validation');
+    const activeUser = auth?.currentUser;
+    if (!activeUser) {
       return {
-        isValid: true,
-        needsActivation: false,
-        reason: 'Development bypass - license validation skipped',
-        multiUserLan: true,
+        isValid: false,
+        needsActivation: true,
+        reason: 'Authentication required',
       };
     }
 
@@ -308,18 +350,32 @@ export async function validateLicenseAndDevice(): Promise<{
 
     // Then look for an encrypted, cached license for this device.
     // Older builds may have stored `activationKey`, newer ones store `licenseKey`.
-    const cache = (await getEncryptedItem(LOCAL_LICENSE_CACHE_KEY, deviceId)) as
-      | { licenseKey?: string; activationKey?: string; licenseExpiry?: any; multiUserLan?: boolean }
-      | null;
+    const cache = await readLocalLicenseCache(deviceId);
 
     const cachedKey = cache?.licenseKey || cache?.activationKey;
+    let hasValidCache = false;
     if (cachedKey) {
+      const cacheUid = String(cache?.uid || '');
+      if (cacheUid && cacheUid !== String(activeUser.uid || '')) {
+        return {
+          isValid: false,
+          needsActivation: true,
+          reason: 'License cache user mismatch',
+        };
+      }
+      const cacheEmail = String(cache?.email || '').trim().toLowerCase();
+      const sessionEmail = String(activeUser.email || '').trim().toLowerCase();
+      if (cacheEmail && sessionEmail && cacheEmail !== sessionEmail) {
+        return {
+          isValid: false,
+          needsActivation: true,
+          reason: 'License cache email mismatch',
+        };
+      }
+
       // If an expiry is cached, honour it locally so we don't allow use past expiry.
       if (cache?.licenseExpiry) {
-        const ms =
-          typeof cache.licenseExpiry === 'number'
-            ? cache.licenseExpiry
-            : (cache.licenseExpiry as any)?.toMillis?.();
+        const ms = toExpiryMs(cache.licenseExpiry);
         if (ms && ms < Date.now()) {
           return {
             isValid: false,
@@ -328,38 +384,42 @@ export async function validateLicenseAndDevice(): Promise<{
           };
         }
       }
+      hasValidCache = true;
 
-      // Local cache and binding are valid – no need to hit Firestore.
-      return { isValid: true, needsActivation: false, multiUserLan: Boolean(cache?.multiUserLan) };
-    }
+      // Internet unavailable: allow startup from valid local cache.
+      if (!isOnline()) {
+        return { isValid: true, needsActivation: false, multiUserLan: Boolean(cache?.multiUserLan) };
+      }
 
-    // As a fallback (typically first login on a new install) try online validation
-    // if we have an authenticated Firebase user.
-    if (auth?.currentUser) {
-      try {
-        console.log(' Calling validateOnLoginOrStart...');
-        const result = await validateOnLoginOrStart();
-        console.log(' License validation result:', result);
-        if (result.ok) {
-          return { isValid: true, needsActivation: false, multiUserLan: Boolean((result as any).multiUserLan) };
-        }
-        return {
-          isValid: false,
-          needsActivation: true,
-          reason: (result as any).reason || 'License validation failed',
-        };
-      } catch (err) {
-        console.error(' Error in validateOnLoginOrStart:', err);
-        return {
-          isValid: false,
-          needsActivation: true,
-          reason: `License validation error: ${(err as any).message || 'Unknown error'}`,
-        };
+      const cachedAt = Number(cache?.cachedAt || 0);
+      const age = cachedAt > 0 ? Date.now() - cachedAt : Number.POSITIVE_INFINITY;
+      const freshEnough = age >= 0 && age <= MAX_OFFLINE_LICENSE_CACHE_AGE_MS;
+      if (freshEnough) {
+        return { isValid: true, needsActivation: false, multiUserLan: Boolean(cache?.multiUserLan) };
       }
     }
 
-    // No cache and no online session – treat as needing activation.
-    return { isValid: false, needsActivation: true, reason: 'No license found' };
+    // Cache absent/stale or mismatch => mandatory online validation.
+    try {
+      const result = await validateOnLoginOrStart();
+      if (result.ok) {
+        return { isValid: true, needsActivation: false, multiUserLan: Boolean((result as any).multiUserLan) };
+      }
+      return {
+        isValid: false,
+        needsActivation: true,
+        reason: (result as any).reason || 'License validation failed',
+      };
+    } catch (err) {
+      if (hasValidCache && isConnectivityError(err)) {
+        return { isValid: true, needsActivation: false, multiUserLan: Boolean(cache?.multiUserLan) };
+      }
+      return {
+        isValid: false,
+        needsActivation: true,
+        reason: `License validation error: ${(err as any).message || 'Unknown error'}`,
+      };
+    }
   } catch (err: any) {
     return {
       isValid: false,

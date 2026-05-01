@@ -4,7 +4,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSelector } from 'react-redux';
 import { RootState } from '../store';
 import LoginScreen from '../screens/LoginScreen';
-import DashboardScreen from '../screens/DashboardScreen';
+import PartiesScreen from '../screens/PartiesScreen';
 import ProductsScreen from '../screens/ProductsScreen';
 import InvoicesScreen from '../screens/InvoicesScreen';
 import ReportsScreen from '../screens/ReportsScreen';
@@ -17,17 +17,17 @@ const Tab = createBottomTabNavigator();
 function MainTabs() {
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused, color, size }) => {
+      screenOptions={({ route }: { route: any }) => ({
+        tabBarIcon: ({ color, size }: { color: string; size: number }) => {
           let iconName: string;
 
-          if (route.name === 'Dashboard') {
-            iconName = 'dashboard';
-          } else if (route.name === 'Products') {
+          if (route.name === 'Parties') {
+            iconName = 'groups';
+          } else if (route.name === 'Ledgers') {
             iconName = 'inventory';
-          } else if (route.name === 'Invoices') {
+          } else if (route.name === 'Entries') {
             iconName = 'receipt';
-          } else if (route.name === 'Reports') {
+          } else if (route.name === 'Bills') {
             iconName = 'assessment';
           } else if (route.name === 'Settings') {
             iconName = 'settings';
@@ -41,10 +41,10 @@ function MainTabs() {
         tabBarInactiveTintColor: 'gray',
       })}
     >
-      <Tab.Screen name="Dashboard" component={DashboardScreen} />
-      <Tab.Screen name="Products" component={ProductsScreen} />
-      <Tab.Screen name="Invoices" component={InvoicesScreen} />
-      <Tab.Screen name="Reports" component={ReportsScreen} />
+      <Tab.Screen name="Parties" component={PartiesScreen} />
+      <Tab.Screen name="Ledgers" component={ProductsScreen} />
+      <Tab.Screen name="Entries" component={InvoicesScreen} />
+      <Tab.Screen name="Bills" component={ReportsScreen} />
       <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>
   );

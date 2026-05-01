@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 
@@ -33,9 +35,31 @@ import { authenticate } from './middleware/auth';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((x) => x.trim())
+  .filter(Boolean);
 
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin) return cb(null, true); // server-to-server / local tools
+      if (CORS_ORIGINS.length === 0) return cb(new Error('CORS blocked: origin is not allowlisted'));
+      return cb(null, CORS_ORIGINS.includes(origin));
+    },
+    credentials: true,
+  })
+);
+app.use(helmet());
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: Number(process.env.RATE_LIMIT_MAX || 600),
+    standardHeaders: true,
+    legacyHeaders: false,
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -63,7 +87,7 @@ app.use('/api/reports', authenticate, reportRoutes);
 app.use('/api/dashboard', authenticate, dashboardRoutes);
 app.use('/api/sync', authenticate, syncRoutes);
 app.use('/api/gst', authenticate, gstRoutes);
-app.use('/api/feedback', feedbackRoutes);
+app.use('/api/feedback', authenticate, feedbackRoutes);
 app.use('/api', settingsRoutes);
 
 // Error handler
