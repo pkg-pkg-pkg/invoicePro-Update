@@ -214,7 +214,7 @@ const PaymentVoucherForm = () => {
                 Process supplier payments against outstanding invoices
               </Typography>
             </Box>
-            <Stack direction="row" spacing={1}>
+            <Stack direction={{ xs: 'column-reverse', sm: 'row' }} spacing={1} flexWrap="wrap" justifyContent="flex-end" sx={{ width: { xs: '100%', sm: 'auto' } }}>
               <Button type="submit" variant="contained" disabled={!canSubmit}>
                 {saving ? 'Saving...' : 'Save Payment'}
               </Button>

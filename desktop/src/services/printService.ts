@@ -5,6 +5,13 @@ export interface CompanyInfo {
   name: string;
   address: string;
   gstin?: string;
+  phone?: string;
+  email?: string;
+  city?: string;
+  pinCode?: string;
+  bank?: string;
+  accountNo?: string;
+  ifsc?: string;
   logo?: string; // base64 or path
   signature?: string; // base64 or path
 }
@@ -33,6 +40,11 @@ export interface InvoiceData {
   igstTotal: number;
   grandTotal: number;
   amountInWords: string;
+  buyerAddress?: string;
+  sellerAddress?: string;
+  billToAddress?: string;
+  shipToAddress?: string;
+  customerSealLabel?: string;
   declaration?: string;
 }
 
@@ -61,18 +73,20 @@ const cssBase = (format: PrintFormat, opts: PrintOptions) => {
     ${pageSize}
     * { box-sizing: border-box; }
     html, body { height: 100%; }
-    body { font-family: Arial, sans-serif; font-size: ${fontSize}px; color: #000; line-height: 1.3; }
+    body { font-family: "Segoe UI", Arial, sans-serif; font-size: ${fontSize}px; color: #111827; line-height: 1.35; background: #fff; }
     .invoice-container { width: ${bodyWidth}; margin: 0 auto; padding: ${isThermal ? 2 : 0}mm; }
-    .header { display: flex; align-items: center; gap: ${isThermal ? 6 : 12}px; }
+    .header { display: flex; align-items: flex-start; justify-content: space-between; gap: ${isThermal ? 6 : 12}px; border-bottom: 2px solid #1f4e79; padding-bottom: 8px; }
     .logo { max-height: ${isThermal ? 40 : 60}px; }
-    .title { font-size: ${fontSize + (isThermal ? 2 : 3)}px; font-weight: 700; }
-    .muted { color: #444; font-size: ${isThermal ? fontSize - 1 : fontSize}px; }
+    .title { font-size: ${fontSize + (isThermal ? 2 : 4)}px; font-weight: 800; color: #1f4e79; letter-spacing: 0.3px; }
+    .muted { color: #4b5563; font-size: ${isThermal ? fontSize - 1 : fontSize}px; }
+    .invoice-badge { background: #1f4e79; color: #fff; font-weight: 700; padding: 6px 10px; border-radius: 4px; font-size: ${isThermal ? fontSize : fontSize + 1}px; }
     table { width: 100%; border-collapse: collapse; }
-    th, td { border: 1px solid #ddd; padding: ${isThermal ? 3 : 8}px; text-align: left; font-size: ${isThermal ? fontSize - 1 : fontSize}px; }
-    th { background: #f5f5f5; font-weight: 600; }
+    th, td { border: 1px solid #d1d5db; padding: ${isThermal ? 3 : 7}px; text-align: left; font-size: ${isThermal ? fontSize - 1 : fontSize}px; }
+    th { background: #eef4fb; color: #1f4e79; font-weight: 700; }
     .totals td { font-weight: 600; }
     .section { margin-top: ${isThermal ? 4 : 12}px; }
     .signature { text-align: right; margin-top: ${isThermal ? 8 : 24}px; }
+    .amount-box { background: #f9fafb; border: 1px solid #d1d5db; border-radius: 4px; padding: 8px; margin-top: ${isThermal ? 4 : 10}px; }
   `;
 };
 
@@ -97,7 +111,9 @@ export function buildInvoiceHTML(format: PrintFormat, company: CompanyInfo, data
 
   const declarationHtml = opts.showDeclaration && data.declaration ? `<div class="section"><strong>Declaration:</strong><br/>${data.declaration}</div>` : '';
 
-  const headerLogo = opts.logoPosition === 'top-left' ? `<div class="header">${logoHtml}<div><div class="title">${company.name}</div><div class="muted">${company.address}</div><div>GSTIN: ${company.gstin||'-'}</div></div></div>` : `<div style="text-align:center">${logoHtml}<div class="title">${company.name}</div><div class="muted">${company.address}</div><div>GSTIN: ${company.gstin||'-'}</div></div>`;
+  const headerLogo = opts.logoPosition === 'top-left'
+    ? `<div class="header"><div style="display:flex;align-items:flex-start;gap:10px;">${logoHtml}<div><div class="title">${company.name}</div><div class="muted">${company.address}</div><div class="muted">GSTIN: ${company.gstin||'-'}</div></div></div><div class="invoice-badge">TAX INVOICE</div></div>`
+    : `<div style="text-align:center">${logoHtml}<div class="title">${company.name}</div><div class="muted">${company.address}</div><div class="muted">GSTIN: ${company.gstin||'-'}</div></div>`;
 
   return `
   <!doctype html>
@@ -114,12 +130,20 @@ export function buildInvoiceHTML(format: PrintFormat, company: CompanyInfo, data
         <div class="section">
           <table>
             <tr>
+              <td style="width:60%"><strong>Buyer:</strong> ${data.customerName}</td>
               <td><strong>Invoice No:</strong> ${data.invoiceNumber}</td>
+            </tr>
+            <tr>
+              <td><strong>Customer GSTIN:</strong> ${data.customerGSTIN || '-'}</td>
               <td><strong>Date:</strong> ${new Date(data.invoiceDate).toLocaleDateString('en-IN')}</td>
             </tr>
             <tr>
-              <td><strong>Customer:</strong> ${data.customerName}</td>
-              <td><strong>Customer GSTIN:</strong> ${data.customerGSTIN || '-'}</td>
+              <td><strong>Buyer Address:</strong> ${data.buyerAddress || data.billToAddress || '-'}</td>
+              <td><strong>Ship To:</strong> ${data.shipToAddress || data.billToAddress || '-'}</td>
+            </tr>
+            <tr>
+              <td><strong>Seller Address:</strong> ${data.sellerAddress || company.address || '-'}</td>
+              <td><strong>Bill To:</strong> ${data.billToAddress || data.buyerAddress || '-'}</td>
             </tr>
           </table>
         </div>
@@ -153,12 +177,28 @@ export function buildInvoiceHTML(format: PrintFormat, company: CompanyInfo, data
           </table>
         </div>
 
-        <div class="section"><strong>Amount in Words:</strong> ${data.amountInWords}</div>
+        <div class="amount-box"><strong>Amount in Words:</strong> ${data.amountInWords || '-'}</div>
+        <div class="section">
+          <table>
+            <tr>
+              <td><strong>Seller Bank:</strong> ${company.bank || '-'}</td>
+              <td><strong>Account No:</strong> ${company.accountNo || '-'}</td>
+              <td><strong>IFSC:</strong> ${company.ifsc || '-'}</td>
+            </tr>
+          </table>
+        </div>
         ${declarationHtml}
 
-        <div class="signature">
-          <div>Authorized Signatory</div>
-          ${signatureHtml || ''}
+        <div class="signature" style="display:flex;justify-content:space-between;gap:24px;">
+          <div style="text-align:left;">
+            <div><strong>${data.customerSealLabel || 'Customer Seal & Signature'}</strong></div>
+            <div style="border-top:1px solid #777;min-width:220px;margin-top:30px;padding-top:4px;"></div>
+          </div>
+          <div style="text-align:right;">
+            <div>Authorized Signatory</div>
+            ${signatureHtml || ''}
+            <div style="border-top:1px solid #777;min-width:220px;margin-top:8px;padding-top:4px;"></div>
+          </div>
         </div>
       </div>
     </body>
@@ -181,8 +221,8 @@ export async function downloadPDF(html: string, fileName: string, landscape = fa
   // If Electron IPC is available via preload, use it; otherwise fallback
   try {
     const w: any = window as any;
-    if (w.electron && typeof w.electron.invoke === 'function') {
-      const path = await w.electron.invoke('print:pdf', { html, fileName, landscape });
+    if (w.electronAPI && typeof w.electronAPI.printToPDF === 'function') {
+      const path = await w.electronAPI.printToPDF({ html, fileName, landscape });
       return path || null;
     }
   } catch (e) {
@@ -191,6 +231,20 @@ export async function downloadPDF(html: string, fileName: string, landscape = fa
   // Fallback: open preview and let user use system Print to PDF
   openPrintPreview(html);
   return null;
+}
+
+export async function printInvoice(html: string): Promise<boolean> {
+  try {
+    const w: any = window as any;
+    if (w.electronAPI && typeof w.electronAPI.printDirect === 'function') {
+      const ok = await w.electronAPI.printDirect({ html, silent: false });
+      return Boolean(ok);
+    }
+  } catch (e) {
+    console.warn('Electron direct print failed', e);
+  }
+  openPrintPreview(html);
+  return false;
 }
 
 export function systemPrint() {

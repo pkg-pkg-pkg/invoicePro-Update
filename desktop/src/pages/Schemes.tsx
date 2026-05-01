@@ -44,11 +44,14 @@ import { inventoryItemService } from '../services/masters/inventoryItemService';
 import type { InventoryItem } from '../types/masters';
 import SchemeForm from '../components/SchemeForm';
 import SmartSchemeEngine from './Schemes/SmartSchemeEngine';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 export default function Schemes() {
   const { isAdmin } = usePermissions();
   const dispatch = useDispatch<AppDispatch>();
   const [activeTab, setActiveTab] = useState(0); // 0 = Traditional, 1 = Smart Scheme Engine
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const { items: schemes, loading, creating, updating, deleting, error, isEnabled } = useSelector(
     (s: RootState) => s.schemes
@@ -62,6 +65,31 @@ export default function Schemes() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [products, setProducts] = useState<InventoryItem[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const view = (params.get('view') || '').toLowerCase();
+    if (view === 'smart' && activeTab !== 1) {
+      setActiveTab(1);
+      return;
+    }
+    if (view === 'traditional' && activeTab !== 0) {
+      setActiveTab(0);
+    }
+  }, [location.search, activeTab]);
+
+  const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
+    setActiveTab(newValue);
+    const params = new URLSearchParams(location.search);
+    if (newValue === 1) {
+      params.set('view', 'smart');
+      if (!params.get('tab')) params.set('tab', 'create');
+    } else {
+      params.set('view', 'traditional');
+      params.delete('tab');
+    }
+    navigate({ pathname: location.pathname, search: params.toString() ? `?${params.toString()}` : '' }, { replace: true });
+  };
 
   useEffect(() => {
     if (companyId) {
@@ -199,7 +227,7 @@ export default function Schemes() {
 
       {/* Tab Navigation */}
       <Box sx={{ mb: 3 }}>
-        <Tabs value={activeTab} onChange={(_, newValue) => setActiveTab(newValue)}>
+        <Tabs value={activeTab} onChange={handleTabChange}>
           <Tab 
             label="Traditional Schemes" 
             icon={<AssessmentIcon />}
@@ -477,7 +505,7 @@ export default function Schemes() {
         </>
       )}
 
-      {activeTab === 1 && <SmartSchemeEngine />}
+      {activeTab === 1 && <SmartSchemeEngine initialTabFromQuery={new URLSearchParams(location.search).get('tab') || undefined} />}
     </Box>
   );
 }

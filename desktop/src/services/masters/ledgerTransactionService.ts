@@ -35,6 +35,17 @@ const matchesFilters = (txn: LedgerTransaction, filters: LedgerTransactionFilter
 const sortTransactions = (txns: LedgerTransaction[]) =>
   [...txns].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
+const recomputeRunningBalances = (txns: LedgerTransaction[]): LedgerTransaction[] => {
+  const sorted = sortTransactions(txns);
+  const runningByLedger = new Map<string, number>();
+  return sorted.map((txn) => {
+    const prev = runningByLedger.get(txn.ledgerId) ?? 0;
+    const runningBalance = Number((prev + txn.debit - txn.credit).toFixed(4));
+    runningByLedger.set(txn.ledgerId, runningBalance);
+    return { ...txn, runningBalance };
+  });
+};
+
 export type NewLedgerTransaction = Omit<LedgerTransaction, 'id' | 'runningBalance' | 'createdAt'>;
 
 export const ledgerTransactionService = {
@@ -86,5 +97,12 @@ export const ledgerTransactionService = {
 
   async clearAll() {
     await writeList(STORAGE_KEY, []);
+  },
+
+  async deleteByVoucher(voucherId: string): Promise<void> {
+    const transactions = await readList<LedgerTransaction>(STORAGE_KEY);
+    const filtered = transactions.filter((txn) => txn.voucherId !== voucherId);
+    const rebalanced = recomputeRunningBalances(filtered);
+    await writeList(STORAGE_KEY, rebalanced);
   },
 };

@@ -44,6 +44,8 @@ export type TallyListPickerModalProps<T> = {
   footerHint?: string;
   /** When this value changes while the dialog is open, search + highlight reset (e.g. pick item for another line). */
   sessionKey?: string | null;
+  /** Optional initial query to prefill search when modal opens. */
+  initialQuery?: string;
 };
 
 const HEADER_BG = 'primary.dark';
@@ -64,6 +66,7 @@ export function TallyListPickerModal<T>({
   emptyMessage = 'No results.',
   footerHint = '↑ ↓ Navigate | Enter Select | Escape Close' + (onCreateNew ? ' | Ctrl+N Create New' : ''),
   sessionKey,
+  initialQuery = '',
 }: TallyListPickerModalProps<T>) {
   const theme = useTheme();
   const [query, setQuery] = useState('');
@@ -79,12 +82,12 @@ export function TallyListPickerModal<T>({
 
   useEffect(() => {
     if (!open) return;
-    setQuery('');
+    setQuery(initialQuery);
     setHighlight(0);
     highlightRef.current = 0;
     const t = window.setTimeout(() => searchRef.current?.focus(), 50);
     return () => window.clearTimeout(t);
-  }, [open, sessionKey]);
+  }, [open, sessionKey, initialQuery]);
 
   useEffect(() => {
     highlightRef.current = highlight;

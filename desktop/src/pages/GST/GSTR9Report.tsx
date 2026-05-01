@@ -22,7 +22,7 @@ import {
   Divider,
 } from '@mui/material';
 import { FileDownload as FileDownloadIcon } from '@mui/icons-material';
-import { GSTR9Response } from '../../services/gstService';
+import { gstService, GSTR9Response } from '../../services/gstService';
 
 const YEARS = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i);
 
@@ -37,83 +37,8 @@ export default function GSTR9Report() {
     setLoading(true);
     setError(null);
     try {
-      // Mock data for GSTR9 since backend might not be implemented yet
-      const mockData: GSTR9Response = {
-        year,
-        monthlyData: [
-          {
-            month: 4,
-            sales: { count: 25, total: 450000, tax: 40500 },
-            purchases: { count: 18, total: 320000, tax: 28800 }
-          },
-          {
-            month: 5,
-            sales: { count: 28, total: 520000, tax: 46800 },
-            purchases: { count: 22, total: 380000, tax: 34200 }
-          },
-          {
-            month: 6,
-            sales: { count: 32, total: 480000, tax: 43200 },
-            purchases: { count: 25, total: 420000, tax: 37800 }
-          },
-          {
-            month: 7,
-            sales: { count: 30, total: 550000, tax: 49500 },
-            purchases: { count: 20, total: 350000, tax: 31500 }
-          },
-          {
-            month: 8,
-            sales: { count: 35, total: 580000, tax: 52200 },
-            purchases: { count: 28, total: 450000, tax: 40500 }
-          },
-          {
-            month: 9,
-            sales: { count: 33, total: 510000, tax: 45900 },
-            purchases: { count: 24, total: 390000, tax: 35100 }
-          },
-          {
-            month: 10,
-            sales: { count: 38, total: 620000, tax: 55800 },
-            purchases: { count: 30, total: 480000, tax: 43200 }
-          },
-          {
-            month: 11,
-            sales: { count: 36, total: 590000, tax: 53100 },
-            purchases: { count: 26, total: 410000, tax: 36900 }
-          },
-          {
-            month: 12,
-            sales: { count: 40, total: 650000, tax: 58500 },
-            purchases: { count: 32, total: 520000, tax: 46800 }
-          },
-          {
-            month: 1,
-            sales: { count: 42, total: 680000, tax: 61200 },
-            purchases: { count: 35, total: 550000, tax: 49500 }
-          },
-          {
-            month: 2,
-            sales: { count: 38, total: 620000, tax: 55800 },
-            purchases: { count: 31, total: 490000, tax: 44100 }
-          },
-          {
-            month: 3,
-            sales: { count: 45, total: 720000, tax: 64800 },
-            purchases: { count: 38, total: 580000, tax: 52200 }
-          }
-        ],
-        annualSummary: {
-          totalSales: 6580000,
-          totalPurchases: 5120000,
-          totalSalesTax: 592200,
-          totalPurchaseTax: 460800,
-          netTaxPayable: 131400
-        }
-      };
-
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setData(mockData);
+      const result = await gstService.getGSTR9(year);
+      setData(result);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to generate GSTR-9 report');
     } finally {
@@ -128,7 +53,6 @@ export default function GSTR9Report() {
       ...data,
       generatedAt: new Date().toISOString(),
       reportType: 'GSTR-9',
-      gstin: '27AAAAA0000A1Z5', // Sample GSTIN
     };
 
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });

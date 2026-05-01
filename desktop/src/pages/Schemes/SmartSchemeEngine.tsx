@@ -52,6 +52,8 @@ import { InventoryItem } from '../../types/masters';
 import { Party } from '../../types/party';
 import schemeCalculationEngine, { MarginData } from '../../services/schemeCalculationEngine';
 import schemeService, { Scheme } from '../../services/schemeService';
+import RetailerSchemeDashboard from './RetailerSchemeDashboard';
+import OverdueTracker from './OverdueTracker';
 
 interface SchemeProgress {
   retailerId: string;
@@ -78,18 +80,33 @@ interface ProductSelection {
   sellingPrice: number;
 }
 
-const SmartSchemeEngine = () => {
-  const [activeTab, setActiveTab] = useState<'create' | 'dashboard' | 'payment' | 'achievement'>('create');
+const isRetailerNameValid = (name: string | undefined) => {
+  const value = String(name ?? '').trim();
+  if (value.length < 2) return false;
+  // Reject names that are mostly symbols/random tokens.
+  const alphaNum = value.replace(/[^a-zA-Z0-9]/g, '');
+  return alphaNum.length >= 3;
+};
+
+const toSmartTab = (tab: string | undefined): 'create' | 'dashboard' | 'payment' | 'achievement' => {
+  if (tab === 'dashboard' || tab === 'payment' || tab === 'achievement') return tab;
+  return 'create';
+};
+
+const SmartSchemeEngine = ({ initialTabFromQuery }: { initialTabFromQuery?: string }) => {
+  const [activeTab, setActiveTab] = useState<'create' | 'dashboard' | 'payment' | 'achievement'>(toSmartTab(initialTabFromQuery));
   const [loading, setLoading] = useState(false);
   const [products, setProducts] = useState<InventoryItem[]>([]);
   const [retailers, setRetailers] = useState<Party[]>([]);
   const [schemes, setSchemes] = useState<Scheme[]>([]);
   const [schemeProgress, setSchemeProgress] = useState<SchemeProgress[]>([]);
   const [selectedProducts, setSelectedProducts] = useState<ProductSelection[]>([]);
+  const [productSearch, setProductSearch] = useState('');
 
   // Form state for creating new scheme
   const [formData, setFormData] = useState({
     retailerId: '',
+    appliesTo: 'SALES' as 'SALES' | 'PURCHASE' | 'BOTH',
     giftCost: '',
     paymentTerms: '15_days' as '7_days' | '15_days' | '30_days' | 'COD',
     startDate: new Date().toISOString().split('T')[0],
@@ -100,6 +117,10 @@ const SmartSchemeEngine = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    setActiveTab(toSmartTab(initialTabFromQuery));
+  }, [initialTabFromQuery]);
 
   const loadData = async () => {
     setLoading(true);
@@ -120,9 +141,12 @@ const SmartSchemeEngine = () => {
       }));
       setSelectedProducts(productSelections);
 
-      // Load retailers (customers)
-      const retailersData = await partyService.list({ partyType: ['CUSTOMER'] as any });
-      setRetailers(retailersData);
+      // Load customers/suppliers for smart scheme mapping
+      const retailersData = await partyService.list({ partyType: ['BUYER', 'SUPPLIER', 'BOTH'] });
+      const cleanRetailers = retailersData.filter(
+        (party) => party.status !== 'INACTIVE' && isRetailerNameValid(party.name)
+      );
+      setRetailers(cleanRetailers);
 
       // Load existing schemes
       await loadSchemes();
@@ -207,6 +231,30 @@ const SmartSchemeEngine = () => {
     return calculateTarget(giftCost);
   };
 
+  const partnerLabel = formData.appliesTo === 'PURCHASE' ? 'Supplier' : formData.appliesTo === 'BOTH' ? 'Party' : 'Retailer';
+
+  const filteredProducts = useMemo(() => {
+    const q = productSearch.trim().toLowerCase();
+    if (!q) return selectedProducts;
+    return selectedProducts.filter((p) => p.productName.toLowerCase().includes(q));
+  }, [selectedProducts, productSearch]);
+
+  const eligiblePartners = useMemo(() => {
+    if (formData.appliesTo === 'PURCHASE') {
+      return retailers.filter((p) => p.partyType === 'SUPPLIER' || p.partyType === 'BOTH');
+    }
+    if (formData.appliesTo === 'SALES') {
+      return retailers.filter((p) => p.partyType === 'BUYER' || p.partyType === 'BOTH');
+    }
+    return retailers;
+  }, [retailers, formData.appliesTo]);
+
+  useEffect(() => {
+    if (!formData.retailerId) return;
+    if (eligiblePartners.some((p) => p.id === formData.retailerId)) return;
+    setFormData((prev) => ({ ...prev, retailerId: '' }));
+  }, [eligiblePartners, formData.retailerId]);
+
   // Handle form changes
   const handleInputChange = (field: string) => (event: any) => {
     setFormData(prev => ({
@@ -251,18 +299,16 @@ const SmartSchemeEngine = () => {
       }
 
       const giftCost = Number(formData.giftCost);
-      const billingTarget = calculateTarget(giftCost);
-
       await schemeService.createSmartScheme({
         companyId,
-        name: `${retailer.name} - Gift Scheme`,
+        name: `${retailer.name} - ${formData.appliesTo === 'PURCHASE' ? 'Purchase' : 'Sales'} Gift Scheme`,
         giftCost,
         marginBurnPercentage: selectedProductsList.reduce((sum, p) => sum + p.marginPercentage, 0) / selectedProductsList.length,
         paymentTerms: formData.paymentTerms,
         startDate: new Date(formData.startDate),
         endDate: new Date(formData.endDate),
         productIds: selectedProductsList.map(p => p.productId),
-        appliesTo: 'SALES',
+        appliesTo: formData.appliesTo,
       });
 
       await loadSchemes();
@@ -270,6 +316,7 @@ const SmartSchemeEngine = () => {
       // Reset form
       setFormData({
         retailerId: '',
+        appliesTo: 'SALES',
         giftCost: '',
         paymentTerms: '15_days',
         startDate: new Date().toISOString().split('T')[0],
@@ -346,17 +393,32 @@ const SmartSchemeEngine = () => {
             <Grid container spacing={2}>
               <Grid item xs={12}>
                 <FormControl fullWidth>
-                  <InputLabel>Select Retailer</InputLabel>
+                  <InputLabel>{`Select ${partnerLabel}`}</InputLabel>
                   <Select
                     value={formData.retailerId}
-                    label="Select Retailer"
+                    label={`Select ${partnerLabel}`}
                     onChange={handleInputChange('retailerId')}
                   >
-                    {retailers.map(retailer => (
+                    {eligiblePartners.map(retailer => (
                       <MenuItem key={retailer.id} value={retailer.id}>
                         {retailer.name}
                       </MenuItem>
                     ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Scheme For</InputLabel>
+                  <Select
+                    value={formData.appliesTo}
+                    label="Scheme For"
+                    onChange={handleInputChange('appliesTo')}
+                  >
+                    <MenuItem value="SALES">Sales Scheme</MenuItem>
+                    <MenuItem value="PURCHASE">Purchase Scheme</MenuItem>
+                    <MenuItem value="BOTH">Both Sales + Purchase</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
@@ -418,6 +480,15 @@ const SmartSchemeEngine = () => {
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   Select products for this scheme and set individual margin percentages
                 </Typography>
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Search Product"
+                  placeholder="Type product name to filter..."
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  sx={{ mb: 1.5 }}
+                />
                 
                 <Paper sx={{ maxHeight: 400, overflow: 'auto' }}>
                   <Table size="small">
@@ -449,7 +520,7 @@ const SmartSchemeEngine = () => {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {selectedProducts.map((product) => {
+                      {filteredProducts.map((product) => {
                         const marginValue = product.costPrice > 0 && product.sellingPrice > 0
                           ? ((product.sellingPrice - product.costPrice) / product.sellingPrice) * 100
                           : 0;
@@ -562,6 +633,9 @@ const SmartSchemeEngine = () => {
                 <Typography variant="body2">
                   <strong>Target Calculation:</strong> ₹{getCurrentTarget().toLocaleString()}
                 </Typography>
+                <Typography variant="body2">
+                  <strong>Scheme For:</strong> {formData.appliesTo}
+                </Typography>
               </Box>
             ) : (
               <Typography variant="body2" color="text.secondary">
@@ -576,56 +650,17 @@ const SmartSchemeEngine = () => {
 
   // Render Dashboard Tab
   const renderDashboard = () => (
-    <Box>
-      <Typography variant="h6" gutterBottom>
-        📈 Retailer Dashboard
-      </Typography>
-
-      <Alert severity="info" sx={{ mb: 3 }}>
-        <strong>Retailer Scheme Dashboard</strong><br />
-        View and manage all your smart schemes in one place.
-      </Alert>
-
-      <Typography variant="body2" color="text.secondary">
-        Dashboard functionality will be available once schemes are created and have billing data.
-      </Typography>
-    </Box>
+    <RetailerSchemeDashboard />
   );
 
   // Render Overdue Tracker Tab
   const renderOverdueTracker = () => (
-    <Box>
-      <Typography variant="h6" gutterBottom>
-        ⚠️ Scheme Management
-      </Typography>
-
-      <Alert severity="info" sx={{ mb: 3 }}>
-        <strong>Payment Terms Enforcement Active!</strong><br />
-        Schemes are automatically frozen when payment terms are missed. No grace period.
-      </Alert>
-
-      <Typography variant="body2" color="text.secondary">
-        Overdue tracking functionality will be available once schemes have billing and payment data.
-      </Typography>
-    </Box>
+    <OverdueTracker />
   );
 
   // Render Payment Tab
   const renderPayment = () => (
-    <Box>
-      <Typography variant="h6" gutterBottom>
-        💳 Payment Tracking
-      </Typography>
-
-      <Alert severity="info" sx={{ mb: 3 }}>
-        <strong>Payment-Linked Status System</strong><br />
-        Track payments and enforce payment terms automatically.
-      </Alert>
-
-      <Typography variant="body2" color="text.secondary">
-        Payment tracking functionality will be available once schemes have billing and payment data.
-      </Typography>
-    </Box>
+    <OverdueTracker />
   );
 
   // Render Achievement Tab
@@ -639,10 +674,46 @@ const SmartSchemeEngine = () => {
         <strong>Achievement System</strong><br />
         Monitor scheme completion and retailer performance.
       </Alert>
-
-      <Typography variant="body2" color="text.secondary">
-        Achievement tracking will be available once schemes have performance data.
-      </Typography>
+      <Paper>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Scheme</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell align="center">Applies To</TableCell>
+              <TableCell align="right">Target</TableCell>
+              <TableCell align="right">Gift Cost</TableCell>
+              <TableCell align="right">Margin Burn %</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {schemes.map((scheme) => {
+              const statusCfg = getStatusConfig(scheme.isFrozen ? 'FROZEN' : 'GREEN');
+              return (
+                <TableRow key={scheme.id} hover>
+                  <TableCell>{scheme.name}</TableCell>
+                  <TableCell>
+                    <Chip size="small" color={statusCfg.color as any} label={statusCfg.label} />
+                  </TableCell>
+                  <TableCell align="center">{scheme.appliesTo}</TableCell>
+                  <TableCell align="right">₹{Number(scheme.calculatedTarget || 0).toFixed(2)}</TableCell>
+                  <TableCell align="right">₹{Number(scheme.giftCost || 0).toFixed(2)}</TableCell>
+                  <TableCell align="right">{Number(scheme.marginBurnPercentage || 0).toFixed(2)}%</TableCell>
+                </TableRow>
+              );
+            })}
+            {schemes.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6}>
+                  <Typography variant="body2" color="text.secondary">
+                    No smart schemes found yet.
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Paper>
     </Box>
   );
 

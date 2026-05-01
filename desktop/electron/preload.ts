@@ -44,6 +44,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeAllListeners: (event: string) => {
     ipcRenderer.removeAllListeners(event);
   },
+  printToPDF: (payload: { html: string; fileName?: string; landscape?: boolean }) =>
+    ipcRenderer.invoke('print:pdf', payload),
+  printDirect: (payload: { html: string; silent?: boolean }) =>
+    ipcRenderer.invoke('print:direct', payload),
 
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowToggleMaximize: () => ipcRenderer.invoke('window-toggle-maximize'),

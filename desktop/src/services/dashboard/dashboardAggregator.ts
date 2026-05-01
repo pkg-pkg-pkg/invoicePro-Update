@@ -198,6 +198,22 @@ const coalesceName = (preferred?: string | null, fallback?: string): string => {
   return (preferred ?? fallback ?? '').trim() || 'Unnamed';
 };
 
+const looksLikeGstLedger = (ledger?: LedgerAccount, line?: VoucherLine): boolean => {
+  const lid = String(line?.ledgerId || '').toLowerCase();
+  const lname = String(ledger?.name || '').toLowerCase();
+  const token = `${lid} ${lname}`;
+  return token.includes('cgst') || token.includes('sgst') || token.includes('igst') || token.includes('gst');
+};
+
+const gstDirectionForVoucher = (voucherType: VoucherType): 'output' | 'input' | null => {
+  if (SALES_TYPES.has(voucherType) || SALES_RETURN_TYPES.has(voucherType)) return 'output';
+  if (PURCHASE_TYPES.has(voucherType) || PURCHASE_RETURN_TYPES.has(voucherType)) return 'input';
+  return null;
+};
+
+const OUTPUT_GST_LEDGER_IDS = new Set(['led-cgst-output', 'led-sgst-output', 'led-igst-output']);
+const INPUT_GST_LEDGER_IDS = new Set(['led-cgst-input', 'led-sgst-input', 'led-igst-input']);
+
 const buildDashboardSummaryFromFiltered = (
   filtered: Voucher[],
   ledgers: LedgerAccount[],
@@ -396,12 +412,9 @@ export const dashboardAggregator = {
     vouchers
       .filter((voucher) => isInPeriod(voucher.date, period))
       .forEach((voucher) => {
-        const gstLines = (voucher.lines ?? []).filter((line) => {
-          const ledger = ledgerMap.get(line.ledgerId ?? '');
-          return ledger?.groupId === GST_GROUP_ID;
-        });
+        const gstMode = gstDirectionForVoucher(voucher.type);
+        if (!gstMode) return;
 
-        if (!gstLines.length) return;
         const direction = SALES_TYPES.has(voucher.type)
           ? 1
           : SALES_RETURN_TYPES.has(voucher.type)
@@ -413,8 +426,28 @@ export const dashboardAggregator = {
           : 0;
 
         if (direction === 0) return;
+        const explicitTaxTotal = (voucher.lines ?? []).reduce(
+          (sum, line) => sum + Number(line.cgstAmount || 0) + Number(line.sgstAmount || 0) + Number(line.igstAmount || 0),
+          0
+        );
 
-        const total = gstLines.reduce((sum, line) => sum + Number(lineAmount(line)), 0) * direction;
+        const validLedgerIds = gstMode === 'output' ? OUTPUT_GST_LEDGER_IDS : INPUT_GST_LEDGER_IDS;
+        const fallbackGstLedgerTotal = (voucher.lines ?? []).reduce((sum, line) => {
+          const lineLedgerId = String(line.ledgerId || '');
+          if (validLedgerIds.has(lineLedgerId)) return sum + Number(lineAmount(line));
+          // fallback for legacy ledgers only when explicitly under duties/taxes and GST-like
+          const ledger = ledgerMap.get(lineLedgerId);
+          const isGstTaxLedger = ledger?.groupId === GST_GROUP_ID && looksLikeGstLedger(ledger, line);
+          if (!isGstTaxLedger) return sum;
+          const token = `${String(ledger?.name || '').toLowerCase()} ${lineLedgerId.toLowerCase()}`;
+          if (gstMode === 'output' && token.includes('input')) return sum;
+          if (gstMode === 'input' && token.includes('output')) return sum;
+          return sum + Number(lineAmount(line));
+        }, 0);
+
+        const taxBase = explicitTaxTotal > 0 ? explicitTaxTotal : fallbackGstLedgerTotal;
+        if (taxBase <= 0) return;
+        const total = taxBase * direction;
 
         if (SALES_TYPES.has(voucher.type) || SALES_RETURN_TYPES.has(voucher.type)) {
           output += total;

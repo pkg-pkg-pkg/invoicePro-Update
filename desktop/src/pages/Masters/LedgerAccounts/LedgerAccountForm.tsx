@@ -364,7 +364,7 @@ const LedgerAccountForm = () => {
     <Card component="form" onSubmit={handleSubmit}>
       <CardContent>
         <Stack spacing={3}>
-          <Stack direction="row" alignItems="center" justifyContent="space-between">
+          <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" spacing={1.25}>
             <Box>
               <Typography variant="h5" fontWeight={600}>
                 {isEditMode ? 'Edit Ledger Account' : 'New Ledger Account'}
@@ -373,7 +373,7 @@ const LedgerAccountForm = () => {
                 {isEditMode ? 'Update ledger details' : 'Enter details to create a ledger account'}
               </Typography>
             </Box>
-            <Stack direction="row" spacing={1}>
+            <Stack direction={{ xs: 'column-reverse', sm: 'row' }} spacing={1} flexWrap="wrap" justifyContent="flex-end" sx={{ width: { xs: '100%', sm: 'auto' } }}>
               <Button type="submit" variant="contained" disabled={saving || !canManage}>
                 {saving ? <CircularProgress size={18} color="inherit" /> : isEditMode ? 'Save Changes' : 'Create'}
               </Button>

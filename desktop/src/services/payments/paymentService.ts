@@ -9,6 +9,7 @@ export interface OutstandingInvoice {
   number: string;
   date: string;
   dueDate?: string;
+  overdueDays?: number;
   totalAmount: number;
   paidAmount: number;
   balanceAmount: number;
@@ -48,6 +49,12 @@ const parseInvoiceAllocations = (narration?: string): Record<string, number> => 
   return map;
 };
 
+const parseDueDateToken = (narration?: string): string | undefined => {
+  if (!narration) return undefined;
+  const m = String(narration).match(/DUE\[(\d{4}-\d{2}-\d{2})\]/i);
+  return m?.[1];
+};
+
 /**
  * Fetch outstanding invoices for a party
  */
@@ -59,6 +66,11 @@ export async function fetchOutstandingInvoices(
   // Backend API endpoint doesn't exist yet
   try {
     const vouchers = JSON.parse(localStorage.getItem('pve_vouchers') || '[]');
+    const ledgers = JSON.parse(localStorage.getItem('pve_ledger_accounts') || '[]');
+    const ledgerNameMap = new Map<string, string>(
+      (Array.isArray(ledgers) ? ledgers : []).map((ledger: any) => [String(ledger?.id ?? ''), String(ledger?.name ?? '')])
+    );
+    const partyDisplayName = ledgerNameMap.get(String(partyLedgerId)) || String(partyLedgerId);
     const partyVouchers = vouchers.filter((v: any) => {
       if (partyType === 'CUSTOMER') {
         return v.type === 'SALES' && 
@@ -106,6 +118,13 @@ export async function fetchOutstandingInvoices(
         }, 0);
 
         const balance = totalAmount - totalPaid;
+        const dueDate = parseDueDateToken(voucher?.narration) || voucher.date;
+        const dueTs = new Date(dueDate).getTime();
+        const nowTs = Date.now();
+        const overdueDays =
+          Number.isFinite(dueTs) && nowTs > dueTs
+            ? Math.floor((nowTs - dueTs) / (1000 * 60 * 60 * 24))
+            : 0;
 
         if (balance > 0.01) { // Only show invoices with balance
           outstandingInvoices.push({
@@ -113,11 +132,12 @@ export async function fetchOutstandingInvoices(
             type: voucher.type,
             number: voucher.number,
             date: voucher.date,
-            dueDate: voucher.date, // Would need due date field
+            dueDate,
+            overdueDays,
             totalAmount,
             paidAmount: totalPaid,
             balanceAmount: balance,
-            partyName: `Party ${partyLedgerId}`,
+            partyName: partyDisplayName,
             partyLedgerId,
             isSelected: false,
             paymentAmount: 0,

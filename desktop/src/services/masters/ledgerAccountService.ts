@@ -189,6 +189,29 @@ export const ledgerAccountService = {
   async create(payload: Partial<LedgerAccount>): Promise<LedgerAccount> {
     const accounts = await readList<LedgerAccount>(STORAGE_KEY);
     const account = await buildAccount(payload, true);
+    const isCashCreateRequest =
+      account.isCashBank &&
+      account.name.trim().toLowerCase() === 'cash' &&
+      (account.groupId === 'grp-cash-in-hand' || account.groupId === 'grp-cash-bank');
+    if (isCashCreateRequest) {
+      const existingCashIndex = accounts.findIndex(
+        (acct) => acct.name.trim().toLowerCase() === 'cash' && acct.isCashBank
+      );
+      if (existingCashIndex >= 0) {
+        const existing = accounts[existingCashIndex];
+        const revived: LedgerAccount = {
+          ...existing,
+          isActive: true,
+          isCashBank: true,
+          groupId: 'grp-cash-in-hand',
+          bankDetails: null,
+          updatedAt: nowIso(),
+        };
+        accounts[existingCashIndex] = revived;
+        await writeList(STORAGE_KEY, accounts);
+        return revived;
+      }
+    }
     ensureUniqueConstraints(accounts, account);
     accounts.push(account);
     await writeList(STORAGE_KEY, accounts);

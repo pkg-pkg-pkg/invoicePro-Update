@@ -80,15 +80,15 @@ export default function GSTReports() {
   const navigate = useNavigate();
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>
+    <Box sx={{ p: { xs: 1.25, md: 1.75 } }}>
+      <Typography variant="h5" gutterBottom sx={{ fontWeight: 700 }}>
         GST Reports
       </Typography>
-      <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.75 }}>
         Generate and manage all GST returns and summaries with HSN-wise data
       </Typography>
 
-      <Grid container spacing={3}>
+      <Grid container spacing={1.25}>
         {gstReports.map((report) => (
           <Grid item xs={12} md={6} lg={4} key={report.id}>
             <Card
@@ -96,31 +96,31 @@ export default function GSTReports() {
                 height: '100%',
                 display: 'flex',
                 flexDirection: 'column',
-                transition: 'all 0.3s ease',
+                transition: 'all 0.2s ease',
                 '&:hover': {
-                  transform: 'translateY(-4px)',
+                  transform: 'translateY(-2px)',
                   boxShadow: 3,
                 },
                 opacity: report.status === 'coming_soon' ? 0.7 : 1,
               }}
             >
-              <CardContent sx={{ flexGrow: 1 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <CardContent sx={{ flexGrow: 1, p: 1.5, '&:last-child': { pb: 1.25 } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.25 }}>
                   {report.icon}
-                  <Box sx={{ ml: 2 }}>
-                    <Typography variant="h6" component="div">
+                  <Box sx={{ ml: 1.25 }}>
+                    <Typography variant="subtitle1" component="div" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
                       {report.title}
                     </Typography>
                     <Chip
                       label={report.status === 'available' ? 'Available' : 'Coming Soon'}
                       color={report.status === 'available' ? 'success' : 'default'}
                       size="small"
-                      sx={{ mt: 0.5 }}
+                      sx={{ mt: 0.35, height: 20, '& .MuiChip-label': { px: 0.8 } }}
                     />
                   </Box>
                 </Box>
 
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 1.1, display: 'block' }}>
                   {report.description}
                 </Typography>
 
@@ -131,16 +131,17 @@ export default function GSTReports() {
                       label={feature}
                       size="small"
                       variant="outlined"
-                      sx={{ fontSize: '0.7rem' }}
+                      sx={{ fontSize: '0.66rem', height: 20 }}
                     />
                   ))}
                 </Box>
               </CardContent>
 
-              <CardActions>
+              <CardActions sx={{ p: 1, pt: 0 }}>
                 <Button
                   fullWidth
                   variant="contained"
+                  size="small"
                   onClick={() => navigate(report.path)}
                   disabled={report.status === 'coming_soon'}
                 >
@@ -151,33 +152,6 @@ export default function GSTReports() {
           </Grid>
         ))}
       </Grid>
-
-      <Box sx={{ mt: 6, p: 3, bgcolor: 'grey.50', borderRadius: 2 }}>
-        <Typography variant="h6" gutterBottom color="primary">
-          📊 HSN-wise Reporting Features
-        </Typography>
-        <Typography variant="body2" sx={{ mb: 2 }}>
-          All GST reports include comprehensive HSN-wise breakdowns:
-        </Typography>
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={6}>
-            <Typography variant="body2" component="div">
-              ✅ <strong>HSN Code Classification:</strong> Proper categorization by HSN codes<br/>
-              ✅ <strong>Tax Rate Analysis:</strong> Breakdown by GST rates (5%, 12%, 18%, 28%)<br/>
-              ✅ <strong>Quantity Tracking:</strong> Units and quantities for each HSN<br/>
-              ✅ <strong>Value Summaries:</strong> Taxable value and tax amounts
-            </Typography>
-          </Grid>
-          <Grid item xs={12} md={6}>
-            <Typography variant="body2" component="div">
-              ✅ <strong>GST Component Breakdown:</strong> IGST, CGST, SGST separation<br/>
-              ✅ <strong>Export Capabilities:</strong> JSON and Excel export options<br/>
-              ✅ <strong>Period-wise Analysis:</strong> Monthly, quarterly, annual views<br/>
-              ✅ <strong>Compliance Ready:</strong> Formatted for GST portal submission
-            </Typography>
-          </Grid>
-        </Grid>
-      </Box>
     </Box>
   );
 }

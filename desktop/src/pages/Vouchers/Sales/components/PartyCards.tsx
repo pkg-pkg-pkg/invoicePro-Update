@@ -1,9 +1,10 @@
-import { FC, useCallback } from 'react';
+import { FC, useCallback, useMemo, useState } from 'react';
 import {
   Box,
   Button,
   Card,
   CardContent,
+  Collapse,
   Grid,
   MenuItem,
   Stack,
@@ -58,6 +59,8 @@ const PartyCards: FC<PartyCardsProps> = ({
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const [showBillingDetails, setShowBillingDetails] = useState(false);
+  const [showShippingDetails, setShowShippingDetails] = useState(false);
 
   // Use parties if available, otherwise fall back to ledgers
   const availableOptions = parties ? parties.map(p => ({ id: p.ledgerId, name: p.name })) : (ledgers?.map(l => ({ id: l.id, name: l.name })) ?? []);
@@ -303,19 +306,44 @@ const PartyCards: FC<PartyCardsProps> = ({
     </Grid>
   );
 
+  const hasShippingOverride = useMemo(
+    () =>
+      Boolean(
+        shipping.name ||
+          shipping.address ||
+          shipping.gstin ||
+          shipping.phone ||
+          shipping.email ||
+          shipping.city ||
+          shipping.state ||
+          shipping.pin
+      ),
+    [shipping]
+  );
+
   return (
-    <Grid container spacing={2}>
-      <Grid item xs={12} md={6}>
+    <Grid container spacing={1.5}>
+      <Grid item xs={12} md={7}>
         <Card variant="outlined" sx={{ height: '100%' }}>
-          <CardContent>
-            <Stack spacing={2}>
+          <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Stack spacing={1.25}>
               <Typography variant="overline" color="text.secondary">
                 Bill To
               </Typography>
               {mode === 'edit' ? (
                 <>
                   {renderSelect(billing, 'billing', 'Customer Ledger')}
-                  {renderPartyForm(billing, 'billing')}
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Typography variant="body2" color="text.secondary">
+                      {billing.name || 'No customer selected'}
+                    </Typography>
+                    <Button size="small" onClick={() => setShowBillingDetails((prev) => !prev)}>
+                      {showBillingDetails ? 'Hide details' : 'Edit details'}
+                    </Button>
+                  </Stack>
+                  <Collapse in={showBillingDetails}>
+                    {renderPartyForm(billing, 'billing')}
+                  </Collapse>
                 </>
               ) : (
                 renderDisplay('Customer', billing)
@@ -324,26 +352,37 @@ const PartyCards: FC<PartyCardsProps> = ({
           </CardContent>
         </Card>
       </Grid>
-      <Grid item xs={12} md={6}>
+      <Grid item xs={12} md={5}>
         <Card variant="outlined" sx={{ height: '100%' }}>
-          <CardContent>
-            <Stack spacing={2}>
+          <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Stack spacing={1.25}>
               <Typography variant="overline" color="text.secondary">
                 Ship To
               </Typography>
               {mode === 'edit' ? (
                 <>
-                  <Grid container spacing={1}>
-                    <Grid item xs={12}>
-                      <TextField
-                        label="Name"
-                        value={shipping.name || billing.name || ''}
-                        onChange={(e) => onChange({ shipping: { name: e.target.value } })}
-                        fullWidth
-                      />
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Typography variant="body2" color="text.secondary">
+                      {hasShippingOverride ? 'Custom shipping details' : 'Same as billing (default)'}
+                    </Typography>
+                    <Button size="small" onClick={() => setShowShippingDetails((prev) => !prev)}>
+                      {showShippingDetails ? 'Hide' : 'Override'}
+                    </Button>
+                  </Stack>
+                  <Collapse in={showShippingDetails}>
+                    <Grid container spacing={1} sx={{ mb: 1 }}>
+                      <Grid item xs={12}>
+                        <TextField
+                          label="Name"
+                          value={shipping.name || billing.name || ''}
+                          onChange={(e) => onChange({ shipping: { name: e.target.value } })}
+                          fullWidth
+                          size="small"
+                        />
+                      </Grid>
                     </Grid>
-                  </Grid>
-                  {renderPartyForm(shipping, 'shipping')}
+                    {renderPartyForm(shipping, 'shipping')}
+                  </Collapse>
                 </>
               ) : (
                 renderDisplay('Shipping', shipping)

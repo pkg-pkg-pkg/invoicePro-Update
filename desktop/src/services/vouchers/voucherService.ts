@@ -1,8 +1,8 @@
 import { Voucher, VoucherLine } from '../../types/vouchers';
 import { generateId } from '../../utils/id';
 import { nowIso, readList, sanitizeString, writeList } from '../masters/storageHelpers';
-import { postVoucher } from './postingEngine';
-import { applyStockImpact } from './stockImpactEngine';
+import { postVoucher, reverseVoucherPosting } from './postingEngine';
+import { applyStockImpact, reverseStockImpact } from './stockImpactEngine';
 
 // Re-export types for other modules
 export type { Voucher, VoucherLine };
@@ -22,6 +22,17 @@ const cloneLine = (line: VoucherLine): VoucherLine => ({
   godownId: line.godownId ? sanitizeString(line.godownId) ?? undefined : undefined,
 });
 
+const getCurrentUserRole = (): string => {
+  try {
+    const raw = localStorage.getItem('user');
+    if (!raw) return 'user';
+    const user = JSON.parse(raw);
+    return String(user?.role || 'user').trim().toLowerCase();
+  } catch {
+    return 'user';
+  }
+};
+
 const validateVoucherPayload = (payload: CreateVoucherInput) => {
   if (!payload.type) {
     throw new Error('Voucher type is required');
@@ -37,6 +48,8 @@ const validateVoucherPayload = (payload: CreateVoucherInput) => {
     throw new Error('Voucher lines are required');
   }
 };
+
+const sameYearMonth = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
 
 const buildVoucher = (payload: CreateVoucherInput): Voucher => {
   validateVoucherPayload(payload);
@@ -77,8 +90,59 @@ export const voucherService = {
     return voucher;
   },
 
+  async update(id: string, payload: CreateVoucherInput): Promise<Voucher> {
+    const vouchers = await readList<Voucher>(STORAGE_KEY);
+    const index = vouchers.findIndex((voucher) => voucher.id === id);
+    if (index < 0) {
+      throw new Error('Voucher not found');
+    }
+    const existing = vouchers[index];
+    if (existing.type !== 'PAYMENT' && existing.type !== 'RECEIPT' && existing.type !== 'SALES' && existing.type !== 'PURCHASE') {
+      throw new Error('This voucher type cannot be edited currently');
+    }
+    if (payload.type !== existing.type) {
+      throw new Error('Voucher type cannot be changed in edit');
+    }
+    if (existing.type === 'SALES' || existing.type === 'PURCHASE') {
+      const now = new Date();
+      const existingDate = new Date(existing.date);
+      const nextDate = new Date(payload.date);
+      if (!sameYearMonth(existingDate, now) || !sameYearMonth(existingDate, nextDate)) {
+        throw new Error('Sales/Purchase edit is allowed only in the same GST month.');
+      }
+    }
+
+    const candidate = buildVoucher(payload);
+    const updated: Voucher = {
+      ...candidate,
+      id: existing.id,
+      createdAt: existing.createdAt,
+      status: existing.status,
+    };
+
+    await reverseVoucherPosting(existing);
+    await reverseStockImpact(existing);
+    await postVoucher(updated);
+    await applyStockImpact(updated);
+
+    vouchers[index] = updated;
+    await writeList(STORAGE_KEY, vouchers);
+    return updated;
+  },
+
   async delete(id: string): Promise<void> {
     const vouchers = await readList<Voucher>(STORAGE_KEY);
+    const target = vouchers.find((v) => v.id === id);
+    if (target && (target.type === 'SALES' || target.type === 'PURCHASE')) {
+      const role = getCurrentUserRole();
+      if (role !== 'admin') {
+        throw new Error('Only Admin can delete Sales/Purchase vouchers.');
+      }
+    }
+    if (target && target.status === 'ACTIVE') {
+      await reverseVoucherPosting(target);
+      await reverseStockImpact(target);
+    }
     const filtered = vouchers.filter(v => v.id !== id);
     await writeList(STORAGE_KEY, filtered);
   },

@@ -6,6 +6,8 @@ import {
   Toolbar,
   Typography,
   Divider,
+  Stack,
+  Snackbar,
   IconButton,
   Menu,
   MenuItem,
@@ -25,7 +27,7 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import LogoutIcon from "@mui/icons-material/Logout";
 import FeedbackIcon from "@mui/icons-material/Feedback";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
 
 import { useAuth } from "../pages/contexts/auth";
 import { usePermissions } from "../hooks/usePermissions";
@@ -33,6 +35,7 @@ import { getAppSettings } from '../services/appSettingsService';
 import FeedbackDialog from "./FeedbackDialog";
 import { checkForAppUpdate, type AppReleaseInfo } from "../services/appUpdateService";
 import { isElectronRuntime } from "../utils/runtime";
+import { dueReminderService, type DueReminder } from "../services/reminders/dueReminderService";
 import ElectronTitleBar, {
   ELECTRON_TITLEBAR_HEIGHT_PX,
   electronUsesFramelessChrome,
@@ -91,6 +94,7 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
     '/vouchers/payment-vouchers/new': { title: 'New Payment Voucher', showBackButton: true },
     '/vouchers/receipt-vouchers': { title: 'Receipt Vouchers', showBackButton: false },
     '/vouchers/receipt-vouchers/new': { title: 'New Receipt Voucher', showBackButton: true },
+    '/vouchers/money/new': { title: 'New Payment / Receipt Voucher', showBackButton: true },
     '/payments': { title: 'Payments', showBackButton: false },
     '/payments/new': { title: 'New Payment', showBackButton: true },
     '/payments/edit': { title: 'Edit Payment', showBackButton: true },
@@ -120,6 +124,7 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
     '/masters/ledger-accounts/new': { title: 'New Ledger Account', showBackButton: true },
     '/masters/ledger-accounts/edit': { title: 'Edit Ledger Account', showBackButton: true },
     '/import/erp': { title: 'Upload from Tally/Busy/Marg', showBackButton: false },
+    '/approvals/pending': { title: 'Approval Pending', showBackButton: false },
   };
 
   const isNewOrEdit = pathname.includes('/new') || pathname.includes('/edit');
@@ -158,6 +163,9 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
   }
   if (pathname.startsWith('/vouchers/receipt-vouchers')) {
     return { title: 'Receipt Vouchers', showBackButton: isNewOrEdit };
+  }
+  if (pathname.startsWith('/vouchers/money/new')) {
+    return { title: 'New Payment / Receipt Voucher', showBackButton: true };
   }
   if (pathname.startsWith('/vouchers/journal')) {
     return { title: 'Journal Vouchers', showBackButton: isNewOrEdit };
@@ -235,6 +243,12 @@ const Layout: React.FC = () => {
   } | null>(null);
   const [updateMenuAnchor, setUpdateMenuAnchor] = useState<null | HTMLElement>(null);
   const [updateChecking, setUpdateChecking] = useState(false);
+  const [dueReminders, setDueReminders] = useState<DueReminder[]>([]);
+  const [dueToastOpen, setDueToastOpen] = useState(false);
+  const [dueToastItem, setDueToastItem] = useState<DueReminder | null>(null);
+  const [screenLocked, setScreenLocked] = useState(false);
+  const [unlockPin, setUnlockPin] = useState('');
+  const [lockError, setLockError] = useState<string | null>(null);
 
   const [appSettings, setAppSettings] = useState(() => getAppSettings());
 
@@ -329,6 +343,50 @@ const Layout: React.FC = () => {
     };
   }, [applyUpdateCheckResult]);
 
+  useEffect(() => {
+    const runDueReminderCheck = () => {
+      try {
+        const list = dueReminderService.listUpcoming(7);
+        setDueReminders(list);
+        const now = new Date();
+        const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        const toastKey = localStorage.getItem('pve_due_reminder_toast_date');
+        if (list.length > 0 && toastKey !== todayKey) {
+          setDueToastItem(list[0]);
+          setDueToastOpen(true);
+          localStorage.setItem('pve_due_reminder_toast_date', todayKey);
+        }
+      } catch {
+        setDueReminders([]);
+      }
+    };
+
+    const markKey = 'pve_due_reminder_last_run_date';
+    const shouldRunNow = () => {
+      const now = new Date();
+      const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const last = localStorage.getItem(markKey);
+      if (last !== todayKey) return true; // morning open case
+      return now.getHours() >= 11; // ensure at/after 11am refresh
+    };
+    const markRanToday = () => {
+      const now = new Date();
+      const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      localStorage.setItem(markKey, todayKey);
+    };
+    const maybeRun = () => {
+      if (!shouldRunNow()) return;
+      runDueReminderCheck();
+      markRanToday();
+    };
+
+    // On app open
+    maybeRun();
+    // Keep daily 11:00 check while app stays open
+    const id = window.setInterval(maybeRun, 60 * 60 * 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
   const runManualUpdateCheck = useCallback(async () => {
     setUpdateChecking(true);
     try {
@@ -342,94 +400,17 @@ const Layout: React.FC = () => {
   }, [applyUpdateCheckResult]);
 
   const handleBackNavigation = useCallback(() => {
-    const raw = String(location.pathname ?? '');
-    const path = raw.replace(/\/+$/, '') || '/';
-
-    if (path.startsWith('/customers/ledger') || path.startsWith('/suppliers/ledger')) {
-      navigate('/parties/ledger-report');
+    // Strict history-wise back behavior:
+    // - If previous history entry exists -> go back one screen
+    // - If this is the first screen in app session -> go to dashboard
+    const idx = Number((window.history.state as any)?.idx ?? -1);
+    const canGoBack = Number.isFinite(idx) ? idx > 0 : window.history.length > 1;
+    if (canGoBack) {
+      navigate(-1);
       return;
     }
-    if (path.startsWith('/parties/party-ledger')) {
-      navigate('/parties/ledger-report');
-      return;
-    }
-    if (path.startsWith('/vouchers/sales')) {
-      navigate('/vouchers/sales');
-      return;
-    }
-    if (path.startsWith('/vouchers/purchase')) {
-      navigate('/vouchers/purchase');
-      return;
-    }
-    if (path.startsWith('/vouchers/sales-return')) {
-      navigate('/vouchers/sales-return');
-      return;
-    }
-    if (path.startsWith('/vouchers/purchase-return')) {
-      navigate('/vouchers/purchase-return');
-      return;
-    }
-    if (path.startsWith('/vouchers/payment-vouchers')) {
-      navigate('/vouchers/payment-vouchers');
-      return;
-    }
-    if (path.startsWith('/vouchers/receipt-vouchers')) {
-      navigate('/vouchers/receipt-vouchers');
-      return;
-    }
-    if (path.startsWith('/vouchers/journal')) {
-      navigate('/vouchers/journal');
-      return;
-    }
-
-    const mastersNew = path.match(/^\/masters\/([^/]+)\/new$/);
-    if (mastersNew) {
-      navigate(`/masters/${mastersNew[1]}`);
-      return;
-    }
-    const mastersEdit = path.match(/^\/masters\/([^/]+)\/[^/]+\/edit$/);
-    if (mastersEdit) {
-      navigate(`/masters/${mastersEdit[1]}`);
-      return;
-    }
-
-    if (path === '/parties/new') {
-      navigate('/parties');
-      return;
-    }
-    const partyEdit = path.match(/^\/parties\/([^/]+)$/);
-    if (partyEdit && partyEdit[1] !== 'ledger-report' && partyEdit[1] !== 'new') {
-      navigate('/parties');
-      return;
-    }
-
-    if (
-      path === '/schemes/new' ||
-      path === '/schemes/retailer-dashboard' ||
-      path === '/schemes/overdue-tracker' ||
-      /^\/schemes\/[^/]+\/edit$/.test(path)
-    ) {
-      navigate('/schemes');
-      return;
-    }
-
-    if (path === '/payments/new' || /^\/payments\/edit\/[^/]+$/.test(path) || path === '/payments/reports') {
-      navigate('/payments');
-      return;
-    }
-
-    if (path === '/gst/gstr1' || path === '/gst/gstr2' || path === '/gst/gstr3b' || path === '/gst/gstr9' || path === '/gst/hsn-summary') {
-      navigate('/gst');
-      return;
-    }
-
-    if (path === '/expenses/heads/new' || /^\/expenses\/heads\/edit\/[^/]+$/.test(path)) {
-      navigate('/expenses');
-      return;
-    }
-
     navigate('/dashboard');
-  }, [navigate, location.pathname]);
+  }, [navigate]);
 
   /** Escape = same as header back (when no modal/menu is eating the key). */
   useEffect(() => {
@@ -445,8 +426,6 @@ const Layout: React.FC = () => {
 
     const onEscape = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      const path = String(location.pathname ?? '').replace(/\/+$/, '') || '/';
-      if (path === '/dashboard' || path === '/') return;
 
       const el = e.target as HTMLElement | null;
       if (el?.closest?.('[role="dialog"]')) return;
@@ -457,20 +436,122 @@ const Layout: React.FC = () => {
       e.preventDefault();
       handleBackNavigation();
     };
-    window.addEventListener('keydown', onEscape);
-    return () => window.removeEventListener('keydown', onEscape);
+    window.addEventListener('keydown', onEscape, true);
+    return () => window.removeEventListener('keydown', onEscape, true);
   }, [location.pathname, handleBackNavigation]);
 
   /** F1 → About & Updates (when permitted), Tally-style help entry. */
   useEffect(() => {
-    const onF1 = (e: KeyboardEvent) => {
-      if (e.key !== 'F1') return;
-      if (!canAccessFeature('manage-settings')) return;
-      e.preventDefault();
-      navigate({ pathname: '/settings', search: '?tab=about' });
+    const isShortcutBlockedByTarget = (target: EventTarget | null) => {
+      const el = target as HTMLElement | null;
+      if (!el?.isConnected) return false;
+      if (el.closest('[role="dialog"], [data-tally-picker-modal], .MuiPopover-root, .MuiMenu-root')) return true;
+      return false;
     };
-    window.addEventListener('keydown', onF1);
-    return () => window.removeEventListener('keydown', onF1);
+
+    const onFunctionKey = (e: KeyboardEvent) => {
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        if (isShortcutBlockedByTarget(e.target)) return;
+        const altKey = String(e.key || '').toUpperCase();
+        const altRoutes: Record<string, string> = {
+          S: '/settings',
+          C: '/settings?tab=companydesk',
+          D: '/dashboard',
+          L: '/masters/ledger-accounts',
+          B: '/masters/bank-accounts',
+          G: '/masters/godowns',
+          I: '/masters/inventory-items',
+          R: '/parties/ledger-report',
+          '3': '/vouchers/sales-return',
+          '4': '/vouchers/purchase-return',
+          P: '/vouchers/payment',
+          V: '/vouchers/receipt',
+          J: '/vouchers/journal',
+          K: '/vouchers',
+          E: '/expenses',
+          Y: '/payments',
+          N: '/purchase-invoices',
+          '6': '/reports',
+          Q: '/reports?view=financial&report=balancesheet',
+          W: '/reports?view=pre-gst-profit&report=pnl',
+          T: '/schemes?view=traditional',
+          U: '/schemes?view=smart&tab=create',
+          M: '/schemes?view=smart&tab=dashboard',
+          O: '/schemes?view=smart&tab=payment',
+          A: '/schemes?view=smart&tab=achievement',
+          X: '/import/erp',
+          H: '/approvals/pending',
+        };
+        const nextRoute = altRoutes[altKey];
+        if (nextRoute) {
+          e.preventDefault();
+          const qIdx = nextRoute.indexOf('?');
+          if (qIdx >= 0) {
+            navigate({ pathname: nextRoute.slice(0, qIdx), search: nextRoute.slice(qIdx) });
+          } else {
+            navigate(nextRoute);
+          }
+          return;
+        }
+      }
+
+      const rawKey = String(e.key || '').toUpperCase();
+      const code = String((e as KeyboardEvent).code || '').toUpperCase();
+      const keyCode = Number((e as KeyboardEvent).keyCode || 0);
+      const looksLikeFunctionKey =
+        /^F\d{1,2}$/i.test(rawKey) ||
+        /^F\d{1,2}$/i.test(code) ||
+        (keyCode >= 112 && keyCode <= 123);
+      if (!looksLikeFunctionKey) return;
+      if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      if (isShortcutBlockedByTarget(e.target)) return;
+      const key = /^F\d{1,2}$/i.test(rawKey)
+        ? rawKey
+        : /^F\d{1,2}$/i.test(code)
+        ? code
+        : keyCode >= 112 && keyCode <= 123
+        ? `F${keyCode - 111}`
+        : rawKey;
+
+      if (key === 'F1') {
+        if (!canAccessFeature('manage-settings')) return;
+        e.preventDefault();
+        navigate({ pathname: '/settings', search: '?tab=about' });
+      return;
+    }
+      if (key === 'F2') {
+        e.preventDefault();
+        navigate('/parties');
+      return;
+    }
+      if (key === 'F3') {
+        e.preventDefault();
+        navigate('/vouchers/sales/new');
+      return;
+    }
+      if (key === 'F4') {
+        e.preventDefault();
+        navigate('/vouchers/purchase/new');
+        return;
+      }
+      if (key === 'F6') {
+        e.preventDefault();
+        navigate('/reports');
+        return;
+      }
+      if (key === 'F7') {
+        e.preventDefault();
+        navigate('/gst');
+        return;
+      }
+      if (key === 'F8') {
+        e.preventDefault();
+        navigate('/payments');
+      }
+    };
+
+    window.addEventListener('keydown', onFunctionKey, true);
+    return () => window.removeEventListener('keydown', onFunctionKey, true);
   }, [navigate, canAccessFeature]);
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
@@ -480,6 +561,50 @@ const Layout: React.FC = () => {
   const handleMenuClose = () => {
     setAnchorEl(null);
   };
+
+  const openDueReminderTarget = useCallback((rem: DueReminder) => {
+    setDueToastOpen(false);
+    setUpdateMenuAnchor(null);
+    if (rem.voucherType === 'SALES') {
+      navigate('/vouchers/sales');
+      return;
+    }
+    navigate('/vouchers/purchase');
+  }, [navigate]);
+
+  const handleLockScreen = useCallback(() => {
+    const pinKey = 'pve_screen_lock_pin';
+    let pin = String(localStorage.getItem(pinKey) || '').trim();
+    if (!pin) {
+      const created = window.prompt('Set 4-digit lock PIN (first time setup):', '');
+      if (!created) return;
+      pin = String(created).trim();
+      if (pin.length < 4) {
+        alert('PIN must be at least 4 characters.');
+        return;
+      }
+      localStorage.setItem(pinKey, pin);
+    }
+    setUnlockPin('');
+    setLockError(null);
+    setScreenLocked(true);
+    handleMenuClose();
+  }, []);
+
+  const handleUnlock = useCallback(() => {
+    const pin = String(localStorage.getItem('pve_screen_lock_pin') || '').trim();
+    if (!pin) {
+      setScreenLocked(false);
+      return;
+    }
+    if (unlockPin.trim() !== pin) {
+      setLockError('Invalid PIN. Try again.');
+      return;
+    }
+    setLockError(null);
+    setUnlockPin('');
+    setScreenLocked(false);
+  }, [unlockPin]);
 
   const [headerSearch, setHeaderSearch] = useState('');
 
@@ -492,7 +617,6 @@ const Layout: React.FC = () => {
   };
 
   const shouldShowHeaderSearch = !showBackButton;
-
   const submitHeaderSearch = () => {
     const q = headerSearch.trim();
     if (!q) {
@@ -536,12 +660,12 @@ const Layout: React.FC = () => {
   };
 
   const titleBarOffset = electronUsesFramelessChrome() ? ELECTRON_TITLEBAR_HEIGHT_PX : 0;
-  const TOOLBAR_ROW_XS = 56;
-  const TOOLBAR_ROW_SM = 60;
+  const TOOLBAR_ROW_XS = 48;
+  const TOOLBAR_ROW_SM = 52;
 
-  return (
-    <Box
-      sx={{
+              return (
+                        <Box
+                          sx={{
         display: 'flex',
         flexDirection: 'column',
         width: '100%',
@@ -553,19 +677,69 @@ const Layout: React.FC = () => {
       <ElectronTitleBar />
       <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, width: '100%', minHeight: 0, overflow: 'hidden' }}>
         <Box
-          sx={(t) => ({
+        sx={(t) => ({
             position: 'fixed',
-            top: titleBarOffset,
-            left: 0,
-            right: 0,
-            zIndex: t.zIndex.drawer + 1,
+          top: titleBarOffset,
+          left: 0,
+          right: 0,
+          zIndex: t.zIndex.drawer + 1,
             display: 'flex',
             flexDirection: 'column',
             boxShadow: '0 1px 0 rgba(15,23,42,0.12)',
             overflow: 'visible',
           })}
         >
-          <DesktopErpTitleBar />
+          <DesktopErpTitleBar
+            rightSlot={
+          <Box
+            sx={{
+                  display: 'flex',
+              alignItems: 'center',
+                  gap: 0.75,
+                  px: 0.75,
+                  py: 0.25,
+                  borderRadius: 999,
+                  border: '1px solid rgba(255,255,255,0.28)',
+                  bgcolor: 'rgba(255,255,255,0.06)',
+                }}
+              >
+                <IconButton
+                  color="inherit"
+                  aria-label="Updates and notifications"
+                  title="Notifications"
+                  onClick={(e) => setUpdateMenuAnchor(e.currentTarget)}
+                  sx={{ color: '#fff', p: 0.5 }}
+                >
+                  <Badge
+                    color="warning"
+                    variant="dot"
+                    invisible={!updateCheck?.updateAvailable && !updateCheck?.belowMinimum && dueReminders.length === 0}
+                    overlap="circular"
+                    anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+                  >
+                    <NotificationsOutlinedIcon sx={{ fontSize: 20 }} />
+                  </Badge>
+                </IconButton>
+            <Typography
+                  variant="body2"
+                  sx={{ maxWidth: 170, display: { xs: 'none', md: 'block' }, color: '#fff', fontWeight: 700 }}
+              noWrap
+                  title={userFullName}
+                >
+                  {userFullName}
+            </Typography>
+                <IconButton onClick={handleMenuOpen} color="inherit" sx={{ p: 0.2 }}>
+                  <Avatar
+                    src={userHasPhoto ? userPhotoUrl : undefined}
+                    imgProps={{ referrerPolicy: 'no-referrer' }}
+                    sx={{ width: 30, height: 30, bgcolor: 'secondary.main' }}
+                  >
+                    {userHasPhoto ? null : userInitials}
+                  </Avatar>
+          </IconButton>
+              </Box>
+            }
+          />
           <Box sx={{ display: { xs: 'none', sm: 'block' }, overflow: 'visible' }}>
             <DesktopErpMenuBar
               navigate={navigate}
@@ -573,13 +747,13 @@ const Layout: React.FC = () => {
               gstEnabled={gstEnabled}
             />
           </Box>
-          <Toolbar
-            disableGutters
-            sx={{
-              gap: 0,
+        <Toolbar
+          disableGutters
+                sx={{
+            gap: 0,
               minHeight: { xs: TOOLBAR_ROW_XS, sm: TOOLBAR_ROW_SM },
               py: { xs: 0.25, sm: 0.35 },
-              px: 0,
+            px: 0,
               bgcolor: '#E8EEF4',
               borderBottom: '1px solid #cbd5e1',
               color: ERP_TEXT,
@@ -588,45 +762,35 @@ const Layout: React.FC = () => {
           <AppTopBar
             left={
               <>
-                <IconButton
-                  color="inherit"
+            <IconButton
+              color="inherit"
                   aria-label="Open menu"
-                  edge="start"
+            edge="start"
                   onClick={(e) => setMobileNavAnchor(e.currentTarget)}
                   sx={{ display: { sm: 'none' }, color: 'inherit' }}
-                >
-                  <MenuIcon />
-                </IconButton>
-                {showBackButton && (
-                  <IconButton
-                    color="inherit"
-                    onClick={handleBackNavigation}
-                    sx={{ color: 'inherit' }}
-                    title="Go Back (Esc)"
-                  >
-                    <ArrowBackIcon />
-                  </IconButton>
-                )}
+          >
+            <MenuIcon />
+            </IconButton>
                 <Box sx={{ minWidth: 0, pl: { xs: 0, sm: 0.5 } }}>
-                  <Typography
+            <Typography
                     variant="subtitle1"
-                    noWrap
-                    component="div"
-                    sx={{
-                      fontWeight: 700,
-                      letterSpacing: '-0.02em',
-                      color: 'inherit',
+              noWrap
+              component="div"
+              sx={{
+                fontWeight: 700,
+                letterSpacing: '-0.02em',
+                color: 'inherit',
                       fontSize: { xs: '0.95rem', sm: '1rem' },
                       lineHeight: 1.2,
-                    }}
+              }}
                     title={pageTitle}
-                  >
-                    {pageTitle}
-                  </Typography>
-                  <Typography
-                    variant="caption"
-                    noWrap
-                    sx={{
+            >
+              {pageTitle}
+            </Typography>
+            <Typography
+              variant="caption"
+              noWrap
+              sx={{
                       fontSize: '0.68rem',
                       opacity: 0.85,
                       mt: 0.15,
@@ -634,121 +798,64 @@ const Layout: React.FC = () => {
                     title={`Version ${APP_VERSION}`}
                   >
                     v{APP_VERSION}
-                  </Typography>
-                </Box>
+            </Typography>
+          </Box>
               </>
             }
             center={
               shouldShowHeaderSearch ? (
-                <TextField
-                  size="small"
+          <TextField
+            size="small"
                   placeholder="Search items, invoices, purchases, customers…"
-                  value={headerSearch}
-                  onChange={(e) => setHeaderSearch(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      submitHeaderSearch();
-                    }
-                  }}
-                  inputProps={{
-                    'aria-label': 'Search inventory by name, SKU, or barcode',
-                    title: 'Search by name, SKU, or barcode. Press Enter.',
-                  }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
+            value={headerSearch}
+            onChange={(e) => setHeaderSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                submitHeaderSearch();
+              }
+            }}
+            inputProps={{
+              'aria-label': 'Search inventory by name, SKU, or barcode',
+              title: 'Search by name, SKU, or barcode. Press Enter.',
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
                         <SearchIcon sx={{ color: '#64748b', fontSize: 20 }} />
-                      </InputAdornment>
-                    ),
-                  }}
-                  sx={{
+                </InputAdornment>
+              ),
+            }}
+            sx={{
                     width: '100%',
                     maxWidth: { xs: '100%', sm: 480, md: 560 },
-                    '& .MuiOutlinedInput-root': {
-                      height: 36,
+              '& .MuiOutlinedInput-root': {
+                      height: 34,
                       bgcolor: '#fff',
                       borderRadius: 0,
                       color: ERP_TEXT,
-                      fontSize: '0.8125rem',
-                      '& fieldset': {
+                fontSize: '0.8125rem',
+                '& fieldset': {
                         borderColor: '#94a3b8',
-                      },
-                      '&:hover fieldset': {
+                },
+                '&:hover fieldset': {
                         borderColor: ERP_TEXT,
-                      },
-                      '&.Mui-focused fieldset': {
+                },
+                '&.Mui-focused fieldset': {
                         borderColor: ERP_TEXT,
-                      },
-                    },
-                    '& .MuiInputBase-input::placeholder': {
+                },
+              },
+              '& .MuiInputBase-input::placeholder': {
                       color: '#64748b',
-                      opacity: 1,
-                    },
-                  }}
-                />
+                opacity: 1,
+              },
+            }}
+          />
               ) : (
-                <Box sx={{ width: '100%', maxWidth: { xs: '100%', sm: 480, md: 560 }, height: 36 }} />
+                <Box sx={{ width: '100%', maxWidth: { xs: '100%', sm: 460, md: 520 }, height: 34 }} />
               )
             }
-            right={
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  px: 1.25,
-                  py: 0.5,
-                  borderRadius: 1,
-                  border: '1px solid #cbd5e1',
-                  bgcolor: '#fff',
-                }}
-              >
-                <IconButton
-                  color="inherit"
-                  aria-label="Updates and notifications"
-                  title="Check for updates"
-                  onClick={(e) => setUpdateMenuAnchor(e.currentTarget)}
-                  sx={{ color: 'inherit', p: 0.75 }}
-                >
-                  <Badge
-                    color="warning"
-                    variant="dot"
-                    invisible={!updateCheck?.updateAvailable && !updateCheck?.belowMinimum}
-                    overlap="circular"
-                    anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-                  >
-                    <NotificationsOutlinedIcon sx={{ fontSize: 22 }} />
-                  </Badge>
-                </IconButton>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    maxWidth: 160,
-                    display: { xs: 'none', md: 'block' },
-                    color: 'inherit',
-                    fontWeight: 600,
-                  }}
-                  noWrap
-                  title={userFullName}
-                >
-                  {userFullName}
-                </Typography>
-                <IconButton
-                  onClick={handleMenuOpen}
-                  color="inherit"
-                  sx={{ p: 0.25 }}
-                >
-                  <Avatar
-                    src={userHasPhoto ? userPhotoUrl : undefined}
-                    imgProps={{ referrerPolicy: 'no-referrer' }}
-                    sx={{ width: 32, height: 32, bgcolor: 'secondary.main' }}
-                  >
-                    {userHasPhoto ? null : userInitials}
-                  </Avatar>
-                </IconButton>
-              </Box>
-            }
+            right={<Box sx={{ width: 8 }} />}
           />
           <Menu
             anchorEl={updateMenuAnchor}
@@ -796,6 +903,33 @@ const Layout: React.FC = () => {
                 <CircularProgress size={28} />
               </Box>
             ) : null}
+            <Divider />
+            <Box sx={{ px: 2, py: 1.25 }}>
+              <Typography variant="subtitle2" fontWeight={700}>
+                Due in next 7 days
+              </Typography>
+              {dueReminders.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                  No customer/supplier dues in next 7 days.
+                </Typography>
+              ) : (
+                <Stack spacing={0.5} sx={{ mt: 0.75, maxHeight: 200, overflowY: 'auto' }}>
+                  {dueReminders.slice(0, 20).map((rem) => (
+                    <Button
+                      key={`${rem.voucherId}-${rem.voucherType}`}
+                      onClick={() => openDueReminderTarget(rem)}
+                      size="small"
+                      sx={{ justifyContent: 'flex-start', textTransform: 'none', px: 0, minHeight: 24 }}
+                    >
+                      <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'left' }}>
+                        {rem.partyName} · {rem.voucherType === 'SALES' ? 'Receipt' : 'Payment'} due in {rem.daysLeft} day(s) ·
+                        ₹{rem.balanceAmount.toFixed(2)}
+                      </Typography>
+                    </Button>
+                  ))}
+                </Stack>
+              )}
+            </Box>
             <MenuItem
               disabled={updateChecking}
               onClick={() => {
@@ -871,6 +1005,10 @@ const Layout: React.FC = () => {
               <FeedbackIcon sx={{ mr: 1 }} />
               Feedback to Developer
             </MenuItem>
+            <MenuItem onClick={handleLockScreen}>
+              <LockOutlinedIcon sx={{ mr: 1 }} />
+              Lock Screen
+            </MenuItem>
             <MenuItem onClick={handleLogout}>
               <LogoutIcon sx={{ mr: 1 }} />
               Logout
@@ -908,7 +1046,7 @@ const Layout: React.FC = () => {
         </Box>
       <Box
         component="main"
-        sx={{
+          sx={{
           flex: 1,
           minWidth: 0,
           minHeight: 0,
@@ -925,8 +1063,10 @@ const Layout: React.FC = () => {
             minHeight: 0,
             overflowX: 'hidden',
             overflowY: 'auto',
-            px: { xs: 1.25, sm: 2 },
-            py: 1.25,
+            // Keep focused inputs visible above sticky bottom action ribbons.
+            scrollPaddingBottom: '96px',
+            px: { xs: 1, sm: 1.5 },
+            py: 0.75,
             color: ERP_TEXT,
             scrollbarWidth: 'none',
             msOverflowStyle: 'none',
@@ -938,14 +1078,14 @@ const Layout: React.FC = () => {
           }}
         >
           <Box
-            sx={{
+        sx={{
               flexShrink: 0,
-              height: `calc(${titleBarOffset}px + ${ERP_TITLE_ROW_PX}px + ${TOOLBAR_ROW_XS}px)`,
-              '@media (min-width: 600px)': {
-                height: `calc(${titleBarOffset}px + ${ERP_TITLE_ROW_PX}px + ${ERP_MENU_ROW_PX}px + ${TOOLBAR_ROW_SM}px)`,
-              },
-            }}
-          />
+              height: `calc(${titleBarOffset}px + ${ERP_TITLE_ROW_PX}px + ${TOOLBAR_ROW_XS}px + 8px)`,
+            '@media (min-width: 600px)': {
+                height: `calc(${titleBarOffset}px + ${ERP_TITLE_ROW_PX}px + ${ERP_MENU_ROW_PX}px + ${TOOLBAR_ROW_SM}px + 8px)`,
+            },
+          }}
+        />
         {appUpdate && (
           <Alert
             severity={appUpdate.info.mandatory ? 'warning' : 'info'}
@@ -996,6 +1136,66 @@ const Layout: React.FC = () => {
         open={feedbackOpen}
         onClose={() => setFeedbackOpen(false)}
       />
+      <Snackbar
+        open={dueToastOpen && Boolean(dueToastItem)}
+        autoHideDuration={10000}
+        onClose={() => setDueToastOpen(false)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Alert
+          severity="warning"
+          action={
+            dueToastItem ? (
+              <Button color="inherit" size="small" onClick={() => openDueReminderTarget(dueToastItem)}>
+                Open
+              </Button>
+            ) : null
+          }
+          onClose={() => setDueToastOpen(false)}
+          sx={{ width: '100%' }}
+        >
+          {dueToastItem
+            ? `${dueToastItem.partyName}: ${dueToastItem.voucherType === 'SALES' ? 'Receipt' : 'Payment'} due in ${dueToastItem.daysLeft} day(s).`
+            : 'Due reminder'}
+        </Alert>
+      </Snackbar>
+      {screenLocked ? (
+        <Box
+          sx={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 99999,
+            bgcolor: 'rgba(15,23,42,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            p: 2,
+          }}
+        >
+          <Box sx={{ width: '100%', maxWidth: 360, bgcolor: '#fff', borderRadius: 2, p: 2.5 }}>
+            <Typography variant="h6" fontWeight={700} gutterBottom>
+              Screen Locked
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>
+              Enter lock PIN to continue.
+            </Typography>
+            <TextField
+              fullWidth
+              type="password"
+              label="PIN"
+              value={unlockPin}
+              onChange={(e) => setUnlockPin(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleUnlock();
+              }}
+            />
+            {lockError ? <Alert severity="error" sx={{ mt: 1 }}>{lockError}</Alert> : null}
+            <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 1.5 }}>
+              <Button variant="contained" onClick={handleUnlock}>Unlock</Button>
+            </Stack>
+          </Box>
+        </Box>
+      ) : null}
     </Box>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Typography,
@@ -24,6 +24,7 @@ import PartyReports from './Reports/PartyReports';
 import PaymentReports from './Reports/PaymentReports';
 import PreGstProfitReports from './Reports/PreGstProfitReports';
 import { usePermissions } from '../hooks/usePermissions';
+import { useLocation } from 'react-router-dom';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -94,6 +95,7 @@ const reportCategories = [
 
 export default function Reports() {
   const [activeTab, setActiveTab] = useState(0);
+  const location = useLocation();
 
   const { canAccessFeature } = usePermissions();
   const canView = canAccessFeature('view-reports');
@@ -110,6 +112,24 @@ export default function Reports() {
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue);
   };
+
+  useEffect(() => {
+    const view = new URLSearchParams(location.search).get('view') || '';
+    const map: Record<string, number> = {
+      sales: 0,
+      purchase: 1,
+      stock: 2,
+      financial: 3,
+      party: 4,
+      payment: 5,
+      'pre-gst-profit': 6,
+      pnl: 6,
+    };
+    const next = map[String(view).toLowerCase()];
+    if (next !== undefined) {
+      setActiveTab(next);
+    }
+  }, [location.search]);
 
   return (
     <Box sx={{ p: 3, bgcolor: 'var(--bg-section)', borderRadius: '16px', transition: 'all 0.2s ease' }}>

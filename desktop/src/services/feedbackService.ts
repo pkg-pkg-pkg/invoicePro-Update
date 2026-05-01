@@ -1,10 +1,14 @@
 import api from './api';
 import { APP_DISPLAY_NAME, APP_VERSION } from '@/constants/appBranding';
+import { whatsAppService } from './whatsappService';
+
+const FEEDBACK_RECIPIENT_EMAIL = 'pve.2020@hotmail.com';
 
 export interface FeedbackPayload {
   category: string;
   subject: string;
   message: string;
+  channel?: 'in-app' | 'email' | 'whatsapp';
 }
 
 function normalizeSendResult(raw: unknown): { success: boolean; message: string } {
@@ -61,21 +65,8 @@ class FeedbackService {
     }
   }
 
-  private openMailDraft(subject: string, body: string): void {
-    const mailto = `mailto:pve.2020@hotmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    try {
-      window.open(mailto, '_blank');
-    } catch {
-      try {
-        window.location.href = mailto;
-      } catch {
-        // ignore
-      }
-    }
-  }
-
   /**
-   * Send feedback to developer (API when online; mail draft + local queue as fallback).
+   * Send feedback to developer (API when online; local outbox fallback).
    */
   async sendFeedback(payload: FeedbackPayload): Promise<{ success: boolean; message: string }> {
     const context = this.getContext();
@@ -83,17 +74,19 @@ class FeedbackService {
       const response = await api.post('/feedback/send', {
         ...payload,
         ...context,
+        channel: payload.channel || 'in-app',
+        recipientEmail: FEEDBACK_RECIPIENT_EMAIL,
         timestamp: new Date().toISOString(),
         appVersion: APP_VERSION,
       });
       return normalizeSendResult(response?.data);
     } catch (error: any) {
       console.error('Error sending feedback:', error);
-      return this.sendFeedbackViaMail(payload, context);
+      return this.sendFeedbackFallback(payload, context);
     }
   }
 
-  private async sendFeedbackViaMail(
+  private async sendFeedbackFallback(
     payload: FeedbackPayload,
     context?: { userEmail: string; userName: string; companyName: string }
   ): Promise<{ success: boolean; message: string }> {
@@ -119,13 +112,23 @@ Timestamp: ${new Date().toISOString()}
       `.trim();
 
       this.queueFallbackFeedback(payload, { userEmail, userName, companyName });
-      this.openMailDraft(`[${payload.category.toUpperCase()}] ${payload.subject}`, emailBody);
+      if (payload.channel === 'whatsapp') {
+        const wa = whatsAppService.loadSettings();
+        if (wa?.isEnabled && wa.phoneNumber) {
+          await whatsAppService.sendOutstandingReminder(
+            'Developer Feedback',
+            0,
+            new Date().toISOString(),
+            wa.phoneNumber
+          );
+        }
+      }
       return {
         success: true,
-        message: 'Feedback saved locally and mail draft opened. Please send the email to complete delivery.',
+        message: `Feedback saved in app outbox for ${FEEDBACK_RECIPIENT_EMAIL}. It will be delivered when network is available.`,
       };
     } catch (error) {
-      console.error('Fallback email send failed:', error);
+      console.error('Fallback feedback queue failed:', error);
       return { success: true, message: 'Feedback saved locally. Support can collect it from this device.' };
     }
   }

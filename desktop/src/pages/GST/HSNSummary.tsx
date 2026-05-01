@@ -14,6 +14,7 @@ import {
   TableRow,
   CircularProgress,
   Alert,
+  Divider,
 } from '@mui/material';
 // Using native date input instead of DatePicker for simplicity
 import { gstService, HSNSummaryResponse } from '../../services/gstService';
@@ -94,40 +95,142 @@ export default function HSNSummary() {
         )}
 
         {data && (
-          <TableContainer component={Paper}>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>HSN Code</TableCell>
-                  <TableCell>Description</TableCell>
-                  <TableCell align="right">Quantity</TableCell>
-                  <TableCell align="right">UQC</TableCell>
-                  <TableCell align="right">Rate</TableCell>
-                  <TableCell align="right">Taxable Value</TableCell>
-                  <TableCell align="right">IGST</TableCell>
-                  <TableCell align="right">CGST</TableCell>
-                  <TableCell align="right">SGST</TableCell>
-                  <TableCell align="right">Total Tax</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {data.hsnSummary.map((item, index) => (
-                  <TableRow key={index}>
-                    <TableCell>{item.hsnCode}</TableCell>
-                    <TableCell>{item.description}</TableCell>
-                    <TableCell align="right">{Number(item.quantity).toFixed(2)}</TableCell>
-                    <TableCell align="right">{item.uqc}</TableCell>
-                    <TableCell align="right">₹{Number(item.rate).toFixed(2)}</TableCell>
-                    <TableCell align="right">₹{Number(item.taxableValue).toFixed(2)}</TableCell>
-                    <TableCell align="right">₹{Number(item.igst).toFixed(2)}</TableCell>
-                    <TableCell align="right">₹{Number(item.cgst).toFixed(2)}</TableCell>
-                    <TableCell align="right">₹{Number(item.sgst).toFixed(2)}</TableCell>
-                    <TableCell align="right">₹{Number(item.totalTax).toFixed(2)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <Box sx={{ display: 'grid', gap: 2 }}>
+            <Grid container spacing={1.5}>
+              <Grid item xs={12} md={4}>
+                <Paper sx={{ p: 1.5 }}>
+                  <Typography variant="caption" color="text.secondary">Total HSN Rows</Typography>
+                  <Typography variant="h6">{data.hsnSummary.length}</Typography>
+                </Paper>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Paper sx={{ p: 1.5 }}>
+                  <Typography variant="caption" color="text.secondary">B2B HSN Rows</Typography>
+                  <Typography variant="h6">{(data.b2bHsnSummary || []).length}</Typography>
+                </Paper>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Paper sx={{ p: 1.5 }}>
+                  <Typography variant="caption" color="text.secondary">B2C HSN Rows</Typography>
+                  <Typography variant="h6">{(data.b2cHsnSummary || []).length}</Typography>
+                </Paper>
+              </Grid>
+            </Grid>
+
+            <Paper sx={{ p: 1.5 }}>
+              <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>HSN Summary - All</Typography>
+              <Divider sx={{ mb: 1 }} />
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>HSN Code</TableCell>
+                      <TableCell>Description</TableCell>
+                      <TableCell align="right">Quantity</TableCell>
+                      <TableCell align="right">UQC</TableCell>
+                      <TableCell align="right">Rate</TableCell>
+                      <TableCell align="right">Taxable Value</TableCell>
+                      <TableCell align="right">IGST</TableCell>
+                      <TableCell align="right">CGST</TableCell>
+                      <TableCell align="right">SGST</TableCell>
+                      <TableCell align="right">Total Tax</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {data.hsnSummary.map((item, index) => (
+                      <TableRow key={`all-${index}`}>
+                        <TableCell>{item.hsnCode}</TableCell>
+                        <TableCell>{item.description}</TableCell>
+                        <TableCell align="right">{Number(item.quantity).toFixed(2)}</TableCell>
+                        <TableCell align="right">{item.uqc}</TableCell>
+                        <TableCell align="right">₹{Number(item.rate).toFixed(2)}</TableCell>
+                        <TableCell align="right">₹{Number(item.taxableValue).toFixed(2)}</TableCell>
+                        <TableCell align="right">₹{Number(item.igst).toFixed(2)}</TableCell>
+                        <TableCell align="right">₹{Number(item.cgst).toFixed(2)}</TableCell>
+                        <TableCell align="right">₹{Number(item.sgst).toFixed(2)}</TableCell>
+                        <TableCell align="right">₹{Number(item.totalTax).toFixed(2)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+
+            <Grid container spacing={2}>
+              <Grid item xs={12} lg={6}>
+                <Paper sx={{ p: 1.5 }}>
+                  <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>HSN Summary - B2B</Typography>
+                  <Divider sx={{ mb: 1 }} />
+                  <TableContainer>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>HSN</TableCell>
+                          <TableCell align="right">Taxable</TableCell>
+                          <TableCell align="right">IGST</TableCell>
+                          <TableCell align="right">CGST</TableCell>
+                          <TableCell align="right">SGST</TableCell>
+                          <TableCell align="right">Tax</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {(data.b2bHsnSummary || []).length === 0 ? (
+                          <TableRow><TableCell colSpan={6} align="center">No B2B HSN data</TableCell></TableRow>
+                        ) : (
+                          (data.b2bHsnSummary || []).map((item, idx) => (
+                            <TableRow key={`b2b-${idx}`}>
+                              <TableCell>{item.hsnCode}</TableCell>
+                              <TableCell align="right">₹{Number(item.taxableValue).toFixed(2)}</TableCell>
+                              <TableCell align="right">₹{Number(item.igst).toFixed(2)}</TableCell>
+                              <TableCell align="right">₹{Number(item.cgst).toFixed(2)}</TableCell>
+                              <TableCell align="right">₹{Number(item.sgst).toFixed(2)}</TableCell>
+                              <TableCell align="right">₹{Number(item.totalTax).toFixed(2)}</TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Paper>
+              </Grid>
+              <Grid item xs={12} lg={6}>
+                <Paper sx={{ p: 1.5 }}>
+                  <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>HSN Summary - B2C</Typography>
+                  <Divider sx={{ mb: 1 }} />
+                  <TableContainer>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>HSN</TableCell>
+                          <TableCell align="right">Taxable</TableCell>
+                          <TableCell align="right">IGST</TableCell>
+                          <TableCell align="right">CGST</TableCell>
+                          <TableCell align="right">SGST</TableCell>
+                          <TableCell align="right">Tax</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {(data.b2cHsnSummary || []).length === 0 ? (
+                          <TableRow><TableCell colSpan={6} align="center">No B2C HSN data</TableCell></TableRow>
+                        ) : (
+                          (data.b2cHsnSummary || []).map((item, idx) => (
+                            <TableRow key={`b2c-${idx}`}>
+                              <TableCell>{item.hsnCode}</TableCell>
+                              <TableCell align="right">₹{Number(item.taxableValue).toFixed(2)}</TableCell>
+                              <TableCell align="right">₹{Number(item.igst).toFixed(2)}</TableCell>
+                              <TableCell align="right">₹{Number(item.cgst).toFixed(2)}</TableCell>
+                              <TableCell align="right">₹{Number(item.sgst).toFixed(2)}</TableCell>
+                              <TableCell align="right">₹{Number(item.totalTax).toFixed(2)}</TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Paper>
+              </Grid>
+            </Grid>
+          </Box>
         )}
       </Box>
   );

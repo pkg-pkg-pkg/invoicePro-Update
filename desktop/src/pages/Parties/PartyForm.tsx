@@ -368,7 +368,7 @@ const PartyForm = ({ embedded = false, onSaved, onCancel }: PartyFormProps = {})
               {formData.partyType === 'BOTH' && ' (Can be used in both Sales & Purchase)'}
             </Alert>
 
-            <Stack direction="row" spacing={2} justifyContent="flex-end">
+            <Stack direction={{ xs: 'column-reverse', sm: 'row' }} spacing={2} justifyContent="flex-end" flexWrap="wrap">
               <Button
                 type="button"
                 variant="outlined"

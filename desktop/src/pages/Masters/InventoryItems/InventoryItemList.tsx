@@ -174,6 +174,24 @@ const InventoryItemList = () => {
   const { data: items, loading, error, refresh } = useMasterList<InventoryItem>(fetchItems);
 
   useEffect(() => {
+    let cancelled = false;
+    const runBackfill = async () => {
+      try {
+        const changed = await inventoryItemService.backfillMissingGodownSplits();
+        if (!cancelled && changed > 0) {
+          await refresh();
+        }
+      } catch {
+        // Non-blocking migration; ignore errors.
+      }
+    };
+    void runBackfill();
+    return () => {
+      cancelled = true;
+    };
+  }, [refresh]);
+
+  useEffect(() => {
     setSelectedIds(new Set());
   }, [items]);
 

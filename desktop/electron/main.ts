@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, Menu, shell, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
@@ -466,6 +466,83 @@ ipcMain.handle('window-close', () => {
 ipcMain.handle('window-is-maximized', () =>
   Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isMaximized())
 );
+
+ipcMain.handle('print:pdf', async (_event, payload: { html?: string; fileName?: string; landscape?: boolean }) => {
+  const html = String(payload?.html ?? '');
+  const suggested = String(payload?.fileName || `invoice-${Date.now()}.pdf`);
+  if (!html) return null;
+
+  let printWindow: any = null;
+  try {
+    printWindow = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        sandbox: false,
+      },
+    });
+
+    await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    const pdfBuffer = await printWindow.webContents.printToPDF({
+      printBackground: true,
+      landscape: Boolean(payload?.landscape),
+      pageSize: 'A4',
+      margins: { marginType: 'default' },
+    });
+    const saveResult = await dialog.showSaveDialog(mainWindow || undefined, {
+      title: 'Save Invoice PDF',
+      defaultPath: suggested.endsWith('.pdf') ? suggested : `${suggested}.pdf`,
+      filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
+    });
+    if (saveResult.canceled || !saveResult.filePath) return null;
+    fs.writeFileSync(saveResult.filePath, pdfBuffer);
+    return saveResult.filePath;
+  } catch (error) {
+    console.error('print:pdf failed', error);
+    return null;
+  } finally {
+    if (printWindow && !printWindow.isDestroyed()) {
+      printWindow.close();
+    }
+  }
+});
+
+ipcMain.handle('print:direct', async (_event, payload: { html?: string; silent?: boolean }) => {
+  const html = String(payload?.html ?? '');
+  if (!html) return false;
+  let printWindow: any = null;
+  try {
+    printWindow = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        sandbox: false,
+      },
+    });
+    await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    await new Promise<void>((resolve, reject) => {
+      printWindow.webContents.print(
+        {
+          silent: Boolean(payload?.silent),
+          printBackground: true,
+        },
+        (success: boolean, errorType: string) => {
+          if (!success && errorType) {
+            reject(new Error(errorType));
+            return;
+          }
+          resolve();
+        }
+      );
+    });
+    return true;
+  } catch (error) {
+    console.error('print:direct failed', error);
+    return false;
+  } finally {
+    if (printWindow && !printWindow.isDestroyed()) {
+      printWindow.close();
+    }
+  }
+});
 
 app.whenReady().then(() => {
   console.log('App is ready, initializing...');

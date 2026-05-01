@@ -12,11 +12,11 @@ function normalizeAccent(hex: string): string {
 
 const sharedTypography = {
   fontFamily: '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-  h4: { fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1.2 },
-  h5: { fontWeight: 600, letterSpacing: '-0.02em', lineHeight: 1.3 },
-  h6: { fontWeight: 600, letterSpacing: '-0.01em' },
-  body1: { letterSpacing: '-0.01em' },
-  body2: { letterSpacing: '-0.01em' },
+  h4: { fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.2, fontSize: '1.65rem' },
+  h5: { fontWeight: 600, letterSpacing: '-0.015em', lineHeight: 1.25, fontSize: '1.3rem' },
+  h6: { fontWeight: 600, letterSpacing: '-0.01em', fontSize: '1.05rem' },
+  body1: { letterSpacing: '-0.005em', fontSize: '0.94rem' },
+  body2: { letterSpacing: '-0.005em', fontSize: '0.86rem' },
   button: { textTransform: 'none' as const, fontWeight: 600, letterSpacing: '-0.01em' },
   overline: { letterSpacing: '0.1em', fontWeight: 600 },
 };
@@ -67,7 +67,7 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
         divider: alpha(onBg, 0.1),
       },
       typography: sharedTypography,
-      shape: { borderRadius: 16 },
+      shape: { borderRadius: 12 },
       components: {
         MuiCssBaseline: {
           styleOverrides: {
@@ -95,7 +95,7 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
           styleOverrides: {
             root: {
               borderRadius: 8,
-              padding: '8px 16px',
+              padding: '6px 12px',
               boxShadow: 'none',
               '&:hover': { boxShadow: `0 4px 14px ${alpha(accent, 0.16)}` },
             },
@@ -128,7 +128,7 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
         MuiCard: {
           styleOverrides: {
             root: {
-              borderRadius: 16,
+              borderRadius: 12,
               backgroundImage: 'none',
               boxShadow: '0 10px 30px rgba(0,0,0,0.4)',
               border: '1px solid rgba(255,255,255,0.05)',
@@ -140,7 +140,7 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
         MuiPaper: {
           styleOverrides: {
             root: {
-              borderRadius: 16,
+              borderRadius: 12,
               backgroundImage: 'none',
               border: `1px solid ${alpha(onBg, 0.07)}`,
               backgroundColor: 'var(--bg-card)',
@@ -288,7 +288,7 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
       },
     },
     typography: sharedTypography,
-    shape: { borderRadius: 16 },
+    shape: { borderRadius: 12 },
     components: {
       MuiCssBaseline: {
         styleOverrides: {
@@ -315,7 +315,7 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
         styleOverrides: {
           root: {
             borderRadius: 8,
-            padding: '8px 16px',
+            padding: '6px 12px',
             boxShadow: 'none',
             '&:hover': {
               boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
@@ -352,7 +352,7 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
       MuiCard: {
         styleOverrides: {
           root: {
-            borderRadius: 16,
+            borderRadius: 12,
             boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)',
             border: '1px solid #e2e8f0',
             backgroundColor: 'var(--bg-card)',
@@ -363,7 +363,7 @@ export function createAppTheme(opts: { mode: UiMode; accentMain: string }) {
       MuiPaper: {
         styleOverrides: {
           root: {
-            borderRadius: 16,
+            borderRadius: 12,
             backgroundImage: 'none',
             border: `1px solid ${alpha(onLightBg, 0.1)}`,
             boxShadow: '0 10px 25px rgba(0,0,0,0.05)',

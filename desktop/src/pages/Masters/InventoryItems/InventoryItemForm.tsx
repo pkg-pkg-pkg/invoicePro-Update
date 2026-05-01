@@ -93,6 +93,8 @@ const InventoryItemForm = ({ embedded = false, initialBarcode, onSaved, onCancel
   const [quickGodownError, setQuickGodownError] = useState<string | null>(null);
   const [bulkStockOpen, setBulkStockOpen] = useState(false);
   const [bulkGodownId, setBulkGodownId] = useState('');
+  const [godownBackfillTried, setGodownBackfillTried] = useState(false);
+  const [editGodownId, setEditGodownId] = useState('');
 
   const { entity, loading, saving, error, load, create, update, resetError } = useMasterForm<
     InventoryItem,
@@ -186,6 +188,28 @@ const InventoryItemForm = ({ embedded = false, initialBarcode, onSaved, onCancel
     }
   }, [id, isEditMode, load]);
 
+  useEffect(() => {
+    if (!isEditMode || !id || !entity) return;
+    if (godownBackfillTried) return;
+    if (Array.isArray(entity.godownStocks) && entity.godownStocks.length > 0) return;
+    let cancelled = false;
+    const backfillAndReload = async () => {
+      try {
+        setGodownBackfillTried(true);
+        const changed = await inventoryItemService.backfillMissingGodownSplits(id);
+        if (!cancelled && changed > 0) {
+          await load(id);
+        }
+      } catch {
+        if (!cancelled) setGodownBackfillTried(true);
+      }
+    };
+    void backfillAndReload();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditMode, id, entity, load, godownBackfillTried]);
+
   const [formState, setFormState] = useState({
     name: '',
     sku: '',
@@ -230,6 +254,24 @@ const InventoryItemForm = ({ embedded = false, initialBarcode, onSaved, onCancel
       return { ...prev, openingValue: val };
     });
   }, [isEditMode, formState.openingStock, formState.pricing.purchase]);
+
+  useEffect(() => {
+    if (!isEditMode) return;
+    if (!godowns.length) return;
+    const activeIds = new Set(godowns.map((g) => g.id));
+    const hasValidGodownSplit = Boolean(
+      entity?.godownStocks?.some((split) => activeIds.has(String(split.godownId || '')))
+    );
+    if (hasValidGodownSplit) {
+      setEditGodownId('');
+      return;
+    }
+    setEditGodownId((prev) => {
+      if (prev && activeIds.has(prev)) return prev;
+      const preferred = godowns.find((g) => g.isDefault) ?? godowns[0];
+      return preferred?.id ?? '';
+    });
+  }, [isEditMode, entity, godowns]);
 
   const formDisabled = saving || loading;
 
@@ -536,6 +578,19 @@ const InventoryItemForm = ({ embedded = false, initialBarcode, onSaved, onCancel
       if (splits.length) {
         payload.godownStocks = splits;
       }
+    } else {
+      const activeIds = new Set(godowns.map((g) => g.id));
+      const hasValidGodownSplit = Boolean(
+        entity?.godownStocks?.some((split) => activeIds.has(String(split.godownId || '')))
+      );
+      if (!hasValidGodownSplit && editGodownId) {
+        payload.godownStocks = [
+          {
+            godownId: editGodownId,
+            quantity: Number(Number(entity?.currentStock ?? 0).toFixed(4)),
+          },
+        ];
+      }
     }
 
     return payload;
@@ -572,6 +627,16 @@ const InventoryItemForm = ({ embedded = false, initialBarcode, onSaved, onCancel
       setSubmitError('Conversion ratio is required when secondary unit is selected.');
       return;
     }
+    if (isEditMode) {
+      const activeIds = new Set(godowns.map((g) => g.id));
+      const hasValidGodownSplit = Boolean(
+        entity?.godownStocks?.some((split) => activeIds.has(String(split.godownId || '')))
+      );
+      if (!hasValidGodownSplit && !editGodownId) {
+        setSubmitError('Godown update is mandatory. Please select a godown before saving.');
+        return;
+      }
+    }
     try {
       setSubmitError(null);
       const payload = buildPayload();
@@ -605,9 +670,27 @@ const InventoryItemForm = ({ embedded = false, initialBarcode, onSaved, onCancel
     if (isEditMode && entity) {
       if (!entity.godownStocks || entity.godownStocks.length === 0) {
         return (
-          <Alert severity="info" sx={{ mt: 2 }}>
-            No godown splits recorded for this item.
-          </Alert>
+          <Stack spacing={1.5} sx={{ mt: 2 }}>
+            <Alert severity="warning">
+              No godown splits recorded for this item. Save se pehle godown update mandatory hai.
+            </Alert>
+            <FormControl fullWidth size="small" required>
+              <InputLabel id="edit-required-godown-label">Select Godown (Required)</InputLabel>
+              <Select
+                labelId="edit-required-godown-label"
+                label="Select Godown (Required)"
+                value={editGodownId}
+                onChange={(e) => setEditGodownId(String(e.target.value))}
+                {...SELECT_MENU_Z}
+              >
+                {godowns.map((g) => (
+                  <MenuItem key={g.id} value={g.id}>
+                    {g.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Stack>
         );
       }
       return (
@@ -742,8 +825,8 @@ const InventoryItemForm = ({ embedded = false, initialBarcode, onSaved, onCancel
 
   return (
     <>
-      <Card component="form" onSubmit={handleSubmit}>
-        <CardContent>
+    <Card component="form" onSubmit={handleSubmit}>
+      <CardContent sx={{ overflowX: 'hidden' }}>
         <Stack spacing={3}>
           <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} alignItems={{ xs: 'flex-start', md: 'center' }}>
             <Box>
@@ -763,13 +846,19 @@ const InventoryItemForm = ({ embedded = false, initialBarcode, onSaved, onCancel
                 </Typography>
               )}
             </Box>
-            <Stack direction="row" spacing={1}>
+            <Stack
+              direction={{ xs: 'column-reverse', sm: 'row' }}
+              spacing={1}
+              flexWrap="wrap"
+              justifyContent="flex-end"
+              sx={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }}
+            >
               {embedded && onCancel && (
-                <Button type="button" variant="outlined" onClick={onCancel} disabled={saving}>
+                <Button type="button" variant="outlined" onClick={onCancel} disabled={saving} fullWidth={embedded}>
                   Cancel
                 </Button>
               )}
-              <Button type="submit" variant="contained" disabled={saving || !canManage}>
+              <Button type="submit" variant="contained" disabled={saving || !canManage} sx={{ whiteSpace: 'nowrap' }}>
                 {saving ? <CircularProgress size={18} color="inherit" /> : isEditMode ? 'Save Changes' : 'Create'}
               </Button>
             </Stack>

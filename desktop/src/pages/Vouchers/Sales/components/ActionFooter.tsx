@@ -38,14 +38,14 @@ const ActionFooter: FC<ActionFooterProps> = ({
         bottom: 0,
         background: theme.palette.background.paper,
         borderTop: `1px solid ${theme.palette.divider}`,
-        py: 2,
-        px: { xs: 1, md: 2 },
-        mt: 3,
+        py: 1,
+        px: { xs: 0.75, md: 1.25 },
+        mt: 1.5,
         zIndex: 5,
       }}
     >
       {mode === 'view' ? (
-        <Stack direction={isMobile ? 'column' : 'row'} spacing={1} justifyContent="flex-end">
+        <Stack direction={isMobile ? 'column' : 'row'} spacing={1} justifyContent="flex-end" flexWrap="wrap">
           {canEdit && (
             <Button variant="contained" onClick={onEdit}>
               Edit
@@ -53,17 +53,17 @@ const ActionFooter: FC<ActionFooterProps> = ({
           )}
         </Stack>
       ) : (
-        <Stack direction={isMobile ? 'column' : 'row'} spacing={1} justifyContent="flex-end">
+        <Stack direction={isMobile ? 'column' : 'row'} spacing={0.75} justifyContent="flex-end" flexWrap="wrap">
           <Button variant="outlined" onClick={onSaveDraft} disabled={saving}>
             {saving ? 'Saving…' : 'Save as Draft'}
           </Button>
-          <Button variant="outlined" onClick={onSaveAndPrint} disabled={saving}>
+          <Button variant="text" onClick={onSaveAndPrint} disabled={saving}>
             {saving ? 'Saving…' : 'Save & Print'}
           </Button>
-          <Button variant="outlined" onClick={onDownloadPDF} disabled={saving}>
+          <Button variant="text" onClick={onDownloadPDF} disabled={saving}>
             {saving ? 'Saving…' : 'Download PDF'}
           </Button>
-          <Button variant="outlined" onClick={onShareWhatsApp} disabled={saving}>
+          <Button variant="text" onClick={onShareWhatsApp} disabled={saving}>
             {saving ? 'Saving…' : 'Share on WhatsApp'}
           </Button>
           <Button variant="contained" onClick={onSave} disabled={saving}>

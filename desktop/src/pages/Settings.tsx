@@ -1,5 +1,5 @@
 import { useEffect, useState, ChangeEvent, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Typography, Paper, Box, TextField, Button, Divider, Alert, Grid, IconButton, Tabs, Tab, FormControlLabel, Switch, Chip, Stack, Card, CardContent, ToggleButton, ToggleButtonGroup, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { useTheme, alpha } from '@mui/material/styles';
 import EditIcon from '@mui/icons-material/Edit';
@@ -323,7 +323,9 @@ export default function Settings() {
 
   const [activeTab, setActiveTab] = useState<number>(0);
   const location = useLocation();
+  const navigate = useNavigate();
   const [networkStatus, setNetworkStatus] = useState<NetworkStatus>(networkService.getStatus());
+  const [deskHint, setDeskHint] = useState('Open Company Profile and keep legal details updated.');
 
   // Deep-link from Connect to Host: #/settings?tab=multiuser (UPI / LAN upgrade)
   useEffect(() => {
@@ -347,6 +349,8 @@ export default function Settings() {
       setActiveTab(9);
     } else if (t === 'appsettings') {
       setActiveTab(10);
+    } else if (t === 'companydesk' || t === 'companyops') {
+      setActiveTab(11);
     }
   }, [location.search, location.pathname]);
 
@@ -391,6 +395,21 @@ export default function Settings() {
   const [gatewayRenewSubmitting, setGatewayRenewSubmitting] = useState(false);
   const [gatewayRenewInfo, setGatewayRenewInfo] = useState<string | null>(null);
   const [gatewayRenewRequest, setGatewayRenewRequest] = useState<any | null>(null);
+
+  const settingsSectionLabels: Record<number, string> = {
+    0: 'Company Profile',
+    1: 'Navigation',
+    2: 'About & Updates',
+    3: 'Print Settings',
+    4: 'WhatsApp',
+    5: 'User Management',
+    6: 'Change Password',
+    7: 'Network & Multi-User',
+    8: 'Backup & Restore',
+    9: 'Layout',
+    10: 'App Settings',
+    11: 'Company Desk',
+  };
 
   const loadCompanyProfile = (): CompanyProfile => ({
     name: localStorage.getItem('companyName')?.trim() || APP_DISPLAY_NAME,
@@ -951,9 +970,9 @@ export default function Settings() {
   };
 
   return (
-    <Box sx={{ p: 2.5, maxWidth: 1380, mx: 'auto', bgcolor: 'var(--bg-section)', borderRadius: '16px', transition: 'all 0.2s ease' }}>
+    <Box sx={{ p: 1.5, maxWidth: 1320, mx: 'auto', bgcolor: 'var(--bg-section)', borderRadius: '14px', transition: 'all 0.2s ease' }}>
       <Box sx={{ mb: 1.5 }}>
-        <Typography variant="h4" sx={{ fontWeight: 800 }}>
+        <Typography variant="h5" sx={{ fontWeight: 800 }}>
         Settings
       </Typography>
         <Typography variant="body2" color="text.secondary">
@@ -962,47 +981,32 @@ export default function Settings() {
       </Box>
 
       <Paper
-        sx={(theme) => ({
-          mt: 2,
-          borderRadius: 3,
+        sx={{
+          mt: 1.5,
+          p: 1.25,
+          borderRadius: 2.5,
           border: '1px solid var(--border)',
-          overflow: 'hidden',
           background: 'var(--bg-card)',
           transition: 'all 0.2s ease',
-        })}
+        }}
       >
-        <Tabs
-          value={activeTab}
-          onChange={(_, newValue) => setActiveTab(newValue)}
-          variant="scrollable"
-          scrollButtons="auto"
-          allowScrollButtonsMobile
-          sx={(theme) => ({
-            minHeight: 52,
-            borderBottom: '1px solid var(--border)',
-            '& .MuiTabs-scrollButtons': {
-              color: theme.palette.text.secondary,
-              '&.Mui-disabled': { opacity: 0.3 },
-            },
-            '& .MuiTabs-indicator': {
-              height: 3,
-              borderRadius: 3,
-              background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
-            },
-          })}
-        >
-          <Tab label="Company Profile" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
-          <Tab label="Navigation" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
-          <Tab label="About & Updates" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
-          <Tab label="Print Settings" disabled={!canCustomizePrint} sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
-          <Tab label="WhatsApp" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
-          <Tab label="User Management" disabled={!canManageUsers} sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
-          <Tab label="Change Password" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
-          <Tab label="Network & Multi-User" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
-          <Tab label="Backup & Restore" disabled={!(canBackup || canRestore)} sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
-          <Tab label="Layout" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
-          <Tab label="App Settings" sx={{ textTransform: 'none', fontWeight: 700, minHeight: 52, px: 2.25 }} />
-        </Tabs>
+        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" flexWrap="wrap">
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Button
+              variant={activeTab === 11 ? 'contained' : 'outlined'}
+              size="small"
+              onClick={() => setActiveTab(11)}
+            >
+              Company Desk
+            </Button>
+            {activeTab !== 11 && (
+              <Button variant="text" size="small" onClick={() => setActiveTab(11)}>
+                Back to Desk
+              </Button>
+            )}
+          </Stack>
+          <Chip size="small" label={settingsSectionLabels[activeTab] || 'Settings'} color="primary" variant="outlined" />
+        </Stack>
       </Paper>
 
       {activeTab === 0 && (
@@ -1796,6 +1800,208 @@ export default function Settings() {
                     <Alert severity="error">{appSettingsError}</Alert>
                   </Box>
                 )}
+              </Grid>
+            </Grid>
+          </Box>
+        )}
+
+        {activeTab === 11 && (
+          <Box sx={{ mt: 3 }}>
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={4}>
+                <Paper sx={{ p: 2.5, border: '1px solid var(--border)' }}>
+                  <Typography variant="h6" fontWeight={800} gutterBottom>
+                    Company Command Desk
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Frequently used company/admin actions in one place.
+                  </Typography>
+
+                  <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 700 }}>
+                    Company
+                  </Typography>
+                  <Stack spacing={1} sx={{ mt: 1, mb: 2 }}>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      sx={{ justifyContent: 'flex-start' }}
+                      onClick={() => {
+                        setDeskHint('Open Company Profile and keep legal details updated.');
+                        setActiveTab(0);
+                      }}
+                    >
+                      Open Company Profile
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      sx={{ justifyContent: 'flex-start' }}
+                      onClick={() => {
+                        setDeskHint('Open Layout settings to adjust theme and ERP visual density.');
+                        setActiveTab(9);
+                      }}
+                    >
+                      Layout / Appearance
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      sx={{ justifyContent: 'flex-start' }}
+                      onClick={() => {
+                        setDeskHint('Open Financial Year and Date Lock settings.');
+                        setActiveTab(10);
+                      }}
+                    >
+                      Financial Year / Date Lock
+                    </Button>
+                  </Stack>
+
+                  <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 700 }}>
+                    Data Safety
+                  </Typography>
+                  <Stack spacing={1} sx={{ mt: 1, mb: 2 }}>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      sx={{ justifyContent: 'flex-start' }}
+                      disabled={!(canBackup || canRestore)}
+                      onClick={() => {
+                        setDeskHint('Create backup files and restore from existing snapshots.');
+                        setActiveTab(8);
+                      }}
+                    >
+                      Backup / Restore
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      sx={{ justifyContent: 'flex-start' }}
+                      onClick={() => {
+                        setDeskHint('Configure host/client and LAN multi-user licensing.');
+                        setActiveTab(7);
+                      }}
+                    >
+                      Network & Multi-User
+                    </Button>
+                  </Stack>
+
+                  <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 700 }}>
+                    Operations
+                  </Typography>
+                  <Stack spacing={1} sx={{ mt: 1 }}>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      sx={{ justifyContent: 'flex-start' }}
+                      onClick={() => {
+                        setDeskHint('Customize shortcuts, menu access and landing preferences.');
+                        setActiveTab(1);
+                      }}
+                    >
+                      Navigation Settings
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      disabled={!canCustomizePrint}
+                      sx={{ justifyContent: 'flex-start' }}
+                      onClick={() => {
+                        setDeskHint('Setup invoice print templates, paper sizes and branding.');
+                        setActiveTab(3);
+                      }}
+                    >
+                      Print Setup
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      sx={{ justifyContent: 'flex-start' }}
+                      onClick={() => {
+                        setDeskHint('Configure WhatsApp sharing and delivery workflow.');
+                        setActiveTab(4);
+                      }}
+                    >
+                      WhatsApp Settings
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      sx={{ justifyContent: 'flex-start' }}
+                      onClick={() => {
+                        setDeskHint('Open dashboard for daily operations and current business KPIs.');
+                        navigate('/dashboard');
+                      }}
+                    >
+                      Go to Dashboard
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      sx={{ justifyContent: 'flex-start' }}
+                      onClick={() => {
+                        setDeskHint('Check build/version/update channel and release information.');
+                        setActiveTab(2);
+                      }}
+                    >
+                      About & Updates
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      sx={{ justifyContent: 'flex-start' }}
+                      onClick={() => {
+                        setDeskHint('Manage account security and password policy.');
+                        setActiveTab(6);
+                      }}
+                    >
+                      Change Password
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      sx={{ justifyContent: 'flex-start' }}
+                      onClick={() => {
+                        setDeskHint('Control FY lock, date lock and invoice numbering format.');
+                        setActiveTab(10);
+                      }}
+                    >
+                      App Settings
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      disabled={!canManageUsers}
+                      sx={{ justifyContent: 'flex-start' }}
+                      onClick={() => {
+                        setDeskHint('Manage users, roles, and permissions.');
+                        setActiveTab(5);
+                      }}
+                    >
+                      User Management
+                    </Button>
+                  </Stack>
+                </Paper>
+              </Grid>
+
+              <Grid item xs={12} md={8}>
+                <Paper sx={{ p: 3, border: '1px solid var(--border)', minHeight: 360 }}>
+                  <Typography variant="h6" fontWeight={800} gutterBottom>
+                    Action Guidance
+                  </Typography>
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    {deskHint}
+                  </Alert>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                    Suggested daily flow:
+                  </Typography>
+                  <Box component="ol" sx={{ m: 0, pl: 2.5 }}>
+                    <li><Typography variant="body2">Company Profile verify करें (GSTIN, contact, branding).</Typography></li>
+                    <li><Typography variant="body2">Financial Year and lock date review करें.</Typography></li>
+                    <li><Typography variant="body2">Backup status check करें (daily / weekly).</Typography></li>
+                    <li><Typography variant="body2">Network mode verify करें (single or LAN multi-user).</Typography></li>
+                    <li><Typography variant="body2">Dashboard खोलकर operations start करें.</Typography></li>
+                  </Box>
+                </Paper>
               </Grid>
             </Grid>
           </Box>

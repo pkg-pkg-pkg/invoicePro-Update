@@ -33,8 +33,6 @@ import {
 import { Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon, Print as PrintIcon, Search as SearchIcon, FilterList as FilterListIcon, Sort as SortIcon, Clear as ClearIcon } from "@mui/icons-material";
 import Autocomplete from "@mui/material/Autocomplete";
 
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
-
 import { docApi, getHostBaseUrl } from '../services/docApi';
 import { getAppSettings, getDefaultTodayForEntry, validateTransactionDate } from '../services/appSettingsService';
 import { usePermissions } from '../hooks/usePermissions';
@@ -459,6 +457,7 @@ const Invoices: React.FC = () => {
   const customersFromStore = useSelector((state: RootState) => (state as any).parties?.customers ?? []);
 
   const { canAccessFeature } = usePermissions();
+  const { isAdmin } = usePermissions();
   const [appSettings, setAppSettings] = useState(() => getAppSettings());
   const gstEnabled = Boolean(appSettings?.features?.gstEnabled);
 
@@ -648,6 +647,10 @@ const Invoices: React.FC = () => {
   }, [customersFromStore]);
 
   const openEditInvoiceDialog = (invoice: Invoice) => {
+    if (!isAdmin) {
+      setFormError('Only Admin can edit invoices');
+      return;
+    }
     if (!canEdit) {
       setFormError('You do not have permission to edit invoices');
       return;
@@ -1099,21 +1102,7 @@ const Invoices: React.FC = () => {
       }
     };
 
-    try {
-      const label = `print_${Date.now()}`;
-      const w = new WebviewWindow(label, {
-        url: '/#/print',
-        title: 'Print Preview',
-        width: 980,
-        height: 720,
-        resizable: true,
-        focus: true,
-        visible: true,
-      });
-      w.once('tauri://error', () => openBrowserPreview());
-    } catch {
-      openBrowserPreview();
-    }
+    openBrowserPreview();
   };
 
   const handlePrint = (invoice: Invoice) => {
@@ -1126,6 +1115,10 @@ const Invoices: React.FC = () => {
   };
 
   const handleDeleteInvoice = async (invoice: Invoice) => {
+    if (!isAdmin) {
+      alert('Only Admin can delete invoices');
+      return;
+    }
     if (!canDelete) {
       alert('You do not have permission to delete invoices');
       return;

@@ -336,7 +336,7 @@ const PurchaseReturnVoucherForm = () => {
                 Process returns against original purchase invoices with proper GST reversal
               </Typography>
             </Box>
-            <Stack direction="row" spacing={1}>
+            <Stack direction={{ xs: 'column-reverse', sm: 'row' }} spacing={1} flexWrap="wrap" justifyContent="flex-end" sx={{ width: { xs: '100%', sm: 'auto' } }}>
               <Button type="submit" variant="contained" disabled={!canSubmit}>
                 {saving ? 'Saving...' : 'Save Return'}
               </Button>

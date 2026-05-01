@@ -37,6 +37,8 @@ import schemeService from '../../services/schemeService';
 
 interface AtRiskRetailer {
   id: string;
+  schemeId?: string;
+  retailerId?: string;
   name: string;
   phone?: string;
   email?: string;
@@ -86,9 +88,15 @@ const OverdueTracker = () => {
 
   const handleFreezeScheme = async (retailer: AtRiskRetailer) => {
     try {
+      const schemeId = retailer.schemeId;
+      const retailerId = retailer.retailerId || retailer.id;
+      if (!schemeId || !retailerId) {
+        setError('Cannot freeze this row because scheme/retailer ID is missing.');
+        return;
+      }
       await schemeService.freezeScheme(
-        retailer.schemeName,
-        retailer.id,
+        schemeId,
+        retailerId,
         'Payment overdue and scheme compliance failure'
       );
       

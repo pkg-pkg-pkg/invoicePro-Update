@@ -321,7 +321,7 @@ class SchemeService {
       return response.data.data || [];
     } catch (error) {
       console.error('Error fetching retailer dashboard:', error);
-      throw error;
+      return [];
     }
   }
 
@@ -334,7 +334,7 @@ class SchemeService {
       return response.data.data || [];
     } catch (error) {
       console.error('Error fetching overdue retailers:', error);
-      throw error;
+      return [];
     }
   }
 

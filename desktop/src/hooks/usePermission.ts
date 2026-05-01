@@ -9,7 +9,8 @@ type UIPermission =
   | 'view-inventory'
   | 'create-vouchers'
   | 'view-vouchers'
-  | 'view-reports';
+  | 'view-reports'
+  | 'manage-users';
 
 const mapToUserPermission: Partial<Record<UIPermission, keyof UserPermissions>> = {
   'manage-ledgers': 'manageLedgers',
@@ -19,6 +20,7 @@ const mapToUserPermission: Partial<Record<UIPermission, keyof UserPermissions>> 
   'create-vouchers': 'createInvoices',
   'view-vouchers': 'viewVouchers',
   'view-reports': 'viewReports',
+  'manage-users': 'manageUsers',
 };
 
 export const usePermission = () => {

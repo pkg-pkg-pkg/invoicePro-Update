@@ -12,6 +12,8 @@ import { autoLedgerService } from '../../../services/masters/autoLedgerService';
 import { fetchOriginalInvoice, calculateReturnTotals, validateReturnQuantities, OriginalInvoiceData, InvoiceItem } from '../../../services/returns/returnService';
 import { decideGSTType } from '../../../services/vouchers/gstDecisionEngine';
 import { bifurcateTax } from '../../../services/vouchers/gstBifurcationEngine';
+import schemeService, { Scheme } from '../../../services/schemeService';
+import { getBestScheme } from '../../../services/schemeResolutionEngine';
 
 import { VoucherTotals } from '../../../types/VoucherTotals';
 
@@ -34,6 +36,28 @@ const SalesReturnVoucherForm = () => {
 
   const [returnItems, setReturnItems] = useState<InvoiceItem[]>([]);
   const [enableRoundOff, setEnableRoundOff] = useState(true);
+  const [activeSalesSchemes, setActiveSalesSchemes] = useState<Scheme[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadSchemes = async () => {
+      try {
+        const auth = JSON.parse(localStorage.getItem('gst_billing_auth') || '{}');
+        const companyId = auth?.user?.companyId || auth?.company?.id;
+        if (!companyId) return;
+        const schemes = await schemeService.getSchemes(companyId);
+        if (!mounted) return;
+        setActiveSalesSchemes(schemes.filter((s) => s.appliesTo === 'SALES' || s.appliesTo === 'BOTH'));
+      } catch {
+        if (!mounted) return;
+        setActiveSalesSchemes([]);
+      }
+    };
+    loadSchemes();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     // Load company state from localStorage
@@ -315,6 +339,36 @@ const SalesReturnVoucherForm = () => {
         narration: formState.narration,
         lines: voucherLines,
       });
+
+      if (originalInvoice?.partyLedgerId && activeSalesSchemes.length > 0) {
+        const txnDate = new Date(formState.date);
+        const perSchemeNegativeImpact = new Map<string, number>();
+        returnItems.forEach((item) => {
+          const returnQty = Number(item.returnedQuantity || 0);
+          if (!item.productId || returnQty <= 0) return;
+          const best = getBestScheme(item.productId, returnQty, 'SALES', activeSalesSchemes, txnDate);
+          if (!best) return;
+          const amount = Number((returnQty * Number(item.rate || 0)).toFixed(2));
+          if (amount <= 0) return;
+          perSchemeNegativeImpact.set(
+            best.scheme.id,
+            Number(((perSchemeNegativeImpact.get(best.scheme.id) || 0) + amount).toFixed(2))
+          );
+        });
+        if (perSchemeNegativeImpact.size > 0) {
+          await Promise.allSettled(
+            Array.from(perSchemeNegativeImpact.entries()).map(([schemeId, amount]) =>
+              schemeService.updateSchemeProgress({
+                schemeId,
+                retailerId: originalInvoice.partyLedgerId,
+                invoiceAmount: -amount,
+                paymentReceived: 0,
+                paymentPending: -amount,
+              })
+            )
+          );
+        }
+      }
       
       navigate('/vouchers/sales-return');
     } catch (err) {
@@ -337,7 +391,7 @@ const SalesReturnVoucherForm = () => {
                 Process returns against original sales invoices with proper GST reversal
               </Typography>
             </Box>
-            <Stack direction="row" spacing={1}>
+            <Stack direction={{ xs: 'column-reverse', sm: 'row' }} spacing={1} flexWrap="wrap" justifyContent="flex-end" sx={{ width: { xs: '100%', sm: 'auto' } }}>
               <Button type="submit" variant="contained" disabled={!canSubmit}>
                 {saving ? 'Saving...' : 'Save Return'}
               </Button>

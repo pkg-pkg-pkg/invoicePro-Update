@@ -25,6 +25,8 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import AddIcon from '@mui/icons-material/Add';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { useNavigate } from 'react-router-dom';
 
 import { voucherService } from '../../../services/vouchers/voucherService';
@@ -103,6 +105,16 @@ const ReceiptVoucherList = () => {
     return payerLine ? ledgerNameMap.get(payerLine.ledgerId) ?? payerLine.ledgerId : '—';
   };
 
+  const handleDelete = async (voucher: Voucher) => {
+    if (!window.confirm(`Delete receipt voucher "${voucher.number}"?`)) return;
+    try {
+      await voucherService.delete(voucher.id);
+      await refresh();
+    } catch (e) {
+      alert((e as Error).message ?? 'Failed to delete voucher');
+    }
+  };
+
   return (
     <Stack spacing={2}>
       <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} spacing={1.5}>
@@ -116,7 +128,7 @@ const ReceiptVoucherList = () => {
             </IconButton>
           </Tooltip>
           {canCreate && (
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate('/vouchers/receipt-vouchers/new')}>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate('/vouchers/money/new?type=RECEIPT')}>
               New Receipt Voucher
             </Button>
           )}
@@ -225,11 +237,31 @@ const ReceiptVoucherList = () => {
                           />
                         </TableCell>
                         <TableCell align="right">
+                          {canCreate && (
+                            <Tooltip title="Edit">
+                              <IconButton
+                                onClick={() =>
+                                  navigate(`/vouchers/receipt-vouchers/${voucher.id}/edit`, {
+                                    state: { voucherId: voucher.id, voucherType: 'RECEIPT' },
+                                  })
+                                }
+                              >
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
                           <Tooltip title="View">
                             <IconButton onClick={() => setSelectedVoucher(voucher)}>
                               <VisibilityIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
+                          {canCreate && (
+                            <Tooltip title="Delete">
+                              <IconButton color="error" onClick={() => handleDelete(voucher)}>
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))

@@ -206,7 +206,18 @@ const buildInventoryItem = async (
     ensureNonNegative(reorderLevel, 'Reorder level');
   }
 
-  const godownStocks = await validateGodownStocks(payload.godownStocks, currentStock);
+  let godownStocks = await validateGodownStocks(payload.godownStocks, currentStock);
+  if ((!godownStocks || godownStocks.length === 0) && Number(currentStock.toFixed(4)) === 0) {
+    try {
+      const activeGodowns = await godownService.list({ includeInactive: false });
+      const preferred = activeGodowns.find((g) => g.isDefault) ?? activeGodowns[0];
+      if (preferred) {
+        godownStocks = [{ godownId: preferred.id, quantity: 0 }];
+      }
+    } catch {
+      // If godowns cannot be read, keep empty splits as fallback.
+    }
+  }
 
   const status: InventoryStatus =
     payload.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
@@ -419,7 +430,11 @@ export const inventoryItemService = {
     return { created, updated, errors };
   },
 
-  async adjustStock(id: string, deltaQuantity: number, options: { godownId?: string | null } = {}): Promise<InventoryItem> {
+  async adjustStock(
+    id: string,
+    deltaQuantity: number,
+    options: { godownId?: string | null; allowNegative?: boolean } = {}
+  ): Promise<InventoryItem> {
     if (!deltaQuantity) {
       throw new Error('Stock delta must be non-zero');
     }
@@ -432,7 +447,8 @@ export const inventoryItemService = {
 
     const current = items[index];
     const newStock = Number((current.currentStock + deltaQuantity).toFixed(4));
-    if (newStock < 0) {
+    const allowNegative = Boolean(options.allowNegative);
+    if (!allowNegative && newStock < 0) {
       throw new Error('Resulting stock cannot be negative');
     }
 
@@ -456,7 +472,7 @@ export const inventoryItemService = {
           throw new Error('Godown is required to adjust stock when multiple godowns are tracked');
         }
         const singleQuantity = Number((updatedGodownStocks[0].quantity + deltaQuantity).toFixed(4));
-        if (singleQuantity < 0) {
+        if (!allowNegative && singleQuantity < 0) {
           throw new Error('Resulting godown quantity cannot be negative');
         }
         updatedGodownStocks[0] = { ...updatedGodownStocks[0], quantity: singleQuantity };
@@ -464,7 +480,7 @@ export const inventoryItemService = {
         const targetIndex = updatedGodownStocks.findIndex((entry) => entry.godownId === godownId);
         if (targetIndex >= 0) {
           const updatedQuantity = Number((updatedGodownStocks[targetIndex].quantity + deltaQuantity).toFixed(4));
-          if (updatedQuantity < 0) {
+          if (!allowNegative && updatedQuantity < 0) {
             throw new Error('Resulting godown quantity cannot be negative');
           }
           if (updatedQuantity === 0) {
@@ -473,7 +489,7 @@ export const inventoryItemService = {
             updatedGodownStocks[targetIndex] = { godownId, quantity: updatedQuantity };
           }
         } else {
-          if (deltaQuantity < 0) {
+          if (deltaQuantity < 0 && !allowNegative) {
             throw new Error('Cannot reduce stock for a godown with no existing quantity');
           }
           updatedGodownStocks.push({ godownId, quantity: Number(deltaQuantity.toFixed(4)) });
@@ -505,5 +521,29 @@ export const inventoryItemService = {
 
   async clearAll() {
     await writeList(STORAGE_KEY, []);
+  },
+
+  async backfillMissingGodownSplits(itemId?: string): Promise<number> {
+    const activeGodowns = (await godownService.list({ includeInactive: false })).filter((g) => g.isActive !== false);
+    const preferred = activeGodowns.find((g) => g.isDefault) ?? activeGodowns[0];
+    if (!preferred) return 0;
+
+    const items = await readList<InventoryItem>(STORAGE_KEY);
+    let updated = 0;
+    const next = items.map((item) => {
+      if (itemId && item.id !== itemId) return item;
+      const hasSplits = Array.isArray(item.godownStocks) && item.godownStocks.length > 0;
+      if (hasSplits) return item;
+      updated += 1;
+      return {
+        ...item,
+        godownStocks: [{ godownId: preferred.id, quantity: Number((item.currentStock || 0).toFixed(4)) }],
+        updatedAt: nowIso(),
+      };
+    });
+    if (updated > 0) {
+      await writeList(STORAGE_KEY, next);
+    }
+    return updated;
   },
 };

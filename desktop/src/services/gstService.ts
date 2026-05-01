@@ -1,12 +1,18 @@
 import api from './api';
+import { voucherService } from './vouchers/voucherService';
+import { ledgerAccountService } from './masters/ledgerAccountService';
+import { inventoryItemService } from './masters/inventoryItemService';
 
 const isOfflineRuntime = () => {
   try {
+    const ua = String((navigator as any)?.userAgent || '').toLowerCase();
+    if (ua.includes('electron')) return true;
+    if ((window as any)?.process?.type === 'renderer') return true;
     if ((window as any).__TAURI__ != null) return true;
     if ((window as any).__TAURI_INTERNALS__ != null) return true;
     if ((window as any).__TAURI_IPC__ != null) return true;
     if ((window as any).__TAURI_METADATA__ != null) return true;
-    if ((navigator as any)?.userAgent && String((navigator as any).userAgent).toLowerCase().includes('tauri')) return true;
+    if (ua.includes('tauri')) return true;
     if (window.location.hostname === 'tauri.localhost') return true;
     const p = window.location.protocol;
     return p === 'tauri:' || p === 'file:';
@@ -104,6 +110,30 @@ export interface HSNSummaryResponse {
     sgst: number;
     totalTax: number;
   }>;
+  b2bHsnSummary?: Array<{
+    hsnCode: string;
+    description: string;
+    quantity: number;
+    uqc: string;
+    rate: number;
+    taxableValue: number;
+    igst: number;
+    cgst: number;
+    sgst: number;
+    totalTax: number;
+  }>;
+  b2cHsnSummary?: Array<{
+    hsnCode: string;
+    description: string;
+    quantity: number;
+    uqc: string;
+    rate: number;
+    taxableValue: number;
+    igst: number;
+    cgst: number;
+    sgst: number;
+    totalTax: number;
+  }>;
 }
 
 type StoredInvoice = {
@@ -121,14 +151,208 @@ type StoredInvoice = {
   }>;
 };
 
+type StoredPurchaseInvoice = {
+  invoiceNumber?: string;
+  date?: string;
+  supplyType?: 'INTRA' | 'INTER';
+  supplier?: { name?: string; gstin?: string };
+  items?: Array<{
+    hsn?: string;
+    qty?: number;
+    rate?: number;
+    gstRate?: number;
+    taxableAmount?: number;
+    gstAmount?: number;
+  }>;
+};
+
 const INVOICE_STORAGE_KEY = 'pve_invoicepro_invoices';
 
-const loadInvoices = (): StoredInvoice[] => {
+const loadLegacyInvoices = (): StoredInvoice[] => {
   try {
     const raw = localStorage.getItem(INVOICE_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as StoredInvoice[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+const loadInvoices = async (): Promise<StoredInvoice[]> => {
+  try {
+    const vouchers = await voucherService.list();
+    const sales = vouchers.filter((v) => v.type === 'SALES' && v.status === 'ACTIVE');
+    if (!sales.length) return loadLegacyInvoices();
+
+    const customerLedgerIds = Array.from(
+      new Set(
+        sales
+          .map((v) => v.lines.find((ln) => Number(ln.debit || 0) > 0)?.ledgerId)
+          .filter((x): x is string => Boolean(x))
+      )
+    );
+    const itemIds = Array.from(
+      new Set(
+        sales
+          .flatMap((v) => v.lines)
+          .map((ln) => ln.itemId)
+          .filter((x): x is string => Boolean(x))
+      )
+    );
+
+    const [ledgerPairs, itemPairs] = await Promise.all([
+      Promise.all(customerLedgerIds.map(async (id) => [id, await ledgerAccountService.getById(id)] as const)),
+      Promise.all(itemIds.map(async (id) => [id, await inventoryItemService.getById(id)] as const)),
+    ]);
+    const ledgerMap = new Map(ledgerPairs);
+    const itemMap = new Map(itemPairs);
+    const gstLedgerIds = new Set(['led-cgst-output', 'led-sgst-output', 'led-igst-output']);
+
+    return sales.map((voucher) => {
+      const customerLine = voucher.lines.find((ln) => Number(ln.debit || 0) > 0);
+      const customer = customerLine ? ledgerMap.get(customerLine.ledgerId) : null;
+      const itemLines = voucher.lines.filter((ln) => Boolean(ln.itemId) && Number(ln.credit || 0) > 0);
+      const taxableTotal = itemLines.reduce((sum, ln) => sum + Number(ln.credit || 0), 0);
+      const taxTotal = voucher.lines.reduce((sum, ln) => {
+        const explicit = Number((ln.cgstAmount || 0) + (ln.sgstAmount || 0) + (ln.igstAmount || 0));
+        if (explicit > 0) return sum + explicit;
+        if (ln.taxType || gstLedgerIds.has(String(ln.ledgerId || ''))) return sum + Number(ln.credit || 0);
+        return sum;
+      }, 0);
+      const igstTotal = voucher.lines.reduce(
+        (sum, ln) =>
+          sum +
+          (Number(ln.igstAmount || 0) +
+            (String(ln.ledgerId || '') === 'led-igst-output' ? Number(ln.credit || 0) : 0)),
+        0
+      );
+      const cgstTotal = voucher.lines.reduce(
+        (sum, ln) =>
+          sum +
+          (Number(ln.cgstAmount || 0) +
+            (String(ln.ledgerId || '') === 'led-cgst-output' ? Number(ln.credit || 0) : 0)),
+        0
+      );
+      const sgstTotal = voucher.lines.reduce(
+        (sum, ln) =>
+          sum +
+          (Number(ln.sgstAmount || 0) +
+            (String(ln.ledgerId || '') === 'led-sgst-output' ? Number(ln.credit || 0) : 0)),
+        0
+      );
+      const supplyType: 'INTRA' | 'INTER' = igstTotal > 0 ? 'INTER' : 'INTRA';
+
+      const items = itemLines.map((ln) => {
+        const taxable = Number(ln.credit || 0);
+        const share = taxableTotal > 0 ? taxable / taxableTotal : 0;
+        const allocatedTax = Number((taxTotal * share).toFixed(2));
+        const item = ln.itemId ? itemMap.get(ln.itemId) : null;
+        const qty = Number(ln.quantity || 0);
+        const rate = qty > 0 ? Number((taxable / qty).toFixed(2)) : taxable;
+        return {
+          hsn: String(item?.hsnCode || '').trim(),
+          qty,
+          rate,
+          gstRate: Number(item?.gstRate || 0),
+          taxableAmount: taxable,
+          gstAmount: allocatedTax,
+        };
+      });
+
+      return {
+        invoiceNumber: voucher.number,
+        date: voucher.date,
+        supplyType,
+        billTo: {
+          name: String(customer?.name || ''),
+          gstin: String(customer?.gstDetails?.gstin || ''),
+        },
+        items,
+      } as StoredInvoice;
+    });
+  } catch {
+    return loadLegacyInvoices();
+  }
+};
+
+const loadPurchaseInvoices = async (): Promise<StoredPurchaseInvoice[]> => {
+  try {
+    const vouchers = await voucherService.list();
+    const purchases = vouchers.filter((v) => v.type === 'PURCHASE' && v.status === 'ACTIVE');
+    if (!purchases.length) return [];
+
+    const supplierLedgerIds = Array.from(
+      new Set(
+        purchases
+          .map((v) => v.lines.find((ln) => Number(ln.credit || 0) > 0)?.ledgerId)
+          .filter((x): x is string => Boolean(x))
+      )
+    );
+    const itemIds = Array.from(
+      new Set(
+        purchases
+          .flatMap((v) => v.lines)
+          .map((ln) => ln.itemId)
+          .filter((x): x is string => Boolean(x))
+      )
+    );
+
+    const [ledgerPairs, itemPairs] = await Promise.all([
+      Promise.all(supplierLedgerIds.map(async (id) => [id, await ledgerAccountService.getById(id)] as const)),
+      Promise.all(itemIds.map(async (id) => [id, await inventoryItemService.getById(id)] as const)),
+    ]);
+    const ledgerMap = new Map(ledgerPairs);
+    const itemMap = new Map(itemPairs);
+    const gstLedgerIds = new Set(['led-cgst-input', 'led-sgst-input', 'led-igst-input']);
+
+    return purchases.map((voucher) => {
+      const supplierLine = voucher.lines.find((ln) => Number(ln.credit || 0) > 0);
+      const supplier = supplierLine ? ledgerMap.get(supplierLine.ledgerId) : null;
+      const itemLines = voucher.lines.filter((ln) => Boolean(ln.itemId) && Number(ln.debit || 0) > 0);
+      const taxableTotal = itemLines.reduce((sum, ln) => sum + Number(ln.debit || 0), 0);
+      const taxTotal = voucher.lines.reduce((sum, ln) => {
+        const explicit = Number((ln.cgstAmount || 0) + (ln.sgstAmount || 0) + (ln.igstAmount || 0));
+        if (explicit > 0) return sum + explicit;
+        if (ln.taxType || gstLedgerIds.has(String(ln.ledgerId || ''))) return sum + Number(ln.debit || 0);
+        return sum;
+      }, 0);
+      const igstTotal = voucher.lines.reduce(
+        (sum, ln) =>
+          sum +
+          (Number(ln.igstAmount || 0) + (String(ln.ledgerId || '') === 'led-igst-input' ? Number(ln.debit || 0) : 0)),
+        0
+      );
+      const supplyType: 'INTRA' | 'INTER' = igstTotal > 0 ? 'INTER' : 'INTRA';
+
+      const items = itemLines.map((ln) => {
+        const taxable = Number(ln.debit || 0);
+        const share = taxableTotal > 0 ? taxable / taxableTotal : 0;
+        const allocatedTax = Number((taxTotal * share).toFixed(2));
+        const item = ln.itemId ? itemMap.get(ln.itemId) : null;
+        const qty = Number(ln.quantity || 0);
+        const rate = qty > 0 ? Number((taxable / qty).toFixed(2)) : taxable;
+        return {
+          hsn: String(item?.hsnCode || '').trim(),
+          qty,
+          rate,
+          gstRate: Number(item?.gstRate || 0),
+          taxableAmount: taxable,
+          gstAmount: allocatedTax,
+        };
+      });
+
+      return {
+        invoiceNumber: voucher.number,
+        date: voucher.date,
+        supplyType,
+        supplier: {
+          name: String(supplier?.name || ''),
+          gstin: String(supplier?.gstDetails?.gstin || ''),
+        },
+        items,
+      } as StoredPurchaseInvoice;
+    });
   } catch {
     return [];
   }
@@ -200,10 +424,21 @@ const makeHsnSummary = (invoices: StoredInvoice[]) => {
   }));
 };
 
+const makeHsnSummaryFromPurchase = (invoices: StoredPurchaseInvoice[]) =>
+  makeHsnSummary(
+    invoices.map((inv) => ({
+      invoiceNumber: inv.invoiceNumber,
+      date: inv.date,
+      supplyType: inv.supplyType,
+      billTo: { name: inv.supplier?.name, gstin: inv.supplier?.gstin },
+      items: inv.items,
+    }))
+  );
+
 export const gstService = {
   async getGSTR1(month: number, year: number): Promise<GSTR1Response> {
     if (isOfflineRuntime()) {
-      const invoices = loadInvoices().filter((i) => {
+      const invoices = (await loadInvoices()).filter((i) => {
         const d = i.date ? new Date(i.date) : null;
         return d != null && d.getFullYear() === year && d.getMonth() + 1 === month;
       });
@@ -262,17 +497,64 @@ export const gstService = {
 
   async getGSTR2(month: number, year: number): Promise<GSTR2Response> {
     if (isOfflineRuntime()) {
+      const purchases = (await loadPurchaseInvoices()).filter((i) => {
+        const d = i.date ? new Date(i.date) : null;
+        return d != null && d.getFullYear() === year && d.getMonth() + 1 === month;
+      });
+
+      const b2b = purchases
+        .filter((inv) => String(inv.supplier?.gstin ?? '').trim())
+        .map((inv) => {
+          const agg = sumTaxes({
+            invoiceNumber: inv.invoiceNumber,
+            date: inv.date,
+            supplyType: inv.supplyType,
+            billTo: { name: inv.supplier?.name, gstin: inv.supplier?.gstin },
+            items: inv.items,
+          });
+          return {
+            supplierGSTIN: String(inv.supplier?.gstin || ''),
+            supplierName: String(inv.supplier?.name || ''),
+            invoiceNumber: String(inv.invoiceNumber || ''),
+            invoiceDate: String(inv.date || ''),
+            taxableValue: agg.taxable,
+            igst: agg.igst,
+            cgst: agg.cgst,
+            sgst: agg.sgst,
+            totalTax: agg.tax,
+          };
+        });
+
+      const summary = purchases.reduce(
+        (acc, inv) => {
+          const agg = sumTaxes({
+            invoiceNumber: inv.invoiceNumber,
+            date: inv.date,
+            supplyType: inv.supplyType,
+            billTo: { name: inv.supplier?.name, gstin: inv.supplier?.gstin },
+            items: inv.items,
+          });
+          acc.totalTaxableValue += agg.taxable;
+          acc.totalIGST += agg.igst;
+          acc.totalCGST += agg.cgst;
+          acc.totalSGST += agg.sgst;
+          acc.totalITC += agg.tax;
+          return acc;
+        },
+        { totalTaxableValue: 0, totalITC: 0, totalIGST: 0, totalCGST: 0, totalSGST: 0 }
+      );
+
       return {
         period: { month, year },
-        b2b: [],
-        hsnSummary: [],
+        b2b,
+        hsnSummary: makeHsnSummaryFromPurchase(purchases),
         summary: {
-          totalInvoices: 0,
-          totalTaxableValue: 0,
-          totalITC: 0,
-          totalIGST: 0,
-          totalCGST: 0,
-          totalSGST: 0,
+          totalInvoices: purchases.length,
+          totalTaxableValue: summary.totalTaxableValue,
+          totalITC: summary.totalITC,
+          totalIGST: summary.totalIGST,
+          totalCGST: summary.totalCGST,
+          totalSGST: summary.totalSGST,
         },
       };
     }
@@ -284,7 +566,7 @@ export const gstService = {
 
   async getGSTR3B(month: number, year: number): Promise<GSTR3BResponse> {
     if (isOfflineRuntime()) {
-      const invoices = loadInvoices().filter((i) => {
+      const invoices = (await loadInvoices()).filter((i) => {
         const d = i.date ? new Date(i.date) : null;
         return d != null && d.getFullYear() === year && d.getMonth() + 1 === month;
       });
@@ -337,17 +619,58 @@ export const gstService = {
 
   async getGSTR9(year: number): Promise<GSTR9Response> {
     if (isOfflineRuntime()) {
-      return {
-        year,
-        monthlyData: [],
-        annualSummary: {
-          totalSales: 0,
-          totalPurchases: 0,
-          totalSalesTax: 0,
-          totalPurchaseTax: 0,
-          netTaxPayable: 0,
+      const [salesAll, purchaseAll] = await Promise.all([loadInvoices(), loadPurchaseInvoices()]);
+      const monthlyData = Array.from({ length: 12 }, (_, idx) => {
+        const month = ((idx + 3) % 12) + 1; // Apr..Mar
+        const calendarYear = month >= 4 ? year - 1 : year;
+        const sales = salesAll.filter((i) => {
+          const d = i.date ? new Date(i.date) : null;
+          return d && d.getFullYear() === calendarYear && d.getMonth() + 1 === month;
+        });
+        const purchases = purchaseAll.filter((i) => {
+          const d = i.date ? new Date(i.date) : null;
+          return d && d.getFullYear() === calendarYear && d.getMonth() + 1 === month;
+        });
+        const salesAgg = sales.reduce(
+          (acc, inv) => {
+            const s = sumTaxes(inv);
+            acc.count += 1;
+            acc.total += s.taxable;
+            acc.tax += s.tax;
+            return acc;
+          },
+          { count: 0, total: 0, tax: 0 }
+        );
+        const purchaseAgg = purchases.reduce(
+          (acc, inv) => {
+            const s = sumTaxes({
+              invoiceNumber: inv.invoiceNumber,
+              date: inv.date,
+              supplyType: inv.supplyType,
+              billTo: { name: inv.supplier?.name, gstin: inv.supplier?.gstin },
+              items: inv.items,
+            });
+            acc.count += 1;
+            acc.total += s.taxable;
+            acc.tax += s.tax;
+            return acc;
+          },
+          { count: 0, total: 0, tax: 0 }
+        );
+        return { month, sales: salesAgg, purchases: purchaseAgg };
+      });
+      const annualSummary = monthlyData.reduce(
+        (acc, m) => {
+          acc.totalSales += m.sales.total;
+          acc.totalPurchases += m.purchases.total;
+          acc.totalSalesTax += m.sales.tax;
+          acc.totalPurchaseTax += m.purchases.tax;
+          return acc;
         },
-      };
+        { totalSales: 0, totalPurchases: 0, totalSalesTax: 0, totalPurchaseTax: 0, netTaxPayable: 0 }
+      );
+      annualSummary.netTaxPayable = Number((annualSummary.totalSalesTax - annualSummary.totalPurchaseTax).toFixed(2));
+      return { year, monthlyData, annualSummary };
     }
     const response = await api.get<GSTR9Response>('/gst/gstr9', {
       params: { year },
@@ -383,17 +706,21 @@ export const gstService = {
     if (isOfflineRuntime()) {
       const from = fromDate ? new Date(fromDate) : null;
       const to = toDate ? new Date(toDate) : null;
-      const invoices = loadInvoices().filter((i) => {
+      const invoices = (await loadInvoices()).filter((i) => {
         const d = i.date ? new Date(i.date) : null;
         if (!d) return false;
         if (from && d < from) return false;
         if (to && d > to) return false;
         return true;
       });
+      const b2bInvoices = invoices.filter((inv) => String(inv.billTo?.gstin ?? '').trim());
+      const b2cInvoices = invoices.filter((inv) => !String(inv.billTo?.gstin ?? '').trim());
       return {
         fromDate: fromDate ?? '',
         toDate: toDate ?? '',
         hsnSummary: makeHsnSummary(invoices),
+        b2bHsnSummary: makeHsnSummary(b2bInvoices),
+        b2cHsnSummary: makeHsnSummary(b2cInvoices),
       };
     }
     const response = await api.get<HSNSummaryResponse>('/gst/hsn-summary', {

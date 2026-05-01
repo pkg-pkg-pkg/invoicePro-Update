@@ -49,6 +49,12 @@ api.interceptors.response.use(
     if ((error as any)?.code === 'ERR_OFFLINE') {
       return Promise.reject(error);
     }
+    const requestUrl = String(error.config?.url ?? '');
+    const isFeedbackRequest = requestUrl.includes('/feedback/send');
+    if (isFeedbackRequest) {
+      // Feedback should gracefully fallback to local outbox without forcing logout.
+      return Promise.reject(error);
+    }
     if (error.response?.status === 401) {
       // Unauthorized - clear token and redirect to login
       localStorage.removeItem('token');

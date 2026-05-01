@@ -155,7 +155,7 @@ const GodownForm = () => {
                 {isEditMode ? 'Update stock location details' : 'Create a stock location to track inventory by godown'}
               </Typography>
             </Box>
-            <Stack direction="row" spacing={1}>
+            <Stack direction={{ xs: 'column-reverse', sm: 'row' }} spacing={1} flexWrap="wrap" justifyContent="flex-end" sx={{ width: { xs: '100%', sm: 'auto' } }}>
               <Button type="submit" variant="contained" disabled={saving || !canManage}>
                 {saving ? <CircularProgress size={18} color="inherit" /> : isEditMode ? 'Save Changes' : 'Create'}
               </Button>

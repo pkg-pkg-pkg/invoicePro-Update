@@ -43,6 +43,7 @@ import InventoryItemList from "./pages/Masters/InventoryItems/InventoryItemList"
 import InventoryItemForm from "./pages/Masters/InventoryItems/InventoryItemForm";
 import GodownList from "./pages/Masters/Godowns/GodownList";
 import ImportFromErp from "./pages/ImportFromErp";
+import ApprovalPendingPage from "./pages/Approvals/ApprovalPendingPage";
 import GodownForm from "./pages/Masters/Godowns/GodownForm";
 import BankLedgerList from "./pages/Masters/LedgerAccounts/BankLedgerList";
 import SalesVoucherList from "./pages/Vouchers/Sales/SalesVoucherList";
@@ -70,6 +71,20 @@ import { networkService } from "./services/networkService";
 import { detectDeviceChange, forceLogoutDueToDeviceChange, subscribeToLicenseDeactivation } from "./services/deviceChangeDetector";
 import { validateLicenseAndDevice } from "./services/loginService";
 import { syncHostMultiUserLanFromCloud } from "./services/hostLicenseSyncService";
+
+const isBusinessProfileSavedLocally = () => {
+  try {
+    const setupCompleted = localStorage.getItem('setupCompleted') === 'true';
+    const raw = localStorage.getItem('company-info');
+    const parsed = raw ? JSON.parse(raw) : {};
+    const businessName = String(parsed?.businessName || parsed?.name || localStorage.getItem('companyName') || '').trim();
+    const address = String(parsed?.address || localStorage.getItem('companyAddress') || '').trim();
+    const phone = String(parsed?.phone || localStorage.getItem('companyPhone') || '').trim();
+    return setupCompleted || Boolean(businessName && address && phone);
+  } catch {
+    return localStorage.getItem('setupCompleted') === 'true';
+  }
+};
 
 function App() {
   console.log("📱 App (AuthContext version) rendering...");
@@ -101,7 +116,8 @@ function App() {
   const [licenseCheckDone, setLicenseCheckDone] = useState(false);
   const [licenseValid, setLicenseValid] = useState(false);
   const [licenseCheckReason, setLicenseCheckReason] = useState<string>('');
-  const profileCompleted = Boolean((user as any)?.completedBusinessProfile);
+  const [profileCompletedLocal, setProfileCompletedLocal] = useState<boolean>(isBusinessProfileSavedLocally());
+  const profileCompleted = Boolean((user as any)?.completedBusinessProfile || profileCompletedLocal);
   const [hostCheck, setHostCheck] = useState<{ checking: boolean; ok: boolean; serverUrl?: string; error?: string }>({
     checking: false,
     ok: true,
@@ -113,8 +129,20 @@ function App() {
       setLicenseCheckDone(false);
       setLicenseValid(false);
       setLicenseCheckReason('');
+      setProfileCompletedLocal(isBusinessProfileSavedLocally());
     }
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    const syncProfileFlag = () => setProfileCompletedLocal(isBusinessProfileSavedLocally());
+    syncProfileFlag();
+    window.addEventListener('companyProfileUpdated', syncProfileFlag as EventListener);
+    window.addEventListener('storage', syncProfileFlag as EventListener);
+    return () => {
+      window.removeEventListener('companyProfileUpdated', syncProfileFlag as EventListener);
+      window.removeEventListener('storage', syncProfileFlag as EventListener);
+    };
+  }, []);
 
   const isTauriRuntime = () => {
     try {
@@ -269,7 +297,7 @@ function App() {
           console.warn('🚨 Device change detected:', result.reason);
           await forceLogoutDueToDeviceChange(result.reason || 'Device hardware or installation changed');
           logout();
-          window.location.href = '/login';
+          window.location.hash = '#/login';
         } else {
           setDeviceCheckDone(true);
         }
@@ -651,6 +679,10 @@ function App() {
                     <Route path="invoices" element={<Navigate to="/vouchers/sales" replace />} />
                     <Route path="vouchers" element={<VouchersHub />} />
                     <Route path="vouchers/money" element={<MoneyVouchersHub />} />
+                    <Route path="vouchers/payment" element={<Navigate to="/vouchers/payment-vouchers" replace />} />
+                    <Route path="vouchers/payment/new" element={<Navigate to="/vouchers/payment-vouchers/new" replace />} />
+                    <Route path="vouchers/receipt" element={<Navigate to="/vouchers/receipt-vouchers" replace />} />
+                    <Route path="vouchers/receipt/new" element={<Navigate to="/vouchers/receipt-vouchers/new" replace />} />
                     <Route path="purchase-invoices" element={<PurchaseInvoices />} />
                     <Route path="debit-notes" element={<DebitNotes />} />
                     <Route path="/payments/*" element={<Payments />} />
@@ -752,6 +784,14 @@ function App() {
                     />
                     <Route path="import/erp" element={<ImportFromErp />} />
                     <Route
+                      path="approvals/pending"
+                      element={
+                        <RequirePermission permission="manage-users">
+                          <ApprovalPendingPage />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
                       path="vouchers/sales"
                       element={
                         <RequirePermission permission="create-vouchers">
@@ -761,6 +801,14 @@ function App() {
                     />
                     <Route
                       path="vouchers/sales/new"
+                      element={
+                        <RequirePermission permission="create-vouchers">
+                          <SalesVoucherForm />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="vouchers/sales/:id/edit"
                       element={
                         <RequirePermission permission="create-vouchers">
                           <SalesVoucherForm />
@@ -792,6 +840,14 @@ function App() {
                       }
                     />
                     <Route
+                      path="vouchers/purchase/:id/edit"
+                      element={
+                        <RequirePermission permission="create-vouchers">
+                          <PurchaseVoucherForm />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
                       path="vouchers/purchase-return"
                       element={
                         <RequirePermission permission="view-vouchers">
@@ -816,11 +872,23 @@ function App() {
                       }
                     />
                     <Route
-                      path="vouchers/payment-vouchers/new"
+                      path="vouchers/money/new"
                       element={
                         <RequirePermission permission="create-vouchers">
                           <Suspense fallback={<div style={{ padding: 24 }}>Loading...</div>}>
-                            <PaymentVoucherPage includeExpenseLedgersInParticulars initialType="PAYMENT" />
+                            <PaymentVoucherPage includeExpenseLedgersInParticulars fullScreenMode />
+                          </Suspense>
+                        </RequirePermission>
+                      }
+                    />
+                    <Route path="vouchers/payment-vouchers/new" element={<Navigate to="/vouchers/money/new?type=PAYMENT" replace />} />
+                    <Route path="vouchers/receipt-vouchers/new" element={<Navigate to="/vouchers/money/new?type=RECEIPT" replace />} />
+                    <Route
+                      path="vouchers/payment-vouchers/:id/edit"
+                      element={
+                        <RequirePermission permission="create-vouchers">
+                          <Suspense fallback={<div style={{ padding: 24 }}>Loading...</div>}>
+                            <PaymentVoucherPage includeExpenseLedgersInParticulars initialType="PAYMENT" forceModernView />
                           </Suspense>
                         </RequirePermission>
                       }
@@ -834,11 +902,11 @@ function App() {
                       }
                     />
                     <Route
-                      path="vouchers/receipt-vouchers/new"
+                      path="vouchers/receipt-vouchers/:id/edit"
                       element={
                         <RequirePermission permission="create-vouchers">
                           <Suspense fallback={<div style={{ padding: 24 }}>Loading...</div>}>
-                            <PaymentVoucherPage includeExpenseLedgersInParticulars initialType="RECEIPT" />
+                            <PaymentVoucherPage includeExpenseLedgersInParticulars initialType="RECEIPT" forceModernView />
                           </Suspense>
                         </RequirePermission>
                       }

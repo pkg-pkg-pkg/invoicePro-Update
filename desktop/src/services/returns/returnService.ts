@@ -3,7 +3,9 @@
  * Handles fetching original invoice/voucher data for returns
  */
 
-import { Voucher, VoucherLine } from '../vouchers/voucherService';
+import { voucherService, Voucher, VoucherLine } from '../vouchers/voucherService';
+import { ledgerAccountService } from '../masters/ledgerAccountService';
+import { inventoryItemService } from '../masters/inventoryItemService';
 import { VoucherTotals } from '../../types/VoucherTotals';
 
 export interface OriginalInvoiceData {
@@ -35,9 +37,11 @@ export interface InvoiceItem {
  * Fetch original invoice data by invoice number
  */
 export async function fetchOriginalInvoice(invoiceNumber: string): Promise<OriginalInvoiceData | null> {
+  const normalizedInvoiceNumber = String(invoiceNumber || '').trim().toLowerCase();
+  if (!normalizedInvoiceNumber) return null;
   try {
     // Try to fetch from backend API first
-    const response = await fetch(`/api/invoices/number/${invoiceNumber}`);
+    const response = await fetch(`/api/invoices/number/${encodeURIComponent(invoiceNumber)}`);
     if (response.ok) {
       const invoice = await response.json();
       return transformInvoiceToReturnFormat(invoice);
@@ -48,10 +52,12 @@ export async function fetchOriginalInvoice(invoiceNumber: string): Promise<Origi
 
   // Fallback to local storage
   try {
-    const vouchers = JSON.parse(localStorage.getItem('pve_vouchers') || '[]');
-    const voucher = vouchers.find((v: Voucher) => 
-      v.number === invoiceNumber && 
-      ['SALES', 'PURCHASE'].includes(v.type)
+    const vouchers = await voucherService.list();
+    const voucher = vouchers.find(
+      (v: Voucher) =>
+        ['SALES', 'PURCHASE'].includes(v.type) &&
+        String(v.number || '').trim().toLowerCase() === normalizedInvoiceNumber &&
+        v.status === 'ACTIVE'
     );
 
     if (voucher) {
@@ -97,17 +103,27 @@ function transformInvoiceToReturnFormat(invoice: any): OriginalInvoiceData {
 /**
  * Transform voucher data to return format
  */
-function transformVoucherToReturnFormat(voucher: Voucher): OriginalInvoiceData {
+async function transformVoucherToReturnFormat(voucher: Voucher): Promise<OriginalInvoiceData> {
+  const [ledgers, itemsMaster] = await Promise.all([
+    ledgerAccountService.list(),
+    inventoryItemService.list(),
+  ]);
+  const ledgerNameById = new Map(ledgers.map((l) => [String(l.id), String(l.name || l.id)]));
+  const itemNameById = new Map(itemsMaster.map((i) => [String(i.id), String(i.name || i.id)]));
+
   // Extract item information from voucher lines
   const items: InvoiceItem[] = voucher.lines
-    .filter(line => line.itemId && line.quantity && line.debit === 0) // Sales/Purchase lines
+    .filter(line => line.itemId && Number(line.quantity || 0) > 0) // Item lines
     .map(line => ({
       id: line.itemId || '',
       productId: line.itemId || '',
-      productName: `Item ${line.itemId}`,
+      productName: itemNameById.get(String(line.itemId || '')) || `Item ${line.itemId}`,
       quantity: line.quantity || 0,
-      rate: line.credit ? (line.credit / (line.quantity || 1)) : 0,
-      amount: line.credit || 0,
+      rate:
+        voucher.type === 'SALES'
+          ? (line.credit ? (line.credit / (line.quantity || 1)) : 0)
+          : (line.debit ? (line.debit / (line.quantity || 1)) : 0),
+      amount: voucher.type === 'SALES' ? Number(line.credit || 0) : Number(line.debit || 0),
       taxRate: 0, // Would need to be calculated or stored separately
       godownId: line.godownId,
       returnedQuantity: 0,
@@ -125,7 +141,7 @@ function transformVoucherToReturnFormat(voucher: Voucher): OriginalInvoiceData {
     type: voucher.type as 'SALES' | 'PURCHASE',
     number: voucher.number,
     date: voucher.date,
-    partyName: `Party ${partyLine?.ledgerId || 'Unknown'}`,
+    partyName: partyLine?.ledgerId ? ledgerNameById.get(String(partyLine.ledgerId)) || `Party ${partyLine.ledgerId}` : 'Unknown',
     partyLedgerId: partyLine?.ledgerId || '',
     totalAmount: voucher.lines.reduce((sum, line) => sum + (line.debit || 0) + (line.credit || 0), 0) / 2,
     items,

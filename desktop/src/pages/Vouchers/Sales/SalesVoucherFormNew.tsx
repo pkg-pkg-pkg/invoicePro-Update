@@ -106,12 +106,12 @@ const SalesVoucherFormNew = () => {
       .list({ includeInactive: false })
       .then((list) => {
         const active = list.filter((godown) => godown.isActive !== false);
-        const preferred = active.find((godown) => godown.isDefault) ?? active[0] ?? null;
+        const preferred = active.length === 1 ? active[0] : null;
         setGodowns(active);
         setFormState((prev) => {
-          if (!preferred) return prev;
-          if (prev.defaultGodownId === preferred.id) return prev;
-          return { ...prev, defaultGodownId: preferred.id };
+          const nextDefaultGodownId = preferred?.id ?? '';
+          if (prev.defaultGodownId === nextDefaultGodownId) return prev;
+          return { ...prev, defaultGodownId: nextDefaultGodownId };
         });
         setLines((prev) =>
           prev.map((line) => {

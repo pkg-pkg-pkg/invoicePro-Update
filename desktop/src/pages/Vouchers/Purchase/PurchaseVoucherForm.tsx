@@ -1,13 +1,38 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Box, Button, Card, CardContent, Grid, IconButton, MenuItem, Select, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography, Checkbox, FormControlLabel } from '@mui/material';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Checkbox,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControlLabel,
+  Grid,
+  IconButton,
+  MenuItem,
+  Select,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+} from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import dayjs from 'dayjs';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
 import { inventoryItemService } from '../../../services/masters/inventoryItemService';
 import { godownService } from '../../../services/masters/godownService';
 import { partyService } from '../../../services/masters/partyService';
+import { ledgerAccountService } from '../../../services/masters/ledgerAccountService';
 import { voucherService } from '../../../services/vouchers/voucherService';
 import { InventoryItem, Godown } from '../../../types/masters';
 import { Party } from '../../../types/party';
@@ -48,8 +73,10 @@ const computeLineTax = (line: ItemLineState) => {
 
 const PurchaseVoucherForm = () => {
   const navigate = useNavigate();
+  const { id: editVoucherId } = useParams<{ id?: string }>();
   const { can } = usePermission();
   const canCreate = can('create-vouchers');
+  const isEditMode = Boolean(editVoucherId);
 
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [godowns, setGodowns] = useState<Godown[]>([]);
@@ -60,9 +87,12 @@ const PurchaseVoucherForm = () => {
   const [showQuickCreatePurchase, setShowQuickCreatePurchase] = useState(false);
   const [showQuickCreateItem, setShowQuickCreateItem] = useState(false);
   const [pendingScannedBarcode, setPendingScannedBarcode] = useState('');
+  const [supplierConfirmOpen, setSupplierConfirmOpen] = useState(false);
+  const [pendingSupplierDetails, setPendingSupplierDetails] = useState<Partial<Party> | null>(null);
   const [companyState, setCompanyState] = useState<string>('');
   const [supplierState, setSupplierState] = useState<string>('');
   const [enableRoundOff, setEnableRoundOff] = useState(true);
+  const lineItemsSectionRef = useRef<HTMLDivElement | null>(null);
 
   const createLine = (godownId: string): ItemLineState => ({
     lineId: generateId('p-line'),
@@ -74,6 +104,7 @@ const PurchaseVoucherForm = () => {
   });
 
   const [lines, setLines] = useState<ItemLineState[]>([createLine('')]);
+  const editLoadedRef = useRef<string | null>(null);
 
   const [formState, setFormState] = useState({
     date: dayjs().format('YYYY-MM-DD'),
@@ -81,12 +112,19 @@ const PurchaseVoucherForm = () => {
     partyId: '',
     supplierName: '', // Keep for backward compatibility
     supplierGstin: '',
+    supplierInvoiceNumber: '',
+    supplierInvoiceDate: '',
     defaultGodownId: '',
     narration: '',
     purchaseLedgerId: '',
     termsAndConditions: '',
     notes: '',
   });
+
+  const parseNarrationToken = useCallback((narration: string, key: string): string => {
+    const token = narration.match(new RegExp(`${key}\\[([^\\]]+)\\]`));
+    return String(token?.[1] || '').trim();
+  }, []);
 
   useEffect(() => {
     // Load company state from localStorage
@@ -124,12 +162,14 @@ const PurchaseVoucherForm = () => {
       .list({ includeInactive: false })
       .then((list) => {
         const active = list.filter((godown) => godown.isActive !== false);
-        const preferred = active.find((godown) => godown.isDefault) ?? active[0] ?? null;
+        // If multiple godowns exist, force user selection line-wise.
+        // Auto-select only when exactly one godown is available.
+        const preferred = active.length === 1 ? active[0] : null;
         setGodowns(active);
         setFormState((prev) => {
-          if (!preferred) return prev;
-          if (prev.defaultGodownId === preferred.id) return prev;
-          return { ...prev, defaultGodownId: preferred.id };
+          const nextDefaultGodownId = preferred?.id ?? '';
+          if (prev.defaultGodownId === nextDefaultGodownId) return prev;
+          return { ...prev, defaultGodownId: nextDefaultGodownId };
         });
         setLines((prev) =>
           prev.map((line) => {
@@ -150,6 +190,91 @@ const PurchaseVoucherForm = () => {
     );
   }, [formState.defaultGodownId]);
 
+  useEffect(() => {
+    if (!editVoucherId) return;
+    if (editLoadedRef.current === editVoucherId) return;
+    if (!parties.length || !inventoryItems.length) return;
+    let mounted = true;
+    const loadForEdit = async () => {
+      try {
+        const voucher = await voucherService.getById(editVoucherId);
+        if (!mounted) return;
+        if (!voucher || voucher.type !== 'PURCHASE') {
+          setError('Purchase voucher not found for edit.');
+          return;
+        }
+        const supplierLine = voucher.lines.find((line) => (line.credit ?? 0) > 0);
+        const supplierLedger = String(supplierLine?.ledgerId || '');
+        let linkedParty = parties.find((p) => p.ledgerId === supplierLedger) || null;
+        if (!linkedParty && supplierLedger) {
+          const ledger = await ledgerAccountService.getById(supplierLedger);
+          if (ledger) {
+            const tempParty: Party = {
+              id: `temp-${ledger.id}`,
+              name: ledger.name || 'Supplier',
+              type: 'SUPPLIER' as any,
+              ledgerId: ledger.id,
+              gstin: ledger.gstDetails?.gstin || '',
+              mobile: ledger.contactDetails?.phone || '',
+              email: ledger.contactDetails?.email || '',
+              address: ledger.contactDetails?.address || '',
+              city: '',
+              state: '',
+              pincode: '',
+              isActive: true,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            } as any;
+            linkedParty = tempParty;
+            setParties((prev) => {
+              if (prev.some((p) => p.id === tempParty.id)) return prev;
+              return [...prev, tempParty];
+            });
+          }
+        }
+        const itemLines = voucher.lines.filter((line) => line.itemId && Number(line.quantity || 0) > 0);
+        const mappedLines =
+          itemLines.length > 0
+            ? itemLines.map((line) => {
+                const qty = Number(line.quantity || 0);
+                const amount = Number(line.debit || line.credit || 0);
+                const rate = qty > 0 ? Number((amount / qty).toFixed(2)) : 0;
+                const inv = inventoryItems.find((it) => it.id === String(line.itemId));
+                return {
+                  lineId: generateId('p-line'),
+                  itemId: String(line.itemId || ''),
+                  quantity: String(qty || ''),
+                  rate: String(rate || ''),
+                  gstPercent: String(Number(inv?.gstRate ?? 0)),
+                  godownId: String(line.godownId || formState.defaultGodownId || ''),
+                } as ItemLineState;
+              })
+            : [createLine(formState.defaultGodownId)];
+        setLines(mappedLines);
+        const rawNarration = String(voucher.narration || '');
+        setFormState((prev) => ({
+          ...prev,
+          date: dayjs(voucher.date).format('YYYY-MM-DD'),
+          number: voucher.number,
+          narration: rawNarration.replace(/SUPPINV\[[^\]]*\]/g, '').replace(/SUPPDATE\[[^\]]*\]/g, '').trim(),
+          supplierInvoiceNumber: parseNarrationToken(rawNarration, 'SUPPINV'),
+          supplierInvoiceDate: parseNarrationToken(rawNarration, 'SUPPDATE'),
+          partyId: linkedParty?.id || prev.partyId,
+          supplierName: linkedParty?.name || prev.supplierName,
+          supplierGstin: linkedParty?.gstin || prev.supplierGstin,
+        }));
+        editLoadedRef.current = editVoucherId;
+      } catch (e) {
+        if (!mounted) return;
+        setError((e as Error).message || 'Failed to load voucher for edit.');
+      }
+    };
+    void loadForEdit();
+    return () => {
+      mounted = false;
+    };
+  }, [editVoucherId, parties, inventoryItems, formState.defaultGodownId, parseNarrationToken]);
+
   const itemMap = useMemo(() => {
     const map = new Map<string, InventoryItem>();
     inventoryItems.forEach((item) => map.set(item.id, item));
@@ -158,6 +283,10 @@ const PurchaseVoucherForm = () => {
 
   const supplierLedgerId = useMemo(
     () => parties.find((p) => p.id === formState.partyId)?.ledgerId ?? '',
+    [parties, formState.partyId]
+  );
+  const selectedSupplierAddress = useMemo(
+    () => String(parties.find((p) => p.id === formState.partyId)?.address || '').trim(),
     [parties, formState.partyId]
   );
 
@@ -348,6 +477,7 @@ const PurchaseVoucherForm = () => {
     formState.date &&
     formState.number &&
     formState.partyId.trim().length > 0 &&
+    (isEditMode || selectedSupplierAddress.length > 0) &&
     lines.some(isLineDataValid) &&
     !saving;
 
@@ -463,14 +593,51 @@ const PurchaseVoucherForm = () => {
     const supplierLedgerId = selectedParty.ledgerId;
     
     const { cgstInputLedgerId, sgstInputLedgerId, igstInputLedgerId } = await autoLedgerService.ensureGSTInputLedgers();
+    const purchaseLedger = await ledgerAccountService.getById(purchaseLedgerId);
+    const resolvedPurchaseLedger =
+      !purchaseLedger || purchaseLedger.isActive === false
+        ? (await autoLedgerService.ensureCore()).purchaseLedgerId
+        : purchaseLedgerId;
+    const cgstInputLedger = await ledgerAccountService.getById(cgstInputLedgerId);
+    const resolvedCgstInputLedger =
+      !cgstInputLedger || cgstInputLedger.isActive === false
+        ? (await autoLedgerService.ensureGSTInputLedgers()).cgstInputLedgerId
+        : cgstInputLedgerId;
+    const sgstInputLedger = await ledgerAccountService.getById(sgstInputLedgerId);
+    const resolvedSgstInputLedger =
+      !sgstInputLedger || sgstInputLedger.isActive === false
+        ? (await autoLedgerService.ensureGSTInputLedgers()).sgstInputLedgerId
+        : sgstInputLedgerId;
+    const igstInputLedger = await ledgerAccountService.getById(igstInputLedgerId);
+    const resolvedIgstInputLedger =
+      !igstInputLedger || igstInputLedger.isActive === false
+        ? (await autoLedgerService.ensureGSTInputLedgers()).igstInputLedgerId
+        : igstInputLedgerId;
     
     const voucherLines: any[] = [];
+    const validItemLines = lines
+      .filter((line) => line.itemId && Number(line.quantity) > 0)
+      .map((line) => ({
+        itemId: String(line.itemId),
+        quantity: Number(line.quantity),
+        amount: computeLineAmount(line),
+        godownId: line.godownId || '',
+      }))
+      .filter((line) => line.amount > 0);
+    if (!validItemLines.length) {
+      throw new Error('Please add at least one valid inventory item with quantity.');
+    }
     
-    // 1. Debit Purchase
-    voucherLines.push({
-      ledgerId: purchaseLedgerId,
-      debit: totals.subtotal,
-      credit: 0,
+    // 1. Debit Purchase per item (preserves stock impact metadata)
+    validItemLines.forEach((line) => {
+      voucherLines.push({
+        ledgerId: resolvedPurchaseLedger,
+        debit: line.amount,
+        credit: 0,
+        itemId: line.itemId,
+        quantity: line.quantity,
+        godownId: line.godownId,
+      });
     });
     
     // 2. Debit GST Input (bifurcated)
@@ -478,7 +645,7 @@ const PurchaseVoucherForm = () => {
       if (totals.gstDecision.isLocalTransaction) {
         if (totals.taxBifurcated.cgst > 0) {
           voucherLines.push({
-            ledgerId: cgstInputLedgerId,
+            ledgerId: resolvedCgstInputLedger,
             debit: totals.taxBifurcated.cgst,
             credit: 0,
             taxType: 'CGST_SGST',
@@ -486,7 +653,7 @@ const PurchaseVoucherForm = () => {
         }
         if (totals.taxBifurcated.sgst > 0) {
           voucherLines.push({
-            ledgerId: sgstInputLedgerId,
+            ledgerId: resolvedSgstInputLedger,
             debit: totals.taxBifurcated.sgst,
             credit: 0,
             taxType: 'CGST_SGST',
@@ -495,7 +662,7 @@ const PurchaseVoucherForm = () => {
       } else {
         if (totals.taxBifurcated.igst > 0) {
           voucherLines.push({
-            ledgerId: igstInputLedgerId,
+            ledgerId: resolvedIgstInputLedger,
             debit: totals.taxBifurcated.igst,
             credit: 0,
             taxType: 'IGST',
@@ -528,11 +695,32 @@ const PurchaseVoucherForm = () => {
       credit: totals.grandTotal,
     });
     
-    return voucherLines;
+    // Normalize precision and reconcile tiny rounding drift so posting engine never fails on strict equality.
+    const normalizedLines = voucherLines.map((line) => ({
+      ...line,
+      debit: Number(Number(line.debit || 0).toFixed(2)),
+      credit: Number(Number(line.credit || 0).toFixed(2)),
+    }));
+    const totalDebit = Number(normalizedLines.reduce((sum, line) => sum + Number(line.debit || 0), 0).toFixed(2));
+    const totalCredit = Number(normalizedLines.reduce((sum, line) => sum + Number(line.credit || 0), 0).toFixed(2));
+    const drift = Number((totalDebit - totalCredit).toFixed(2));
+    if (drift !== 0) {
+      const roundOffLedgerId = await autoLedgerService.ensureRoundOffLedger();
+      if (drift > 0) {
+        normalizedLines.push({ ledgerId: roundOffLedgerId, debit: 0, credit: drift });
+      } else {
+        normalizedLines.push({ ledgerId: roundOffLedgerId, debit: Math.abs(drift), credit: 0 });
+      }
+    }
+    return normalizedLines;
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!isEditMode && !selectedSupplierAddress) {
+      setError('Supplier address is required.');
+      return;
+    }
     if (!canSubmit) {
       setError('Please complete all required fields before saving.');
       return;
@@ -541,13 +729,28 @@ const PurchaseVoucherForm = () => {
       setSaving(true);
       setError(null);
       const voucherLines = await buildVoucherLines();
-      await voucherService.create({
-        type: 'PURCHASE',
-        date: new Date(formState.date).toISOString(),
-        number: formState.number,
-        narration: formState.narration,
-        lines: voucherLines,
-      });
+      const extraTokens = [
+        formState.supplierInvoiceNumber ? `SUPPINV[${String(formState.supplierInvoiceNumber).trim()}]` : '',
+        formState.supplierInvoiceDate ? `SUPPDATE[${String(formState.supplierInvoiceDate).trim()}]` : '',
+      ].filter(Boolean);
+      const narrationWithSupplierInvoice = `${String(formState.narration || '').trim()} ${extraTokens.join(' ')}`.trim();
+      if (isEditMode && editVoucherId) {
+        await voucherService.update(editVoucherId, {
+          type: 'PURCHASE',
+          date: new Date(formState.date).toISOString(),
+          number: formState.number,
+          narration: narrationWithSupplierInvoice,
+          lines: voucherLines,
+        });
+      } else {
+        await voucherService.create({
+          type: 'PURCHASE',
+          date: new Date(formState.date).toISOString(),
+          number: formState.number,
+          narration: narrationWithSupplierInvoice,
+          lines: voucherLines,
+        });
+      }
       const supplierLedgerId = parties.find((p) => p.id === formState.partyId)?.ledgerId ?? '';
       if (supplierLedgerId) {
         for (const line of lines) {
@@ -559,16 +762,89 @@ const PurchaseVoucherForm = () => {
       }
       navigate('/vouchers/purchase');
     } catch (err) {
-      setError((err as Error).message ?? 'Failed to create voucher');
+      setError((err as Error).message ?? (isEditMode ? 'Failed to update voucher' : 'Failed to create voucher'));
     } finally {
       setSaving(false);
     }
   };
 
+  const applyConfirmedSupplier = useCallback(async () => {
+    const selected = pendingSupplierDetails;
+    if (!selected?.id) {
+      setSupplierConfirmOpen(false);
+      setPendingSupplierDetails(null);
+      return;
+    }
+    if (!String(selected.address || '').trim()) {
+      return;
+    }
+    if (selected.id) {
+      try {
+        const updated = await partyService.update(String(selected.id), {
+          name: String(selected.name || ''),
+          mobile: String(selected.mobile || ''),
+          gstin: String(selected.gstin || ''),
+          address: String(selected.address || ''),
+          state: String(selected.state || ''),
+          pincode: String(selected.pincode || ''),
+          email: String(selected.email || ''),
+          city: String(selected.city || ''),
+        } as any);
+        setParties((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      } catch (e) {
+        setError((e as Error).message || 'Failed to save supplier details.');
+        return;
+      }
+    }
+    setFormState((prev) => ({
+      ...prev,
+      partyId: String(selected.id),
+      supplierName: String(selected.name || ''),
+      supplierGstin: String(selected.gstin || ''),
+    }));
+    setParties((prev) =>
+      prev.map((p) =>
+        p.id === String(selected.id)
+          ? {
+              ...p,
+              name: String(selected.name || p.name || ''),
+              gstin: String(selected.gstin || p.gstin || ''),
+              mobile: String(selected.mobile || p.mobile || ''),
+              city: String(selected.city || p.city || ''),
+              state: String(selected.state || p.state || ''),
+              pincode: String(selected.pincode || p.pincode || ''),
+              address: String(selected.address || p.address || ''),
+            }
+          : p
+      )
+    );
+    if (selected.gstin && selected.gstin.length >= 2) {
+      setSupplierState(selected.gstin.substring(0, 2));
+    } else if (selected.state) {
+      setSupplierState(selected.state);
+    } else {
+      setSupplierState('');
+    }
+    setSupplierConfirmOpen(false);
+    setPendingSupplierDetails(null);
+    window.setTimeout(() => {
+      const target = lineItemsSectionRef.current;
+      const scroller = target?.closest('[data-erp-dense]') as HTMLElement | null;
+      if (target && scroller) {
+        const targetRect = target.getBoundingClientRect();
+        const scrollerRect = scroller.getBoundingClientRect();
+        const top = scroller.scrollTop + (targetRect.top - scrollerRect.top) - 8;
+        scroller.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+      } else {
+        target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 0);
+  }, [pendingSupplierDetails]);
+
   return (
     <Card component="form" onSubmit={handleSubmit}>
-      <CardContent>
-        <Stack spacing={3}>
+      <CardContent sx={{ py: 1.25, px: 1.5, '&:last-child': { pb: 1.25 } }}>
+        <Stack spacing={1.5}>
           <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} alignItems={{ xs: 'flex-start', md: 'center' }}>
             <Box>
               <Typography variant="h5" fontWeight={600}>
@@ -578,7 +854,7 @@ const PurchaseVoucherForm = () => {
                 Record purchases with automatic GST bifurcation ({totals.gstDecision.isLocalTransaction ? 'CGST + SGST' : 'IGST'}).
               </Typography>
             </Box>
-            <Stack direction="row" spacing={1}>
+            <Stack direction={{ xs: 'column-reverse', sm: 'row' }} spacing={1} flexWrap="wrap" justifyContent="flex-end" sx={{ width: { xs: '100%', sm: 'auto' } }}>
               <Button type="submit" variant="contained" disabled={!canSubmit}>
                 {saving ? 'Saving...' : 'Save Voucher'}
               </Button>
@@ -591,7 +867,7 @@ const PurchaseVoucherForm = () => {
             </Alert>
           )}
 
-          <Grid container spacing={2}>
+          <Grid container spacing={1.25}>
                     <Grid item xs={12} md={2}>
                       <TextField
                         label="Voucher Date"
@@ -610,6 +886,24 @@ const PurchaseVoucherForm = () => {
                         fullWidth
                       />
                     </Grid>
+                    <Grid item xs={12} md={2}>
+                      <TextField
+                        label="Supplier Invoice No."
+                        value={formState.supplierInvoiceNumber}
+                        onChange={(e) => setFormState((prev) => ({ ...prev, supplierInvoiceNumber: e.target.value }))}
+                        fullWidth
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={2}>
+                      <TextField
+                        label="Supplier Invoice Date"
+                        type="date"
+                        value={formState.supplierInvoiceDate}
+                        onChange={(e) => setFormState((prev) => ({ ...prev, supplierInvoiceDate: e.target.value }))}
+                        fullWidth
+                        InputLabelProps={{ shrink: true }}
+                      />
+                    </Grid>
                     <Grid item xs={12} md={3}>
                       <Stack direction="row" spacing={1}>
                         <TextField
@@ -618,25 +912,17 @@ const PurchaseVoucherForm = () => {
                           value={formState.partyId}
                           onChange={(e) => {
                             const selectedParty = parties.find(p => p.id === e.target.value);
-                            setFormState((prev) => ({
-                              ...prev,
-                              partyId: e.target.value,
-                              supplierName: selectedParty?.name || '',
-                              supplierGstin: selectedParty?.gstin || '',
-                            }));
                             if (selectedParty) {
-                              // Resolve supplier state: GSTIN first, then state field, else empty
-                              if (selectedParty.gstin && selectedParty.gstin.length >= 2) {
-                                // Extract state code from GSTIN (first 2 digits)
-                                const stateCode = selectedParty.gstin.substring(0, 2);
-                                setSupplierState(stateCode);
-                              } else if (selectedParty.state) {
-                                // Fall back to state field (could be name or code, will be normalized)
-                                setSupplierState(selectedParty.state);
-                              } else {
-                                // No state info available
-                                setSupplierState('');
-                              }
+                              setPendingSupplierDetails(selectedParty);
+                              window.setTimeout(() => setSupplierConfirmOpen(true), 80);
+                            } else {
+                              setFormState((prev) => ({
+                                ...prev,
+                                partyId: '',
+                                supplierName: '',
+                                supplierGstin: '',
+                              }));
+                              setSupplierState('');
                             }
                           }}
                           fullWidth
@@ -716,9 +1002,14 @@ const PurchaseVoucherForm = () => {
                 </Grid>
               </>
             )}
+            <Grid item xs={12}>
+              <Typography variant="subtitle2" fontWeight={700} color="primary.main">
+                Total Voucher Value: ₹ {totals.grandTotal.toFixed(2)}
+              </Typography>
+            </Grid>
           </Grid>
 
-          <Stack spacing={2}>
+          <Stack spacing={2} ref={lineItemsSectionRef}>
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Typography variant="subtitle1" fontWeight={600}>
                 Inventory Items
@@ -981,6 +1272,132 @@ const PurchaseVoucherForm = () => {
           }}
           onSaved={handleInventoryMasterSaved}
         />
+
+        <Dialog
+          open={supplierConfirmOpen}
+          onClose={() => {
+            setSupplierConfirmOpen(false);
+            setPendingSupplierDetails(null);
+          }}
+          maxWidth="sm"
+          fullWidth
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              setSupplierConfirmOpen(false);
+              setPendingSupplierDetails(null);
+              return;
+            }
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+              e.preventDefault();
+              applyConfirmedSupplier();
+            }
+          }}
+        >
+          <DialogTitle sx={{ pb: 1 }}>Confirm Supplier Details</DialogTitle>
+          <DialogContent sx={{ pt: '8px !important' }}>
+            <Stack spacing={1.25}>
+              <Typography variant="body2" color="text.secondary">
+                Supplier details verify karo. Accept karte hi purchase entry continue hogi.
+              </Typography>
+              <TextField
+                label="Supplier Name"
+                size="small"
+                value={pendingSupplierDetails?.name || ''}
+                onChange={(e) =>
+                  setPendingSupplierDetails((prev) => ({ ...(prev || {}), name: e.target.value }))
+                }
+                fullWidth
+              />
+              <TextField
+                label="Address"
+                size="small"
+                value={pendingSupplierDetails?.address || ''}
+                onChange={(e) =>
+                  setPendingSupplierDetails((prev) => ({ ...(prev || {}), address: e.target.value }))
+                }
+                required
+                error={!String(pendingSupplierDetails?.address || '').trim()}
+                helperText={!String(pendingSupplierDetails?.address || '').trim() ? 'Address is mandatory' : ''}
+                fullWidth
+              />
+              <Grid container spacing={1}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="GSTIN"
+                    size="small"
+                    value={pendingSupplierDetails?.gstin || ''}
+                    onChange={(e) =>
+                      setPendingSupplierDetails((prev) => ({ ...(prev || {}), gstin: e.target.value }))
+                    }
+                    fullWidth
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Phone"
+                    size="small"
+                    value={pendingSupplierDetails?.mobile || ''}
+                    onChange={(e) =>
+                      setPendingSupplierDetails((prev) => ({ ...(prev || {}), mobile: e.target.value }))
+                    }
+                    fullWidth
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    label="City"
+                    size="small"
+                    value={pendingSupplierDetails?.city || ''}
+                    onChange={(e) =>
+                      setPendingSupplierDetails((prev) => ({ ...(prev || {}), city: e.target.value }))
+                    }
+                    fullWidth
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    label="State"
+                    size="small"
+                    value={pendingSupplierDetails?.state || ''}
+                    onChange={(e) =>
+                      setPendingSupplierDetails((prev) => ({ ...(prev || {}), state: e.target.value }))
+                    }
+                    fullWidth
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    label="Pincode"
+                    size="small"
+                    value={pendingSupplierDetails?.pincode || ''}
+                    onChange={(e) =>
+                      setPendingSupplierDetails((prev) => ({ ...(prev || {}), pincode: e.target.value }))
+                    }
+                    fullWidth
+                  />
+                </Grid>
+              </Grid>
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button
+              onClick={() => {
+                setSupplierConfirmOpen(false);
+                setPendingSupplierDetails(null);
+              }}
+            >
+              Cancel (Esc)
+            </Button>
+            <Button
+              variant="contained"
+              onClick={applyConfirmedSupplier}
+              disabled={!String(pendingSupplierDetails?.address || '').trim()}
+            >
+              Accept & Continue (Ctrl+A)
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Stack>
     </CardContent>
   </Card>

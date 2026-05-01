@@ -34,6 +34,7 @@ const FEEDBACK_CATEGORIES = [
 
 const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose }) => {
   const [category, setCategory] = useState('bug');
+  const [channel, setChannel] = useState<'in-app' | 'email' | 'whatsapp'>('in-app');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -60,6 +61,7 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose }) => {
         category,
         subject,
         message,
+        channel,
       });
       setSuccessMessage(res?.message || 'Thank you! Your feedback has been sent successfully.');
       setSuccess(true);
@@ -67,6 +69,7 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose }) => {
         setSubject('');
         setMessage('');
         setCategory('bug');
+        setChannel('in-app');
         setSuccess(false);
         setSuccessMessage('');
         onClose();
@@ -83,6 +86,7 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose }) => {
       setSubject('');
       setMessage('');
       setCategory('bug');
+      setChannel('in-app');
       setError('');
       setSuccess(false);
       setSuccessMessage('');
@@ -97,7 +101,7 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose }) => {
           Send Feedback to Developer
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          Help us improve the software - pve.2020@hotmail.com
+          Help us improve the software - feedback is sent from inside app.
         </Typography>
       </DialogTitle>
 
@@ -127,6 +131,20 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose }) => {
             </Select>
           </FormControl>
 
+          <FormControl fullWidth>
+            <InputLabel>Send Via</InputLabel>
+            <Select
+              value={channel}
+              onChange={(e) => setChannel(e.target.value as 'in-app' | 'email' | 'whatsapp')}
+              label="Send Via"
+              disabled={loading}
+            >
+              <MenuItem value="in-app">In-App (Recommended)</MenuItem>
+              <MenuItem value="email">Email Channel</MenuItem>
+              <MenuItem value="whatsapp">WhatsApp Channel</MenuItem>
+            </Select>
+          </FormControl>
+
           <TextField
             label="Subject"
             placeholder="Brief title of your feedback"
@@ -151,7 +169,7 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose }) => {
           />
 
           <Typography variant="caption" color="text.secondary">
-            💡 Tip: Include screenshots or detailed steps to reproduce for bug reports
+            💡 Tip: Include screenshots or detailed steps to reproduce for bug reports. No external mail app required.
           </Typography>
         </Box>
       </DialogContent>

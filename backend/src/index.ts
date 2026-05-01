@@ -25,6 +25,7 @@ import syncRoutes from './routes/sync';
 import gstRoutes from './routes/gst';
 import settingsRoutes from './routes/settings.routes';
 import mobileRoutes from './routes/mobile';
+import feedbackRoutes from './routes/feedback';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler';
@@ -62,6 +63,7 @@ app.use('/api/reports', authenticate, reportRoutes);
 app.use('/api/dashboard', authenticate, dashboardRoutes);
 app.use('/api/sync', authenticate, syncRoutes);
 app.use('/api/gst', authenticate, gstRoutes);
+app.use('/api/feedback', feedbackRoutes);
 app.use('/api', settingsRoutes);
 
 // Error handler

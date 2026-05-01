@@ -1,10 +1,36 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Box, Button, Card, CardContent, Checkbox, FormControlLabel, Grid, IconButton, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography, Paper, Chip, Divider } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Checkbox,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControlLabel,
+  Grid,
+  IconButton,
+  MenuItem,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+  Paper,
+  Chip,
+  Divider,
+} from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DeleteIcon from '@mui/icons-material/Delete';
 import dayjs from 'dayjs';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
 import { ledgerAccountService } from '../../../services/masters/ledgerAccountService';
 import { partyService } from '../../../services/masters/partyService';
@@ -25,12 +51,16 @@ import { decideGSTType } from '../../../services/vouchers/gstDecisionEngine';
 import { bifurcateTax } from '../../../services/vouchers/gstBifurcationEngine';
 import { buildSalesVoucherLinesWithGST } from '../../../services/vouchers/salesVoucherGSTBuilder';
 import { getAppSettings } from '../../../services/appSettingsService';
+import { autoLedgerService } from '../../../services/masters/autoLedgerService';
 import QuickCreateLedgerDialog from '../../../components/QuickCreateLedgerDialog';
 import PartyMasterDialog from '../../../components/PartyMasterDialog';
 import InventoryItemMasterDialog from '../../../components/InventoryItemMasterDialog';
 import { TallyListPickerModal } from './components/TallyListPickerModal';
 import { rateMemory } from '../../../services/reports/rateMemory';
 import { getNormalizedCompanyProfile } from '../../../utils/companyProfile';
+import schemeService, { Scheme } from '../../../services/schemeService';
+import { calculateFinalQuantity, getBestScheme } from '../../../services/schemeResolutionEngine';
+import { buildInvoiceHTML, downloadPDF, printInvoice, PrintFormat } from '../../../services/printService';
 
 interface ItemLineState {
   lineId: string;
@@ -40,6 +70,9 @@ interface ItemLineState {
   rateInclusive: string;
   taxRate: string;
   godownId: string;
+  appliedSchemeId?: string;
+  appliedSchemeLabel?: string;
+  freeQuantity?: number;
 }
 
 const SCREEN_ID = 'sales-voucher-form';
@@ -50,6 +83,30 @@ const toNumber = (value: string | number | undefined, precision = 2) => {
   const parsed = Number(value ?? 0);
   if (!Number.isFinite(parsed)) return 0;
   return Number(parsed.toFixed(precision));
+};
+
+const amountToWordsINR = (amount: number): string => {
+  const n = Math.round(Number(amount || 0));
+  if (n <= 0) return 'Zero Rupees Only';
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const twoDigits = (x: number) => (x < 20 ? ones[x] : `${tens[Math.floor(x / 10)]}${x % 10 ? ` ${ones[x % 10]}` : ''}`.trim());
+  const threeDigits = (x: number) => {
+    const h = Math.floor(x / 100);
+    const r = x % 100;
+    return `${h ? `${ones[h]} Hundred${r ? ' ' : ''}` : ''}${r ? twoDigits(r) : ''}`.trim();
+  };
+  const crore = Math.floor(n / 10000000);
+  const lakh = Math.floor((n % 10000000) / 100000);
+  const thousand = Math.floor((n % 100000) / 1000);
+  const rest = n % 1000;
+  const chunks = [
+    crore ? `${threeDigits(crore)} Crore` : '',
+    lakh ? `${threeDigits(lakh)} Lakh` : '',
+    thousand ? `${threeDigits(thousand)} Thousand` : '',
+    rest ? threeDigits(rest) : '',
+  ].filter(Boolean);
+  return `${chunks.join(' ')} Rupees Only`;
 };
 
 const computeLineAmount = (line: ItemLineState) => {
@@ -69,8 +126,10 @@ const isLineDataValid = (line: ItemLineState) =>
 
 const SalesVoucherForm = () => {
   const navigate = useNavigate();
+  const { id: editVoucherId } = useParams<{ id?: string }>();
   const { can } = usePermission();
   const canCreate = can('create-vouchers');
+  const isEditMode = Boolean(editVoucherId);
 
   const [ledgerAccounts, setLedgerAccounts] = useState<LedgerAccount[]>([]);
   const [parties, setParties] = useState<Party[]>([]);
@@ -87,6 +146,7 @@ const SalesVoucherForm = () => {
   });
 
   const [lines, setLines] = useState<ItemLineState[]>([createLine('')]);
+  const editLoadedRef = useRef<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationIssues, setValidationIssues] = useState<string[]>([]);
@@ -102,9 +162,23 @@ const SalesVoucherForm = () => {
   const [pendingScannedBarcode, setPendingScannedBarcode] = useState('');
   const [partyPickerOpen, setPartyPickerOpen] = useState(false);
   const [itemPickerLineId, setItemPickerLineId] = useState<string | null>(null);
+  const [itemPickerInitialQuery, setItemPickerInitialQuery] = useState('');
+  const [customerConfirmOpen, setCustomerConfirmOpen] = useState(false);
+  const [pendingCustomerDetails, setPendingCustomerDetails] = useState<(Partial<PartyInfo> & { partyId?: string }) | null>(null);
+  const [activeSalesSchemes, setActiveSalesSchemes] = useState<Scheme[]>([]);
+  const authContext = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem('gst_billing_auth') || '{}');
+    } catch {
+      return {};
+    }
+  }, []);
+  const companyId = authContext?.user?.companyId || authContext?.company?.id || '';
 
   const linesRef = useRef(lines);
   const itemPickerLineIdRef = useRef(itemPickerLineId);
+  const suppressNextItemFocusOpenRef = useRef(false);
+  const lineItemsSectionRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     linesRef.current = lines;
   }, [lines]);
@@ -146,6 +220,8 @@ const SalesVoucherForm = () => {
   const [formState, setFormState] = useState({
     date: dayjs().format('YYYY-MM-DD'),
     number: '', // Will be generated in useEffect
+    dueDate: '',
+    paymentTerms: '',
     customerLedgerId: '',
     salesLedgerId: '',
     gstLedgerId: '',
@@ -157,6 +233,22 @@ const SalesVoucherForm = () => {
     discountAmount: '0',
     freightAmount: '0',
   });
+
+  const parsePaymentTermDays = useCallback((value: string): number | null => {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const match = raw.match(/\d+/);
+    if (!match) return null;
+    const days = Number(match[0]);
+    if (!Number.isFinite(days) || days < 0) return null;
+    return Math.floor(days);
+  }, []);
+
+  const toDueDateByDays = useCallback((invoiceDate: string, days: number): string => {
+    const base = dayjs(invoiceDate);
+    if (!base.isValid()) return '';
+    return base.add(days, 'day').format('YYYY-MM-DD');
+  }, []);
 
   const [partyDraft, setPartyDraft] = useState<{ billing: PartyInfo; shipping: PartyInfo }>({
     billing: {} as PartyInfo,
@@ -179,6 +271,106 @@ const SalesVoucherForm = () => {
       number: `${prefix}${String(startNum).padStart(3, '0')}${suffix}`
     }));
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadSchemes = async () => {
+      if (!companyId) return;
+      try {
+        const schemes = await schemeService.getSchemes(companyId);
+        if (!mounted) return;
+        const salesSchemes = schemes.filter((s) => s.appliesTo === 'SALES' || s.appliesTo === 'BOTH');
+        setActiveSalesSchemes(salesSchemes);
+      } catch {
+        if (!mounted) return;
+        setActiveSalesSchemes([]);
+      }
+    };
+    loadSchemes();
+    return () => {
+      mounted = false;
+    };
+  }, [companyId]);
+
+  useEffect(() => {
+    if (activeSalesSchemes.length === 0) {
+      setLines((prev) => {
+        let changed = false;
+        const cleared = prev.map((line) => {
+          if (!line.appliedSchemeId && !line.appliedSchemeLabel && !line.freeQuantity) {
+            return line;
+          }
+          changed = true;
+          return {
+            ...line,
+            appliedSchemeId: undefined,
+            appliedSchemeLabel: undefined,
+            freeQuantity: 0,
+          };
+        });
+        return changed ? cleared : prev;
+      });
+      return;
+    }
+    const txnDate = formState.date ? new Date(formState.date) : new Date();
+    setLines((prev) => {
+      let changed = false;
+      const next = prev.map((line) => {
+        const qty = toNumber(line.quantity, 4);
+        if (!line.itemId || qty <= 0) {
+          if (!line.appliedSchemeId && !line.appliedSchemeLabel && !line.freeQuantity) {
+            return line;
+          }
+          changed = true;
+          return {
+            ...line,
+            appliedSchemeId: undefined,
+            appliedSchemeLabel: undefined,
+            freeQuantity: 0,
+          };
+        }
+        const best = getBestScheme(line.itemId, qty, 'SALES', activeSalesSchemes, txnDate);
+        if (!best) {
+          if (!line.appliedSchemeId && !line.appliedSchemeLabel && !line.freeQuantity) {
+            return line;
+          }
+          changed = true;
+          return {
+            ...line,
+            appliedSchemeId: undefined,
+            appliedSchemeLabel: undefined,
+            freeQuantity: 0,
+          };
+        }
+        const qtyImpact = calculateFinalQuantity(best.scheme, qty);
+        const freeQty = qtyImpact.freeQuantity || best.benefit.freeQuantity || 0;
+        const label = best.benefit.description || best.scheme.name;
+        if (
+          line.appliedSchemeId === best.scheme.id &&
+          line.appliedSchemeLabel === label &&
+          (line.freeQuantity || 0) === freeQty
+        ) {
+          return line;
+        }
+        changed = true;
+        return {
+          ...line,
+          appliedSchemeId: best.scheme.id,
+          appliedSchemeLabel: label,
+          freeQuantity: freeQty,
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, [activeSalesSchemes, formState.date, lines]);
+
+  useEffect(() => {
+    const days = parsePaymentTermDays(formState.paymentTerms);
+    if (days === null || !formState.date) return;
+    const nextDueDate = toDueDateByDays(formState.date, days);
+    if (!nextDueDate || nextDueDate === formState.dueDate) return;
+    setFormState((prev) => ({ ...prev, dueDate: nextDueDate }));
+  }, [formState.date, formState.paymentTerms, formState.dueDate, parsePaymentTermDays, toDueDateByDays]);
 
   useEffect(() => {
     // Load company state from localStorage
@@ -206,12 +398,14 @@ const SalesVoucherForm = () => {
       .list({ includeInactive: false })
       .then((list) => {
         const active = list.filter((godown) => godown.isActive !== false);
-        const preferred = active.find((godown) => godown.isDefault) ?? active[0] ?? null;
+        // If multiple godowns exist, force user selection line-wise.
+        // Auto-select only when exactly one godown is available.
+        const preferred = active.length === 1 ? active[0] : null;
         setGodowns(active);
         setFormState((prev) => {
-          if (!preferred) return prev;
-          if (prev.defaultGodownId === preferred.id) return prev;
-          return { ...prev, defaultGodownId: preferred.id };
+          const nextDefaultGodownId = preferred?.id ?? '';
+          if (prev.defaultGodownId === nextDefaultGodownId) return prev;
+          return { ...prev, defaultGodownId: nextDefaultGodownId };
         });
         setLines((prev) =>
           prev.map((line) => {
@@ -227,11 +421,147 @@ const SalesVoucherForm = () => {
   }, []);
 
   useEffect(() => {
+    let mounted = true;
+    const ensureDefaultLedgers = async () => {
+      try {
+        const core = await autoLedgerService.ensureCore();
+        if (!mounted) return;
+        setFormState((prev) => ({
+          ...prev,
+          salesLedgerId: prev.salesLedgerId || core.salesLedgerId,
+          gstLedgerId: prev.gstLedgerId || core.gstLedgerId,
+        }));
+        const refreshed = await ledgerAccountService.list({ includeInactive: false });
+        if (!mounted) return;
+        setLedgerAccounts(refreshed);
+      } catch (e) {
+        console.warn('Failed to auto-bind default ledgers for Sales Voucher', e);
+      }
+    };
+    void ensureDefaultLedgers();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!formState.defaultGodownId) return;
     setLines((prev) =>
       prev.map((line) => (line.godownId ? line : { ...line, godownId: formState.defaultGodownId }))
     );
   }, [formState.defaultGodownId]);
+
+  useEffect(() => {
+    if (!editVoucherId) return;
+    if (editLoadedRef.current === editVoucherId) return;
+    if (!parties.length || !inventoryItems.length) return;
+    let mounted = true;
+    const loadForEdit = async () => {
+      try {
+        const voucher = await voucherService.getById(editVoucherId);
+        if (!mounted) return;
+        if (!voucher || voucher.type !== 'SALES') {
+          setError('Sales voucher not found for edit.');
+          return;
+        }
+        const customerLine = voucher.lines.find((line) => (line.debit ?? 0) > 0);
+        const customerLedgerId = String(customerLine?.ledgerId || '');
+        const linkedParty = parties.find((p) => p.ledgerId === customerLedgerId) || null;
+        const linkedLedger = ledgerAccounts.find((acct) => acct.id === customerLedgerId) || null;
+        const itemLines = voucher.lines.filter((line) => line.itemId && Number(line.quantity || 0) > 0);
+        const mappedLines =
+          itemLines.length > 0
+            ? itemLines.map((line) => {
+                const qty = Number(line.quantity || 0);
+                const amount = Number(line.credit || line.debit || 0);
+                const rateExclusive = qty > 0 ? Number((amount / qty).toFixed(2)) : 0;
+                const inv = inventoryItems.find((it) => it.id === String(line.itemId));
+                const gst = Number(inv?.gstRate ?? 0);
+                return {
+                  lineId: generateId('s-line'),
+                  itemId: String(line.itemId || ''),
+                  quantity: String(qty || ''),
+                  rateExclusive: String(rateExclusive || ''),
+                  rateInclusive: String(rateExclusive || ''),
+                  taxRate: String(gst || 0),
+                  godownId: String(line.godownId || formState.defaultGodownId || ''),
+                  appliedSchemeId: undefined,
+                  appliedSchemeLabel: undefined,
+                  freeQuantity: 0,
+                } as ItemLineState;
+              })
+            : [createLine(formState.defaultGodownId)];
+        setLines(mappedLines);
+        setFormState((prev) => ({
+          ...prev,
+          date: dayjs(voucher.date).format('YYYY-MM-DD'),
+          number: voucher.number,
+          narration: String(voucher.narration || ''),
+          customerLedgerId,
+        }));
+        if (linkedParty) {
+          const resolvedLinkedLedgerId = String(linkedParty.ledgerId || customerLedgerId || '');
+          setPartyDraft({
+            billing: {
+              ledgerId: resolvedLinkedLedgerId,
+              name: linkedParty.name || '',
+              gstin: linkedParty.gstin || '',
+              address: linkedParty.address || '',
+              phone: linkedParty.mobile || '',
+              email: linkedParty.email || '',
+              city: linkedParty.city || '',
+              state: linkedParty.state || '',
+              pin: linkedParty.pincode || '',
+            },
+            shipping: {
+              ledgerId: resolvedLinkedLedgerId,
+              name: linkedParty.name || '',
+              gstin: linkedParty.gstin || '',
+              address: linkedParty.address || '',
+              phone: linkedParty.mobile || '',
+              email: linkedParty.email || '',
+              city: linkedParty.city || '',
+              state: linkedParty.state || '',
+              pin: linkedParty.pincode || '',
+            },
+          });
+        } else if (linkedLedger) {
+          setPartyDraft({
+            billing: {
+              ledgerId: linkedLedger.id,
+              name: linkedLedger.name || '',
+              gstin: linkedLedger.gstDetails?.gstin || '',
+              address: linkedLedger.contactDetails?.address || '',
+              phone: linkedLedger.contactDetails?.phone || '',
+              email: linkedLedger.contactDetails?.email || '',
+              city: '',
+              state: '',
+              pin: '',
+            },
+            shipping: {
+              ledgerId: linkedLedger.id,
+              name: linkedLedger.name || '',
+              gstin: linkedLedger.gstDetails?.gstin || '',
+              address: linkedLedger.contactDetails?.address || '',
+              phone: linkedLedger.contactDetails?.phone || '',
+              email: linkedLedger.contactDetails?.email || '',
+              city: '',
+              state: '',
+              pin: '',
+            },
+          });
+        }
+        editLoadedRef.current = editVoucherId;
+      } catch (e) {
+        if (!mounted) return;
+        setError((e as Error).message || 'Failed to load voucher for edit.');
+      }
+    };
+    void loadForEdit();
+    return () => {
+      mounted = false;
+    };
+  }, [editVoucherId, parties, inventoryItems, formState.defaultGodownId, ledgerAccounts]);
 
   const itemMap = useMemo(() => {
     const map = new Map<string, InventoryItem>();
@@ -570,25 +900,25 @@ const SalesVoucherForm = () => {
       }
     }
     
-    // 6. Round-Off (if enabled and non-zero) - post to Round-Off ledger
+    // 6. Round-Off (if enabled and non-zero) - keep sign same as posting builder
     if (enableRoundOff && totals.roundOff !== 0) {
       if (totals.roundOff > 0) {
-        // Round-off is gain (we owe customer less)
+        // Positive round-off is credited in GST builder
         entries.push({
           ledgerId: 'round-off',
           ledgerName: 'Round Off',
           debit: 0,
           credit: totals.roundOff,
-          description: `Round-off gain ₹${totals.roundOff.toFixed(2)}`,
+          description: `Round-off adjustment ₹${totals.roundOff.toFixed(2)}`,
         });
       } else {
-        // Round-off is loss (we owe customer more)
+        // Negative round-off is debited in GST builder
         entries.push({
           ledgerId: 'round-off',
           ledgerName: 'Round Off',
           debit: Math.abs(totals.roundOff),
           credit: 0,
-          description: `Round-off loss ₹${Math.abs(totals.roundOff).toFixed(2)}`,
+          description: `Round-off adjustment ₹${Math.abs(totals.roundOff).toFixed(2)}`,
         });
       }
     }
@@ -614,6 +944,31 @@ const SalesVoucherForm = () => {
     [lines, inventoryItems, godowns]
   );
 
+  const negativeStockWarnings = useMemo(() => {
+    return lines
+      .filter((line) => line.itemId && toNumber(line.quantity) > 0)
+      .map((line, index) => {
+        const item = itemMap.get(line.itemId);
+        if (!item) return null;
+        const requested = toNumber(line.quantity, 4);
+        const available = line.godownId
+          ? Number(item.godownStocks?.find((s) => s.godownId === line.godownId)?.quantity ?? 0)
+          : Number(item.currentStock ?? 0);
+        const projected = Number((available - requested).toFixed(4));
+        if (projected >= 0) return null;
+        const godownName = godowns.find((g) => g.id === line.godownId)?.name ?? line.godownId ?? 'Default';
+        return {
+          lineNo: index + 1,
+          itemName: item.name,
+          godownName,
+          available,
+          requested,
+          negativeBy: Math.abs(projected),
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => Boolean(x));
+  }, [lines, itemMap, godowns]);
+
   const gstRequired = useMemo(() => lines.some((line) => Number(line.taxRate) > 0), [lines]);
   const gstOverrides = useMemo(() => {
     const overrides: { itemName: string; defaultRate: number; appliedRate: number }[] = [];
@@ -634,15 +989,29 @@ const SalesVoucherForm = () => {
     return overrides;
   }, [lines, itemMap, getItemName]);
 
+  const resolvedCustomerAddress = String(
+    partyDraft.billing.address ||
+      ledgerAccounts.find((acct) => acct.id === formState.customerLedgerId)?.contactDetails?.address ||
+      ''
+  ).trim();
+  const hasValidLines = lines.some((line) => isLineDataValid(line));
+  const hasInvalidPartialLines = lines.some((line) => {
+    const touched =
+      Boolean(line.itemId) ||
+      toNumber(line.quantity) > 0 ||
+      toNumber(line.rateExclusive) > 0 ||
+      Boolean(line.godownId);
+    return touched && !isLineDataValid(line);
+  });
+
   const canSubmit =
     canCreate &&
     formState.date &&
     formState.number &&
     formState.customerLedgerId &&
-    formState.salesLedgerId &&
-    lines.every(isLineDataValid) &&
-    (!gstRequired || Boolean(formState.gstLedgerId)) &&
-    postingBalanced &&
+    resolvedCustomerAddress.length > 0 &&
+    hasValidLines &&
+    !hasInvalidPartialLines &&
     !saving;
 
   const getValidationIssues = useCallback(() => {
@@ -651,11 +1020,15 @@ const SalesVoucherForm = () => {
     if (!formState.date) issues.push('Invoice date is required.');
     if (!formState.number) issues.push('Invoice number is required.');
     if (!formState.customerLedgerId) issues.push('Please select a customer/party.');
-    if (!formState.salesLedgerId) issues.push('Please select a sales ledger.');
-    if (gstRequired && !formState.gstLedgerId) issues.push('GST ledger is required because tax is applied on items.');
-    if (!postingBalanced) issues.push('Posting is not balanced (debit and credit are not equal).');
+    if (!resolvedCustomerAddress) issues.push('Customer address is required.');
 
     lines.forEach((line, index) => {
+      const touched =
+        Boolean(line.itemId) ||
+        toNumber(line.quantity) > 0 ||
+        toNumber(line.rateExclusive) > 0 ||
+        Boolean(line.godownId);
+      if (!touched) return;
       const row = index + 1;
       if (!line.itemId) issues.push(`Line ${row}: item is missing.`);
       if (toNumber(line.quantity) <= 0) issues.push(`Line ${row}: quantity must be greater than 0.`);
@@ -664,7 +1037,18 @@ const SalesVoucherForm = () => {
     });
 
     return issues;
-  }, [formState.customerLedgerId, formState.date, formState.gstLedgerId, formState.number, formState.salesLedgerId, godowns.length, gstRequired, lines, postingBalanced]);
+  }, [
+    formState.customerLedgerId,
+    formState.date,
+    formState.gstLedgerId,
+    formState.number,
+    formState.salesLedgerId,
+    godowns.length,
+    gstRequired,
+    lines,
+    resolvedCustomerAddress,
+    postingBalanced,
+  ]);
 
   const buildVoucherLines = async () => {
     // Build GST-bifurcated voucher lines with proper tax splitting
@@ -712,10 +1096,26 @@ const SalesVoucherForm = () => {
       updatedAt: new Date().toISOString()
     };
 
-    // Use the GST builder to create properly bifurcated voucher lines
+    // Use the GST builder to create properly bifurcated voucher lines.
+    // If UI holds a stale/inactive sales ledger id, force fallback to system GST Sales ledger.
+    const coreLedgers = await autoLedgerService.ensureCore();
+    const selectedSalesLedgerId = String(formState.salesLedgerId || '').trim();
+    let resolvedSalesLedgerId = coreLedgers.salesLedgerId;
+    if (selectedSalesLedgerId) {
+      const selectedSalesLedger = await ledgerAccountService.getById(selectedSalesLedgerId);
+      if (selectedSalesLedger && selectedSalesLedger.isActive !== false) {
+        resolvedSalesLedgerId = selectedSalesLedgerId;
+      } else {
+        setFormState((prev) =>
+          prev.salesLedgerId === selectedSalesLedgerId
+            ? { ...prev, salesLedgerId: coreLedgers.salesLedgerId }
+            : prev
+        );
+      }
+    }
     const { lines: voucherLines } = await buildSalesVoucherLinesWithGST({
       customerLedgerId: formState.customerLedgerId,
-      salesLedgerId: formState.salesLedgerId,
+      salesLedgerId: resolvedSalesLedgerId,
       lines: lineItems,
       additionalCharges: chargesForBuilder,
       companyState: companyStateValue,
@@ -726,25 +1126,153 @@ const SalesVoucherForm = () => {
     return voucherLines;
   };
 
-  const saveVoucher = async () => {
+  const resolvePrintFormat = (): { format: PrintFormat; landscape: boolean; showSignature: boolean; fontSize: 'compact' | 'normal' } => {
+    const uiSettingsRaw = localStorage.getItem('invoice-settings');
+    const uiSettings = uiSettingsRaw ? JSON.parse(uiSettingsRaw) : {};
+    const pageSize: string = uiSettings?.pageSize || 'A4';
+    const orientation: string = uiSettings?.orientation || 'portrait';
+    const fontSizeValue: string = uiSettings?.fontSize || '12';
+    const showSignature: boolean = Boolean(uiSettings?.showSignature ?? true);
+    const landscape = orientation === 'landscape';
+    const format: PrintFormat =
+      pageSize === 'THERMAL_80'
+        ? 'THERMAL_80'
+        : pageSize === 'THERMAL_58'
+        ? 'THERMAL_58'
+        : pageSize === 'A5'
+        ? landscape
+          ? 'A5_LANDSCAPE'
+          : 'A5_PORTRAIT'
+        : landscape
+        ? 'A4_LANDSCAPE'
+        : 'A4_PORTRAIT';
+    return { format, landscape, showSignature, fontSize: Number(fontSizeValue) <= 12 ? 'compact' : 'normal' };
+  };
+
+  const buildCurrentInvoiceHtml = (): { html: string; fileName: string; landscape: boolean } => {
+    const companyInfoRaw = localStorage.getItem('company-info');
+    const companyLogo = localStorage.getItem('companyLogo') || '';
+    const companySignature = localStorage.getItem('companySignature') || '';
+    const companyParsed = companyInfoRaw ? JSON.parse(companyInfoRaw) : {};
+    const company = {
+      name: String(companyParsed?.name || companyParsed?.businessName || companyInfo.name || localStorage.getItem('companyName') || 'Company'),
+      address: String(companyParsed?.address || companyInfo.address || ''),
+      gstin: String(companyParsed?.gstin || companyInfo.gstin || ''),
+      phone: String(companyParsed?.phone || companyInfo.phone || ''),
+      email: String(companyParsed?.email || companyInfo.email || ''),
+      city: String(companyParsed?.city || companyInfo.city || ''),
+      pinCode: String(companyParsed?.pinCode || companyInfo.pinCode || ''),
+      bank: String(companyParsed?.bank || companyInfo.bank || ''),
+      accountNo: String(companyParsed?.accountNo || companyInfo.accountNo || ''),
+      ifsc: String(companyParsed?.ifsc || companyInfo.ifsc || ''),
+      logo: companyLogo || undefined,
+      signature: companySignature || undefined,
+    };
+    const { format, landscape, showSignature, fontSize } = resolvePrintFormat();
+    const items = lines
+      .filter((l) => l.itemId && toNumber(l.quantity) > 0)
+      .map((l) => {
+        const amount = computeLineAmount(l);
+        const taxBif = bifurcateTax(computeLineTax(l), toNumber(l.taxRate), totals.taxType as 'CGST_SGST' | 'IGST');
+        return {
+          name: getItemName(l.itemId),
+          hsn: String((l as any).hsnCode || ''),
+          qty: toNumber(l.quantity),
+          rate: toNumber(l.rateExclusive),
+          taxPercent: toNumber(l.taxRate),
+          amount,
+          cgst: taxBif.cgst,
+          sgst: taxBif.sgst,
+          igst: taxBif.igst,
+        };
+      });
+    const html = buildInvoiceHTML(format, company as any, {
+      invoiceNumber: formState.number,
+      invoiceDate: formState.date,
+      customerName: String(partyDraft.billing.name || ''),
+      customerGSTIN: String(partyDraft.billing.gstin || ''),
+      buyerAddress: String(partyDraft.billing.address || ''),
+      sellerAddress: String(company.address || ''),
+      billToAddress: String(partyDraft.billing.address || ''),
+      shipToAddress: String(partyDraft.shipping.address || partyDraft.billing.address || ''),
+      customerSealLabel: 'Customer Seal & Signature',
+      items,
+      subtotal: Number(totals.subtotal || 0),
+      cgstTotal: Number(totals.itemTaxBifurcated.cgst + totals.chargeTaxBifurcated.cgst || 0),
+      sgstTotal: Number(totals.itemTaxBifurcated.sgst + totals.chargeTaxBifurcated.sgst || 0),
+      igstTotal: Number(totals.itemTaxBifurcated.igst + totals.chargeTaxBifurcated.igst || 0),
+      grandTotal: Number(totals.grandTotal || 0),
+      amountInWords: amountToWordsINR(Number(totals.grandTotal || 0)),
+      declaration: 'We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',
+    } as any, {
+      showTaxBreakup: true,
+      showSignature,
+      showDeclaration: true,
+      logoPosition: 'top-left',
+      fontSize,
+      margin: 'normal',
+    });
+    return { html, fileName: `${formState.number}.pdf`, landscape };
+  };
+
+  const saveVoucher = async (navigateAfterSave = true): Promise<boolean> => {
     if (!canSubmit) {
       const issues = getValidationIssues();
       setValidationIssues(issues);
       setError('Please complete all required fields before saving.');
-      return;
+      return false;
     }
     try {
       setSaving(true);
       setError(null);
       setValidationIssues([]);
       const voucherLines = await buildVoucherLines();
-      await voucherService.create({
-        type: 'SALES',
-        date: new Date(formState.date).toISOString(),
-        number: formState.number,
-        narration: formState.narration,
-        lines: voucherLines,
+      const dueTokens = [
+        formState.dueDate ? `DUE[${formState.dueDate}]` : '',
+        formState.paymentTerms ? `PTERM[${formState.paymentTerms}]` : '',
+      ].filter(Boolean);
+      const narrationWithTerms = `${String(formState.narration || '').trim()} ${dueTokens.join(' ')}`.trim();
+
+      if (isEditMode && editVoucherId) {
+        await voucherService.update(editVoucherId, {
+          type: 'SALES',
+          date: new Date(formState.date).toISOString(),
+          number: formState.number,
+          narration: narrationWithTerms,
+          lines: voucherLines,
+        });
+      } else {
+        await voucherService.create({
+          type: 'SALES',
+          date: new Date(formState.date).toISOString(),
+          number: formState.number,
+          narration: narrationWithTerms,
+          lines: voucherLines,
+        });
+      }
+      const appliedSchemeTotals = new Map<string, number>();
+      lines.forEach((line) => {
+        if (!line.appliedSchemeId) return;
+        const lineAmount = computeLineAmount(line);
+        if (lineAmount <= 0) return;
+        appliedSchemeTotals.set(
+          line.appliedSchemeId,
+          Number(((appliedSchemeTotals.get(line.appliedSchemeId) || 0) + lineAmount).toFixed(2))
+        );
       });
+      if (formState.customerLedgerId && appliedSchemeTotals.size > 0) {
+        await Promise.allSettled(
+          Array.from(appliedSchemeTotals.entries()).map(([schemeId, invoiceAmount]) =>
+            schemeService.updateSchemeProgress({
+              schemeId,
+              retailerId: formState.customerLedgerId,
+              invoiceAmount,
+              paymentReceived: 0,
+              paymentPending: invoiceAmount,
+            })
+          )
+        );
+      }
       const custId = formState.customerLedgerId;
       if (custId) {
         for (const line of lines) {
@@ -754,9 +1282,11 @@ const SalesVoucherForm = () => {
           }
         }
       }
-      navigate('/vouchers/sales');
+      if (navigateAfterSave) navigate('/vouchers/sales');
+      return true;
     } catch (err) {
-      setError((err as Error).message ?? 'Failed to create voucher');
+      setError((err as Error).message ?? (isEditMode ? 'Failed to update voucher' : 'Failed to create voucher'));
+      return false;
     } finally {
       setSaving(false);
     }
@@ -764,7 +1294,7 @@ const SalesVoucherForm = () => {
 
   const handleFormSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    saveVoucher();
+    void saveVoucher();
   };
 
   const billingLedger = ledgerAccounts.find((acct) => acct.id === formState.customerLedgerId);
@@ -802,6 +1332,59 @@ const SalesVoucherForm = () => {
     }
   };
 
+  const applyConfirmedCustomer = useCallback(async () => {
+    const payload = pendingCustomerDetails;
+    if (!payload) {
+      setCustomerConfirmOpen(false);
+      return;
+    }
+    if (!String(payload.address || '').trim()) {
+      return;
+    }
+    handlePartyChange({
+      billing: {
+        ...payload,
+        ledgerId: String(payload.ledgerId || ''),
+      },
+    });
+    if (payload.partyId) {
+      try {
+        const updated = await partyService.update(payload.partyId, {
+          name: String(payload.name || ''),
+          mobile: String(payload.phone || ''),
+          gstin: String(payload.gstin || ''),
+          address: String(payload.address || ''),
+          state: String(payload.state || ''),
+          pincode: String(payload.pin || ''),
+          email: String(payload.email || ''),
+          city: String(payload.city || ''),
+        } as any);
+        setParties((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      } catch (e) {
+        setError((e as Error).message || 'Failed to save customer details.');
+        return;
+      }
+    }
+    setCustomerConfirmOpen(false);
+    setPendingCustomerDetails(null);
+    const firstLineId = linesRef.current[0]?.lineId;
+    if (firstLineId) {
+      window.setTimeout(() => {
+        const target = lineItemsSectionRef.current;
+        const scroller = target?.closest('[data-erp-dense]') as HTMLElement | null;
+        if (target && scroller) {
+          const targetRect = target.getBoundingClientRect();
+          const scrollerRect = scroller.getBoundingClientRect();
+          const top = scroller.scrollTop + (targetRect.top - scrollerRect.top) - 8;
+          scroller.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+        } else {
+          target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        focusRegistry.focusById(buildLineFieldId(firstLineId, 'item'));
+      }, 0);
+    }
+  }, [handlePartyChange, pendingCustomerDetails]);
+
   const handleInventoryMasterSaved = (newItem: InventoryItem) => {
     setInventoryItems((prev) => [...prev, newItem]);
     placeItemFromScan(newItem);
@@ -810,21 +1393,16 @@ const SalesVoucherForm = () => {
   };
 
   return (
-    <Box component="form" onSubmit={handleFormSubmit}>
-      <Stack spacing={3}>
-        <Button
-          type="button"
-          variant="text"
-          startIcon={<ArrowBackIcon />}
-          onClick={() => navigate('/vouchers/sales')}
-          sx={{ alignSelf: 'flex-start' }}
-        >
-          Back to sales vouchers
-        </Button>
-
+    <Box component="form" onSubmit={handleFormSubmit} sx={{ pt: 0, pb: 10 }}>
+      <Stack spacing={1}>
         <InvoiceHeader
           mode={mode}
-          formState={{ number: formState.number, date: formState.date, dueDate: '', paymentTerms: '' }}
+          formState={{
+            number: formState.number,
+            date: formState.date,
+            dueDate: formState.dueDate,
+            paymentTerms: formState.paymentTerms,
+          }}
           onChange={(patch) => setFormState((prev) => ({ ...prev, ...patch }))}
           company={companyInfo}
           onPrint={() => window.print()}
@@ -885,20 +1463,34 @@ const SalesVoucherForm = () => {
           </Alert>
         )}
 
-        <Card>
-          <CardContent>
-            <Stack spacing={3}>
+        {negativeStockWarnings.length > 0 && (
+          <Alert severity="warning" sx={{ borderRadius: 2 }}>
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
+              Negative stock warning
+            </Typography>
+            {negativeStockWarnings.map((warn) => (
+              <Typography key={`${warn.lineNo}-${warn.itemName}`} variant="body2">
+                Line {warn.lineNo}: {warn.itemName} ({warn.godownName}) - available {warn.available.toFixed(2)}, requested{' '}
+                {warn.requested.toFixed(2)}, negative by {warn.negativeBy.toFixed(2)}.
+              </Typography>
+            ))}
+          </Alert>
+        )}
+
+        <Card ref={lineItemsSectionRef}>
+          <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Stack spacing={1.5}>
               <Typography variant="subtitle1" fontWeight={600}>
                 Line Items
               </Typography>
               <Box sx={{ overflowX: 'auto' }}>
-                <Table size="small" sx={{ '& td': { verticalAlign: 'top' }, minWidth: 1000 }}>
+                <Table size="small" sx={{ '& td': { verticalAlign: 'top', py: 0.75 }, minWidth: 1000 }}>
                   <TableHead>
                   <TableRow>
                     <TableCell sx={{ minWidth: 200 }}>Item</TableCell>
                     <TableCell sx={{ minWidth: 100, width: 100 }}>Quantity</TableCell>
-                    <TableCell sx={{ minWidth: 100, width: 100 }}>Rate</TableCell>
-                    <TableCell sx={{ minWidth: 80, width: 80 }}>Tax %</TableCell>
+                    <TableCell sx={{ minWidth: 110, width: 110 }}>GST %</TableCell>
+                    <TableCell sx={{ minWidth: 240, width: 240 }}>Rate (Incl/Excl)</TableCell>
                     <TableCell sx={{ minWidth: 140, width: 140 }}>Godown</TableCell>
                     <TableCell sx={{ minWidth: 120, width: 120 }} align="right">Amount</TableCell>
                     <TableCell sx={{ minWidth: 80, width: 80 }} align="right">Actions</TableCell>
@@ -919,9 +1511,19 @@ const SalesVoucherForm = () => {
                       onValidationError={setError}
                       requireGodown={godowns.length > 0}
                       getItemDisplayName={(id) => getItemName(id)}
-                      onOpenItemPicker={(rowIndex) => {
+                      onOpenItemPicker={(rowIndex, initialQuery) => {
                         const lid = lines[rowIndex]?.lineId;
-                        if (lid) setItemPickerLineId(lid);
+                        if (lid) {
+                          setItemPickerInitialQuery(initialQuery || '');
+                          setItemPickerLineId(lid);
+                        }
+                      }}
+                      shouldOpenPickerOnItemFocus={() => {
+                        if (suppressNextItemFocusOpenRef.current) {
+                          suppressNextItemFocusOpenRef.current = false;
+                          return false;
+                        }
+                        return true;
                       }}
                     />
                   ))}
@@ -941,7 +1543,7 @@ const SalesVoucherForm = () => {
             />
 
             {/* Round-Off Toggle */}
-            <Box sx={{ p: 2, backgroundColor: '#f9f9f9', borderRadius: 1 }}>
+            <Box sx={{ p: 1.25, backgroundColor: '#f9f9f9', borderRadius: 1 }}>
               <FormControlLabel
                 control={
                   <Checkbox
@@ -954,7 +1556,7 @@ const SalesVoucherForm = () => {
               />
             </Box>
 
-            <Stack spacing={1}>
+            <Stack spacing={0.75}>
               <Typography variant="subtitle1" fontWeight={600}>
                 Totals & Tax Bifurcation ({totals.gstDecision.isLocalTransaction ? 'CGST + SGST' : 'IGST'})
               </Typography>
@@ -999,7 +1601,7 @@ const SalesVoucherForm = () => {
               </Stack>
             </Stack>
 
-            <Grid container spacing={2}>
+            <Grid container spacing={1}>
               <Grid item xs={12} md={6}>
                 <Card variant="outlined">
                   <CardContent>
@@ -1076,8 +1678,8 @@ const SalesVoucherForm = () => {
 
         {/* Terms and Conditions */}
         <Card>
-          <CardContent>
-            <Stack spacing={2}>
+          <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Stack spacing={1}>
               <Typography variant="subtitle1" fontWeight={600}>
                 Terms & Conditions
               </Typography>
@@ -1107,13 +1709,23 @@ const SalesVoucherForm = () => {
           mode={mode}
           saving={saving}
           onCancel={() => navigate('/vouchers/sales')}
-          onSave={handleFormSubmit as any}
+          onSave={() => {
+            void saveVoucher(true);
+          }}
           onSaveDraft={() => setMode('view')}
-          onSaveAndPrint={() => {
-            handleFormSubmit({ preventDefault: () => {} } as any);
-            window.print();
+          onSaveAndPrint={async () => {
+            const saved = await saveVoucher(false);
+            if (!saved) return;
+            const { html } = buildCurrentInvoiceHtml();
+            await printInvoice(html);
+            navigate('/vouchers/sales');
           }}
           onEdit={() => setMode('edit')}
+          onDownloadPDF={async () => {
+            const { html, fileName, landscape } = buildCurrentInvoiceHtml();
+            const resPath = await downloadPDF(html, fileName, landscape);
+            if (resPath) alert(`PDF saved to: ${resPath}`);
+          }}
         />
 
         {/* Party Master (popup) — new customer from voucher */}
@@ -1213,19 +1825,23 @@ const SalesVoucherForm = () => {
           onSelect={(selectedParty) => {
             setPartyPickerOpen(false);
             const ledgerId = selectedParty.ledgerId || '';
-            handlePartyChange({
-              billing: {
-                ledgerId,
-                name: selectedParty.name,
-                gstin: selectedParty.gstin,
-                address: selectedParty.address,
-                phone: selectedParty.mobile,
-                email: selectedParty.email,
-                city: selectedParty.city,
-                state: selectedParty.state,
-                pin: selectedParty.pincode,
-              },
-            });
+            const nextPending = {
+              partyId: selectedParty.id,
+              ledgerId,
+              name: selectedParty.name,
+              gstin: selectedParty.gstin,
+              address: selectedParty.address,
+              phone: selectedParty.mobile,
+              email: selectedParty.email,
+              city: selectedParty.city,
+              state: selectedParty.state,
+              pin: selectedParty.pincode,
+            };
+            setPendingCustomerDetails(nextPending);
+            // Open confirm popup after picker close animation so it reliably appears.
+            window.setTimeout(() => {
+              setCustomerConfirmOpen(true);
+            }, 80);
           }}
           onCreateNew={() => {
             setPartyPickerOpen(false);
@@ -1238,9 +1854,13 @@ const SalesVoucherForm = () => {
         <TallyListPickerModal<InventoryItem>
           sessionKey={itemPickerLineId}
           open={itemPickerLineId !== null}
-          onClose={() => setItemPickerLineId(null)}
+          onClose={() => {
+            setItemPickerLineId(null);
+            setItemPickerInitialQuery('');
+          }}
           title="List of Inventory Items"
           searchPlaceholder="Search item name, SKU, or barcode…"
+          initialQuery={itemPickerInitialQuery}
           rows={inventoryItems}
           getRowKey={(it) => it.id}
           filterRow={(it, q) => {
@@ -1309,6 +1929,8 @@ const SalesVoucherForm = () => {
               return;
             }
             updateLine(idx, { itemId: item.id });
+            setItemPickerInitialQuery('');
+            suppressNextItemFocusOpenRef.current = true;
             setItemPickerLineId(null);
             window.setTimeout(() => {
               focusRegistry.focusById(buildLineFieldId(lid, 'quantity'));
@@ -1316,12 +1938,139 @@ const SalesVoucherForm = () => {
           }}
           onCreateNew={() => {
             setItemPickerLineId(null);
+            setItemPickerInitialQuery('');
             setPendingScannedBarcode('');
             setShowQuickCreateItem(true);
           }}
           createNewLabel="+ Create New Item"
           emptyMessage="No items found."
         />
+
+        <Dialog
+          open={customerConfirmOpen}
+          onClose={() => {
+            setCustomerConfirmOpen(false);
+            setPendingCustomerDetails(null);
+          }}
+          maxWidth="sm"
+          fullWidth
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              setCustomerConfirmOpen(false);
+              setPendingCustomerDetails(null);
+              return;
+            }
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+              e.preventDefault();
+              applyConfirmedCustomer();
+            }
+          }}
+        >
+          <DialogTitle sx={{ pb: 1 }}>Confirm Customer Details</DialogTitle>
+          <DialogContent sx={{ pt: '8px !important' }}>
+            <Stack spacing={1.25}>
+              <Typography variant="body2" color="text.secondary">
+                Customer select ho gaya. Details verify karo, phir items entry continue hogi.
+              </Typography>
+              <TextField
+                label="Customer Name"
+                size="small"
+                value={pendingCustomerDetails?.name || ''}
+                onChange={(e) =>
+                  setPendingCustomerDetails((prev) => ({ ...(prev || {}), name: e.target.value }))
+                }
+                fullWidth
+              />
+              <TextField
+                label="Address"
+                size="small"
+                value={pendingCustomerDetails?.address || ''}
+                onChange={(e) =>
+                  setPendingCustomerDetails((prev) => ({ ...(prev || {}), address: e.target.value }))
+                }
+                required
+                error={!String(pendingCustomerDetails?.address || '').trim()}
+                helperText={!String(pendingCustomerDetails?.address || '').trim() ? 'Address is mandatory' : ''}
+                fullWidth
+              />
+              <Grid container spacing={1}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="GSTIN"
+                    size="small"
+                    value={pendingCustomerDetails?.gstin || ''}
+                    onChange={(e) =>
+                      setPendingCustomerDetails((prev) => ({ ...(prev || {}), gstin: e.target.value }))
+                    }
+                    fullWidth
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Phone"
+                    size="small"
+                    value={pendingCustomerDetails?.phone || ''}
+                    onChange={(e) =>
+                      setPendingCustomerDetails((prev) => ({ ...(prev || {}), phone: e.target.value }))
+                    }
+                    fullWidth
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    label="City"
+                    size="small"
+                    value={pendingCustomerDetails?.city || ''}
+                    onChange={(e) =>
+                      setPendingCustomerDetails((prev) => ({ ...(prev || {}), city: e.target.value }))
+                    }
+                    fullWidth
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    label="State"
+                    size="small"
+                    value={pendingCustomerDetails?.state || ''}
+                    onChange={(e) =>
+                      setPendingCustomerDetails((prev) => ({ ...(prev || {}), state: e.target.value }))
+                    }
+                    fullWidth
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    label="Pincode"
+                    size="small"
+                    value={pendingCustomerDetails?.pin || ''}
+                    onChange={(e) =>
+                      setPendingCustomerDetails((prev) => ({ ...(prev || {}), pin: e.target.value }))
+                    }
+                    fullWidth
+                  />
+                </Grid>
+              </Grid>
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button
+              onClick={() => {
+                setCustomerConfirmOpen(false);
+                setPendingCustomerDetails(null);
+              }}
+            >
+              Cancel (Esc)
+            </Button>
+            <Button
+              variant="contained"
+              onClick={applyConfirmedCustomer}
+              disabled={!String(pendingCustomerDetails?.address || '').trim()}
+            >
+              Accept & Continue (Ctrl+A)
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Stack>
     </Box>
   );
@@ -1341,7 +2090,8 @@ interface SalesLineRowProps {
   onValidationError: (message: string | null) => void;
   requireGodown: boolean;
   getItemDisplayName: (itemId: string) => string;
-  onOpenItemPicker: (rowIndex: number) => void;
+  onOpenItemPicker: (rowIndex: number, initialQuery?: string) => void;
+  shouldOpenPickerOnItemFocus: () => boolean;
 }
 
 const SalesLineRow = memo(
@@ -1358,6 +2108,7 @@ const SalesLineRow = memo(
     requireGodown,
     getItemDisplayName,
     onOpenItemPicker,
+    shouldOpenPickerOnItemFocus,
   }: SalesLineRowProps) => {
     const baseOrder = 100 + index * 10;
 
@@ -1424,18 +2175,51 @@ const SalesLineRow = memo(
     });
 
     return (
-      <TableRow>
+      <TableRow hover>
         <TableCell sx={{ minWidth: 200 }}>
-          <TextField
-            value={line.itemId ? getItemDisplayName(line.itemId) : ''}
-            placeholder="Click to search items"
-            fullWidth
-            size="small"
-            InputProps={{ readOnly: true }}
-            inputRef={itemFieldRef}
-            onClick={() => onOpenItemPicker(index)}
-            inputProps={{ 'aria-haspopup': 'dialog' as const }}
-          />
+          <Stack spacing={0.5}>
+            <TextField
+              value={line.itemId ? getItemDisplayName(line.itemId) : ''}
+              placeholder="Click to search items"
+              fullWidth
+              size="small"
+              InputProps={{ readOnly: true }}
+              inputRef={itemFieldRef}
+              onClick={() => onOpenItemPicker(index)}
+              onFocus={() => {
+                if (!shouldOpenPickerOnItemFocus()) return;
+                onOpenItemPicker(index);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Tab' || e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') {
+                  return;
+                }
+                if (e.key.length === 1) {
+                  e.preventDefault();
+                  onOpenItemPicker(index, e.key);
+                  return;
+                }
+                if (e.key === 'Enter' || e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === ' ') {
+                  e.preventDefault();
+                  onOpenItemPicker(index);
+                }
+              }}
+              inputProps={{ 'aria-haspopup': 'dialog' as const }}
+            />
+            {line.appliedSchemeId ? (
+              <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap">
+                <Chip
+                  size="small"
+                  color="success"
+                  variant="outlined"
+                  label={`Scheme: ${line.appliedSchemeLabel || 'Applied'}`}
+                />
+                {(line.freeQuantity || 0) > 0 ? (
+                  <Chip size="small" color="info" variant="outlined" label={`Free Qty: ${line.freeQuantity}`} />
+                ) : null}
+              </Stack>
+            ) : null}
+          </Stack>
         </TableCell>
         <TableCell sx={{ minWidth: 100, width: 100 }}>
           <TextField
@@ -1447,8 +2231,42 @@ const SalesLineRow = memo(
             fullWidth
           />
         </TableCell>
+        <TableCell sx={{ minWidth: 80, width: 80 }}>
+          <TextField
+            type="number"
+            value={line.taxRate}
+            onChange={(e) => updateLine(index, { taxRate: e.target.value })}
+            inputProps={{ min: 0, step: '0.01' }}
+            inputRef={taxFieldRef}
+            fullWidth
+            size="small"
+          />
+        </TableCell>
         <TableCell sx={{ minWidth: 280, width: 280 }}>
           <Stack spacing={1}>
+            <TextField
+              type="number"
+              label="Rate (Incl. GST)"
+              value={line.rateInclusive}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (!value) {
+                  updateLine(index, { rateInclusive: '', rateExclusive: '' });
+                  return;
+                }
+                const inclusive = Number(value);
+                const taxRate = Number(line.taxRate || 0);
+                const exclusive = inclusive / (1 + taxRate / 100);
+                updateLine(index, {
+                  rateInclusive: value,
+                  rateExclusive: Number.isFinite(exclusive) ? exclusive.toFixed(2) : '',
+                });
+              }}
+              inputProps={{ min: 0, step: '0.01' }}
+              helperText="Primary entry"
+              size="small"
+              fullWidth
+            />
             <TextField
               type="number"
               label="Rate (Excl. GST)"
@@ -1472,40 +2290,7 @@ const SalesLineRow = memo(
               size="small"
               fullWidth
             />
-            <TextField
-              type="number"
-              label="Rate (Incl. GST)"
-              value={line.rateInclusive}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (!value) {
-                  updateLine(index, { rateInclusive: '', rateExclusive: '' });
-                  return;
-                }
-                const inclusive = Number(value);
-                const taxRate = Number(line.taxRate || 0);
-                const exclusive = inclusive / (1 + taxRate / 100);
-                updateLine(index, {
-                  rateInclusive: value,
-                  rateExclusive: Number.isFinite(exclusive) ? exclusive.toFixed(2) : '',
-                });
-              }}
-              inputProps={{ min: 0, step: '0.01' }}
-              size="small"
-              fullWidth
-            />
           </Stack>
-        </TableCell>
-        <TableCell sx={{ minWidth: 80, width: 80 }}>
-          <TextField
-            type="number"
-            value={line.taxRate}
-            onChange={(e) => updateLine(index, { taxRate: e.target.value })}
-            inputProps={{ min: 0, step: '0.01' }}
-            inputRef={taxFieldRef}
-            fullWidth
-            size="small"
-          />
         </TableCell>
         <TableCell sx={{ minWidth: 180, width: 180 }}>
           <TextField

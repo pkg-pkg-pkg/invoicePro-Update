@@ -36,6 +36,8 @@ export interface ElectronAPI {
 
   // Cleanup
   removeAllListeners: (event: string) => void;
+  printToPDF?: (payload: { html: string; fileName?: string; landscape?: boolean }) => Promise<string | null>;
+  printDirect?: (payload: { html: string; silent?: boolean }) => Promise<boolean>;
 
   /** Frameless window (Windows/Linux) */
   windowMinimize?: () => Promise<void>;

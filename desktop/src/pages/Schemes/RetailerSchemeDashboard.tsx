@@ -29,6 +29,7 @@ import {
 } from '@mui/icons-material';
 import schemeService from '../../services/schemeService';
 import schemeCalculationEngine, { SchemeProgress } from '../../services/schemeCalculationEngine';
+import { partyService } from '../../services/masters/partyService';
 
 interface RetailerSchemeData {
   id: string;
@@ -56,9 +57,28 @@ const RetailerSchemeDashboard = () => {
     try {
       setLoading(true);
       setError(null);
-      
-      // TODO: Get actual retailer ID from auth context
-      const retailerId = 'current-retailer';
+
+      const auth = JSON.parse(localStorage.getItem('gst_billing_auth') || '{}');
+      let retailerId =
+        auth?.user?.retailerId ||
+        auth?.user?.partyId ||
+        auth?.user?.ledgerId ||
+        auth?.retailer?.id ||
+        '';
+
+      if (!retailerId) {
+        const parties = await partyService.list({ partyType: ['BUYER', 'BOTH'] });
+        const activeRetailer = parties.find((p) => p.status === 'ACTIVE');
+        if (activeRetailer?.id) {
+          retailerId = activeRetailer.id;
+        }
+      }
+
+      if (!retailerId) {
+        setRetailerSchemes([]);
+        setError(null);
+        return;
+      }
       const data = await schemeService.getRetailerSchemeDashboard(retailerId);
       
       setRetailerSchemes(data);

@@ -173,3 +173,12 @@ export async function postVoucher(voucher: Voucher): Promise<void> {
     voucherType: voucher.type,
   });
 }
+
+export async function reverseVoucherPosting(voucher: Voucher): Promise<void> {
+  for (const line of voucher.lines) {
+    const delta = Number((-(line.debit ?? 0) + (line.credit ?? 0)).toFixed(4));
+    if (!line.ledgerId || delta === 0) continue;
+    await ledgerAccountService.adjustCurrentBalance(line.ledgerId, delta);
+  }
+  await ledgerTransactionService.deleteByVoucher(voucher.id);
+}

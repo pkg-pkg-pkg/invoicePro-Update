@@ -390,8 +390,9 @@ const Login: React.FC = () => {
           sx={{
             p: 4,
             borderRadius: 3,
-            background: "rgba(255, 255, 255, 0.95)",
+            background: "rgba(255, 255, 255, 0.98)",
             backdropFilter: "blur(10px)",
+            color: "#1f2937",
           }}
         >
           <Box textAlign="center" mb={3}>
@@ -406,7 +407,7 @@ const Login: React.FC = () => {
             <Typography variant="h6" color="text.secondary">
               {APP_TAGLINE}
             </Typography>
-            <Typography variant="body2" color="text.secondary" mt={1}>
+            <Typography variant="body2" color="text.primary" mt={1}>
               Sign in with your email and password
             </Typography>
           </Box>
@@ -424,6 +425,17 @@ const Login: React.FC = () => {
                   InputProps={{
                     startAdornment: <EmailIcon sx={{ mr: 1, color: "action.active" }} />,
                   }}
+                  sx={{
+                    "& .MuiInputLabel-root": { color: "#374151" },
+                    "& .MuiOutlinedInput-root": {
+                      bgcolor: "#ffffff",
+                      color: "#111827",
+                      "& input": { color: "#111827" },
+                      "& fieldset": { borderColor: "#94a3b8" },
+                      "&:hover fieldset": { borderColor: "#475569" },
+                      "&.Mui-focused fieldset": { borderColor: "#1d4ed8", borderWidth: 2 },
+                    },
+                  }}
                   required
                 />
               </Grid>
@@ -439,6 +451,17 @@ const Login: React.FC = () => {
                   InputProps={{
                     startAdornment: <LockIcon sx={{ mr: 1, color: "action.active" }} />,
                   }}
+                  sx={{
+                    "& .MuiInputLabel-root": { color: "#374151" },
+                    "& .MuiOutlinedInput-root": {
+                      bgcolor: "#ffffff",
+                      color: "#111827",
+                      "& input": { color: "#111827" },
+                      "& fieldset": { borderColor: "#94a3b8" },
+                      "&:hover fieldset": { borderColor: "#475569" },
+                      "&.Mui-focused fieldset": { borderColor: "#1d4ed8", borderWidth: 2 },
+                    },
+                  }}
                   required
                 />
               </Grid>
@@ -450,7 +473,7 @@ const Login: React.FC = () => {
                 type="button"
                 underline="hover"
                 onClick={handleOpenResetDialog}
-                sx={{ fontSize: "0.875rem" }}
+                sx={{ fontSize: "0.875rem", color: "#1d4ed8", fontWeight: 600 }}
               >
                 Forgot password?
               </Link>
@@ -486,7 +509,12 @@ const Login: React.FC = () => {
               <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
                 New user or have a licence key?
               </Typography>
-              <Button variant="outlined" fullWidth onClick={() => navigate("/activate")}>
+              <Button
+                variant="outlined"
+                fullWidth
+                onClick={() => navigate("/activate")}
+                sx={{ borderColor: "#64748b", color: "#0f172a", fontWeight: 600 }}
+              >
                 Activate licence
               </Button>
             </Box>
@@ -498,7 +526,7 @@ const Login: React.FC = () => {
             <Typography variant="body2" color="text.secondary" mb={1}>
               Need help?
             </Typography>
-            <Link href="mailto:pve.2020@hotmail.com" variant="body2">
+            <Link href="mailto:pve.2020@hotmail.com" variant="body2" sx={{ color: "#1d4ed8", fontWeight: 600 }}>
               Contact Support
             </Link>
             <Typography variant="caption" display="block" sx={{ mt: 1, color: "text.secondary" }}>

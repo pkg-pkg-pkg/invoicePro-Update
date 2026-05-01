@@ -25,14 +25,19 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
 import { useNavigate } from 'react-router-dom';
 
 import { voucherService } from '../../../services/vouchers/voucherService';
 import { ledgerAccountService } from '../../../services/masters/ledgerAccountService';
+import { inventoryItemService } from '../../../services/masters/inventoryItemService';
 import { Voucher } from '../../../types/vouchers';
 import { LedgerAccount } from '../../../types/masters';
 import { useMasterList } from '../../../hooks/useMasterList';
 import { usePermission } from '../../../hooks/usePermission';
+import { usePermissions } from '../../../hooks/usePermissions';
+import { approvalService } from '../../../services/approvals/approvalService';
 
 interface FilterState {
   fromDate: string;
@@ -51,10 +56,12 @@ const initialFilters: FilterState = {
 const SalesVoucherList = () => {
   const navigate = useNavigate();
   const { can } = usePermission();
+  const { isAdmin } = usePermissions();
   const canCreate = can('create-vouchers');
 
   const [filters, setFilters] = useState<FilterState>(initialFilters);
   const [customers, setCustomers] = useState<LedgerAccount[]>([]);
+  const [itemNameMap, setItemNameMap] = useState<Map<string, string>>(new Map());
   const [selectedVoucher, setSelectedVoucher] = useState<Voucher | null>(null);
 
   useEffect(() => {
@@ -62,6 +69,13 @@ const SalesVoucherList = () => {
       .list({ includeInactive: false })
       .then((accounts) => setCustomers(accounts.filter((acct) => acct.isActive !== false)))
       .catch(() => setCustomers([]));
+  }, []);
+
+  useEffect(() => {
+    inventoryItemService
+      .list({ includeInactive: false })
+      .then((items) => setItemNameMap(new Map(items.map((item) => [item.id, item.name]))))
+      .catch(() => setItemNameMap(new Map()));
   }, []);
 
   const fetchVouchers = useCallback(async () => {
@@ -101,6 +115,38 @@ const SalesVoucherList = () => {
   const primaryCustomerName = (voucher: Voucher) => {
     const line = voucher.lines.find((l) => (l.debit ?? 0) > 0);
     return line ? customerNameMap.get(line.ledgerId) ?? line.ledgerId : '—';
+  };
+  const voucherTotal = (voucher: Voucher) => {
+    const debit = voucher.lines.reduce((sum, line) => sum + Number(line.debit || 0), 0);
+    const credit = voucher.lines.reduce((sum, line) => sum + Number(line.credit || 0), 0);
+    return Math.max(debit, credit);
+  };
+
+  const handleDeleteVoucher = async (voucher: Voucher) => {
+    if (!isAdmin) {
+      try {
+        await approvalService.request({
+          section: 'SALES',
+          action: 'DELETE_VOUCHER',
+          entityType: 'VOUCHER',
+          entityId: voucher.id,
+          entityLabel: voucher.number,
+          reason: 'Delete sales voucher requested by non-admin user',
+        });
+        alert('Approval request sent to Admin. Once approved, invoice will be deleted.');
+      } catch (e) {
+        alert((e as Error).message || 'Could not send approval request.');
+      }
+      return;
+    }
+    if (!window.confirm(`Delete invoice ${voucher.number}?`)) return;
+    try {
+      await voucherService.delete(voucher.id);
+      if (selectedVoucher?.id === voucher.id) setSelectedVoucher(null);
+      await refresh();
+    } catch (e) {
+      alert((e as Error).message || 'Failed to delete invoice.');
+    }
   };
 
   return (
@@ -193,6 +239,7 @@ const SalesVoucherList = () => {
                   <TableCell>Invoice No.</TableCell>
                   <TableCell>Customer</TableCell>
                   <TableCell align="right">Items</TableCell>
+                  <TableCell align="right">Total</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
@@ -200,7 +247,7 @@ const SalesVoucherList = () => {
               <TableBody>
                 {filteredVouchers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} align="center">
+                    <TableCell colSpan={7} align="center">
                       <Typography variant="body2" color="text.secondary">
                         No invoices found
                       </Typography>
@@ -214,7 +261,10 @@ const SalesVoucherList = () => {
                         <TableCell>{new Date(voucher.date).toLocaleDateString()}</TableCell>
                         <TableCell>{voucher.number}</TableCell>
                         <TableCell>{primaryCustomerName(voucher)}</TableCell>
-                        <TableCell align="right">{voucher.lines.length}</TableCell>
+                        <TableCell align="right">
+                          {voucher.lines.filter((line) => Boolean(line.itemId) && Number(line.quantity || 0) > 0).length}
+                        </TableCell>
+                        <TableCell align="right">₹ {voucherTotal(voucher).toFixed(2)}</TableCell>
                         <TableCell>
                           <Chip
                             size="small"
@@ -227,6 +277,18 @@ const SalesVoucherList = () => {
                             <IconButton onClick={() => setSelectedVoucher(voucher)}>
                               <VisibilityIcon fontSize="small" />
                             </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Edit">
+                            <IconButton onClick={() => navigate(`/vouchers/sales/${voucher.id}/edit`)}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title={isAdmin ? 'Delete (Admin)' : 'Send Delete for Admin Approval'}>
+                            <span>
+                              <IconButton onClick={() => void handleDeleteVoucher(voucher)} color="error">
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </span>
                           </Tooltip>
                         </TableCell>
                       </TableRow>
@@ -274,6 +336,37 @@ const SalesVoucherList = () => {
                       <TableCell align="right">{line.credit?.toFixed(2) ?? '0.00'}</TableCell>
                     </TableRow>
                   ))}
+                </TableBody>
+              </Table>
+              <Typography variant="subtitle1" fontWeight={600}>
+                Item Details
+              </Typography>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Item</TableCell>
+                    <TableCell align="right">Qty</TableCell>
+                    <TableCell align="right">Amount</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {selectedVoucher.lines.filter((line) => line.itemId).length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={3} align="center">
+                        No item lines found.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    selectedVoucher.lines
+                      .filter((line) => line.itemId)
+                      .map((line, idx) => (
+                        <TableRow key={`item-${line.itemId}-${idx}`}>
+                          <TableCell>{itemNameMap.get(String(line.itemId)) ?? line.itemId}</TableCell>
+                          <TableCell align="right">{Number(line.quantity || 0).toFixed(2)}</TableCell>
+                          <TableCell align="right">{Number(line.credit || line.debit || 0).toFixed(2)}</TableCell>
+                        </TableRow>
+                      ))
+                  )}
                 </TableBody>
               </Table>
             </Stack>

@@ -204,6 +204,7 @@ export default function Dashboard() {
     () => gstSnapshot ?? { outputGst: 0, inputItc: 0, receivable: 0, payable: 0 },
     [gstSnapshot]
   );
+  const grossGstPayable = useMemo(() => Number(Math.max(0, gstData.outputGst).toFixed(2)), [gstData.outputGst]);
 
   const lowStockPreview = useMemo(() => lowStock.slice(0, 3), [lowStock]);
   const salesTrendPoints = salesAnalytics?.analytics ?? [];
@@ -692,7 +693,10 @@ export default function Dashboard() {
                 <Typography variant="body2" color="text.secondary">
                   GST payable
                 </Typography>
-                <Typography variant="h6">{formatCurrency(gstData.payable)}</Typography>
+                <Typography variant="h6">{formatCurrency(grossGstPayable)}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Net after ITC: {formatCurrency(gstData.payable)}
+                </Typography>
               </Paper>
             </Grid>
           </Grid>

@@ -21,7 +21,7 @@ import {
   CardContent,
 } from '@mui/material';
 import { FileDownload as FileDownloadIcon } from '@mui/icons-material';
-import { GSTR2Response } from '../../services/gstService';
+import { gstService, GSTR2Response } from '../../services/gstService';
 
 const MONTHS = [
   { value: 1, label: 'January' },
@@ -52,70 +52,8 @@ export default function GSTR2Report() {
     setLoading(true);
     setError(null);
     try {
-      // Mock data for GSTR2 since backend might not be implemented yet
-      const mockData: GSTR2Response = {
-        period: { month, year },
-        b2b: [
-          {
-            supplierGSTIN: '27AAAAA0000A1Z5',
-            supplierName: 'ABC Suppliers',
-            invoiceNumber: 'PUR-001',
-            invoiceDate: new Date(year, month - 1, 15).toISOString(),
-            taxableValue: 50000,
-            igst: 0,
-            cgst: 2700,
-            sgst: 2700,
-            totalTax: 5400,
-          },
-          {
-            supplierGSTIN: '07BBBBB0000B1Z5',
-            supplierName: 'XYZ Traders',
-            invoiceNumber: 'PUR-002',
-            invoiceDate: new Date(year, month - 1, 20).toISOString(),
-            taxableValue: 75000,
-            igst: 4500,
-            cgst: 0,
-            sgst: 0,
-            totalTax: 4500,
-          }
-        ],
-        hsnSummary: [
-          {
-            hsnCode: '123456',
-            description: 'Electronic Goods',
-            quantity: 50,
-            uqc: 'PCS',
-            rate: 1000,
-            taxableValue: 50000,
-            igst: 0,
-            cgst: 2700,
-            sgst: 2700,
-            totalTax: 5400,
-          },
-          {
-            hsnCode: '234567',
-            description: 'Machinery Parts',
-            quantity: 25,
-            uqc: 'PCS',
-            rate: 3000,
-            taxableValue: 75000,
-            igst: 4500,
-            cgst: 0,
-            sgst: 0,
-            totalTax: 4500,
-          }
-        ],
-        summary: {
-          totalInvoices: 2,
-          totalTaxableValue: 125000,
-          totalITC: 9900,
-          totalIGST: 4500,
-          totalCGST: 2700,
-          totalSGST: 2700,
-        }
-      };
-
-      setData(mockData);
+      const result = await gstService.getGSTR2(month, year);
+      setData(result);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to generate GSTR-2 report');
     } finally {
@@ -123,24 +61,21 @@ export default function GSTR2Report() {
     }
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (!data) return;
-
-    const exportData = {
-      ...data,
-      generatedAt: new Date().toISOString(),
-      reportType: 'GSTR-2',
-    };
-
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `GSTR-2_${year}_${month.toString().padStart(2, '0')}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    try {
+      const blob = await gstService.exportGSTR2(month, year);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `GSTR-2_${year}_${month.toString().padStart(2, '0')}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to export GSTR-2');
+    }
   };
 
   return (

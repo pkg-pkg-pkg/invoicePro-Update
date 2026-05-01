@@ -111,7 +111,7 @@ const validateVoucherBalance = (lines: Voucher['lines'], errors: ValidationError
 };
 
 const inventoryVoucherTypes: Voucher['type'][] = ['SALES', 'SALES_RETURN', 'PURCHASE', 'PURCHASE_RETURN'];
-const ensureStockAvailabilityTypes: Voucher['type'][] = ['SALES', 'PURCHASE_RETURN'];
+const ensureStockAvailabilityTypes: Voucher['type'][] = ['PURCHASE_RETURN'];
 
 const validateInventoryLines = async (voucher: VoucherLike, errors: ValidationErrorDetail[]) => {
   if (!inventoryVoucherTypes.includes(voucher.type)) {
@@ -142,11 +142,12 @@ const validateInventoryLines = async (voucher: VoucherLike, errors: ValidationEr
       return;
     }
     if (ensureStockAvailabilityTypes.includes(voucher.type) && item.currentStock < quantity) {
+      const negativeBy = Number((quantity - item.currentStock).toFixed(2));
       errors.push(
         createError(
           `lines[${index}].quantity`,
           'INSUFFICIENT_STOCK',
-          `Insufficient stock for ${item.name}. Available ${item.currentStock}`
+          `Insufficient stock for ${item.name}. Available ${item.currentStock}, requested ${quantity}, negative by ${negativeBy}.`
         )
       );
     }

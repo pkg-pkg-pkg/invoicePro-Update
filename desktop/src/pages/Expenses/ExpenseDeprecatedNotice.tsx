@@ -24,7 +24,7 @@ const ExpenseDeprecatedNotice = () => {
               </Typography>
             </Stack>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-              <Button variant="contained" onClick={() => navigate('/vouchers/payment')}>
+              <Button variant="contained" onClick={() => navigate('/vouchers/payment-vouchers/new')}>
                 Go to Payment Vouchers
               </Button>
               <Button variant="outlined" onClick={() => navigate('/vouchers/purchase')}>

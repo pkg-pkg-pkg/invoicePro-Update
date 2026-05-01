@@ -10,7 +10,8 @@ interface RequirePermissionProps {
     | 'view-inventory'
     | 'create-vouchers'
     | 'view-vouchers'
-    | 'view-reports';
+    | 'view-reports'
+    | 'manage-users';
   fallback?: ReactNode;
   children: ReactNode;
 }

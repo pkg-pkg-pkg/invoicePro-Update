@@ -321,19 +321,19 @@ export async function buildSalesVoucherLinesWithGST(
     // Determine round-off ledger
     const roundOffLedgerId = await autoLedgerService.ensureExpenseLedger('Round Off');
     if (roundOff > 0) {
-      // Debit round-off (customer paid less)
-      lines.push({
-        ledgerId: roundOffLedgerId,
-        debit: roundOff,
-        credit: 0,
-        roundOffAmount: roundOff,
-      });
-    } else {
-      // Credit round-off (customer paid more)
+      // For sales, positive roundOff increases grand total, so credit round-off.
       lines.push({
         ledgerId: roundOffLedgerId,
         debit: 0,
-        credit: Math.abs(roundOff),
+        credit: roundOff,
+        roundOffAmount: roundOff,
+      });
+    } else {
+      // For sales, negative roundOff reduces grand total, so debit round-off.
+      lines.push({
+        ledgerId: roundOffLedgerId,
+        debit: Math.abs(roundOff),
+        credit: 0,
         roundOffAmount: roundOff,
       });
     }
@@ -342,8 +342,8 @@ export async function buildSalesVoucherLinesWithGST(
     postingDetails.push({
       ledgerId: roundOffLedgerId,
       ledgerName: roundOffLedger?.name || 'Round Off',
-      debit: roundOff > 0 ? roundOff : 0,
-      credit: roundOff > 0 ? 0 : Math.abs(roundOff),
+      debit: roundOff > 0 ? 0 : Math.abs(roundOff),
+      credit: roundOff > 0 ? roundOff : 0,
       description: `Round-off adjustment (₹${roundOff.toFixed(2)})`,
     });
   }

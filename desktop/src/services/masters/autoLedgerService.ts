@@ -17,8 +17,8 @@ const GROUP_CASH_IN_HAND_ID = 'grp-cash-in-hand';
 
 const SYSTEM_LEDGERS = {
   cash: { id: 'led-cash', name: 'Cash', groupId: GROUP_CASH_IN_HAND_ID, isCashBank: true, openingBalanceType: 'DEBIT' as LedgerBalanceType },
-  sales: { id: 'led-sales', name: 'Sales', groupId: GROUPS.sales.id, openingBalanceType: 'CREDIT' as LedgerBalanceType },
-  purchase: { id: 'led-purchase', name: 'Purchase', groupId: GROUPS.purchase.id, openingBalanceType: 'DEBIT' as LedgerBalanceType },
+  sales: { id: 'led-sales', name: 'GST Sales', groupId: GROUPS.sales.id, openingBalanceType: 'CREDIT' as LedgerBalanceType },
+  purchase: { id: 'led-purchase', name: 'GST Purchase', groupId: GROUPS.purchase.id, openingBalanceType: 'DEBIT' as LedgerBalanceType },
   purchaseReturns: {
     id: 'led-purchase-returns',
     name: 'Purchase Returns',
@@ -63,8 +63,23 @@ const ensureSystemLedger = async (def: typeof SYSTEM_LEDGERS[keyof typeof SYSTEM
   const ledgers = await ledgerAccountService.list({ includeInactive: true });
   const existingById = ledgers.find((l) => l.id === def.id);
   const existingByName = findLedgerByName(ledgers, def.name);
-  if (existingById) return existingById.id;
-  if (existingByName) return existingByName.id;
+  const normalizeExisting = async (existing: LedgerAccount) => {
+    const patch: Partial<LedgerAccount> = {};
+    if (existing.name !== def.name) patch.name = def.name;
+    if (existing.groupId !== def.groupId) patch.groupId = def.groupId;
+    if (existing.isCashBank !== Boolean((def as any).isCashBank)) patch.isCashBank = Boolean((def as any).isCashBank);
+    if (existing.isActive === false) patch.isActive = true;
+    if (Object.keys(patch).length > 0) {
+      try {
+        await ledgerAccountService.update(existing.id, patch);
+      } catch (e) {
+        console.warn(`System ledger normalize failed for ${existing.id}`, e);
+      }
+    }
+    return existing.id;
+  };
+  if (existingById) return normalizeExisting(existingById as LedgerAccount);
+  if (existingByName) return normalizeExisting(existingByName as LedgerAccount);
 
   try {
     const created = await ledgerAccountService.create({

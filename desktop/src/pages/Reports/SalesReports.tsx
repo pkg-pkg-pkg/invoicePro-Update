@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Box,
   Grid,
@@ -135,6 +135,20 @@ export default function SalesReports({ canExport }: SalesReportsProps) {
     }
   };
 
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (!selectedReport) return;
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.('[role="dialog"]')) return;
+      e.preventDefault();
+      setSelectedReport(null);
+      setError(null);
+    };
+    window.addEventListener('keydown', onEsc);
+    return () => window.removeEventListener('keydown', onEsc);
+  }, [selectedReport]);
+
   const [exporting, setExporting] = useState(false);
 
   const handleExport = async (format: 'pdf' | 'excel' | 'csv') => {
@@ -185,7 +199,7 @@ export default function SalesReports({ canExport }: SalesReportsProps) {
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Box>
-          <Button onClick={() => setSelectedReport(null)}>← Back to Reports</Button>
+          <Button onClick={() => setSelectedReport(null)}>Back to Reports</Button>
           <Typography variant="h6" sx={{ mt: 1 }}>
             {selectedReportInfo?.title}
           </Typography>
@@ -316,6 +330,9 @@ export default function SalesReports({ canExport }: SalesReportsProps) {
                       <TableCell>Customer</TableCell>
                       <TableCell>Products</TableCell>
                       <TableCell align="right">Amount</TableCell>
+                      <TableCell align="right">CGST</TableCell>
+                      <TableCell align="right">SGST</TableCell>
+                      <TableCell align="right">IGST</TableCell>
                       <TableCell align="right">Tax</TableCell>
                       <TableCell align="right">Total</TableCell>
                       <TableCell align="right">Paid</TableCell>
@@ -358,7 +375,7 @@ export default function SalesReports({ canExport }: SalesReportsProps) {
               <TableBody>
                 {reportData.data && reportData.data.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} align="center">
+                    <TableCell colSpan={13} align="center">
                       <Typography variant="body2" color="text.secondary">
                         No data found
                       </Typography>
@@ -371,9 +388,12 @@ export default function SalesReports({ canExport }: SalesReportsProps) {
                         <>
                           <TableCell>{formatDate(row.date)}</TableCell>
                           <TableCell>{row.invoiceNumber}</TableCell>
-                          <TableCell>{row.partyId}</TableCell>
+                          <TableCell>{row.customerName}</TableCell>
                           <TableCell>{row.products}</TableCell>
                           <TableCell align="right">{formatCurrency(row.subtotal)}</TableCell>
+                          <TableCell align="right">{formatCurrency(row.cgst || 0)}</TableCell>
+                          <TableCell align="right">{formatCurrency(row.sgst || 0)}</TableCell>
+                          <TableCell align="right">{formatCurrency(row.igst || 0)}</TableCell>
                           <TableCell align="right">{formatCurrency(row.totalTax)}</TableCell>
                           <TableCell align="right">{formatCurrency(row.grandTotal)}</TableCell>
                           <TableCell align="right">{formatCurrency(row.paid)}</TableCell>

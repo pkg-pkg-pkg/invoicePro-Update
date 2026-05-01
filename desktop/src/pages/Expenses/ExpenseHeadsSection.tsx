@@ -82,7 +82,7 @@ export default function ExpenseHeadsSection() {
               Expense categories (heads)
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 720 }}>
-              Heads are <strong>ledger accounts</strong> for kinds of spending — transport, wages, stationery, rent,
+              Heads are <strong>ledger accounts</strong> for kinds of spending — transport, salary, stationery, rent,
               utilities, etc. Add them here first; then use <strong>Payment Vouchers</strong> to record actual payments from cash or bank.
             </Typography>
           </Box>
@@ -109,7 +109,7 @@ export default function ExpenseHeadsSection() {
         ) : rows.length === 0 ? (
           <Alert severity="info">
             No expense heads yet. Click <strong>Add expense head</strong> to create ledgers such as &quot;Transport&quot;,
-            &quot;Stationery&quot;, or &quot;Wages&quot; under Direct / Indirect expenses.
+            &quot;Stationery&quot;, or &quot;Salary&quot; under Direct / Indirect expenses.
           </Alert>
         ) : (
           <Table size="small">

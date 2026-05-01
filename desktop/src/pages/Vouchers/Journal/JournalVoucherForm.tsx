@@ -310,7 +310,7 @@ const JournalVoucherForm = () => {
           </Stack>
         </Paper>
 
-        <Stack direction="row" spacing={2} justifyContent="flex-end">
+        <Stack direction={{ xs: 'column-reverse', sm: 'row' }} spacing={2} justifyContent="flex-end" flexWrap="wrap">
           <Button variant="outlined" onClick={() => navigate('/vouchers/journal')}>
             Cancel
           </Button>
