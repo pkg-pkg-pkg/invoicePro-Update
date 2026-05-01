@@ -10,6 +10,7 @@ import {
   CircularProgress,
   Avatar,
   Grid,
+  InputAdornment,
 } from "@mui/material";
 import {
   Business as BusinessIcon,
@@ -36,6 +37,17 @@ const Activate: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const fieldSx = {
+    "& .MuiOutlinedInput-root": {
+      bgcolor: "#ffffff",
+      color: "#0f172a",
+      "& fieldset": { borderColor: "#94a3b8" },
+      "&:hover fieldset": { borderColor: "#475569" },
+      "&.Mui-focused fieldset": { borderColor: "#1d4ed8", borderWidth: 2 },
+    },
+    "& .MuiInputLabel-root": { color: "#475569" },
+    "& .MuiInputLabel-root.Mui-focused": { color: "#1d4ed8" },
+  } as const;
 
   const goToLogin = () => {
     try {
@@ -123,12 +135,14 @@ const Activate: React.FC = () => {
   return (
     <Box
       sx={{
-        minHeight: "100vh",
+        minHeight: "100dvh",
         background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
         display: "flex",
-        alignItems: "center",
+        alignItems: "flex-start",
         justifyContent: "center",
-        p: 2,
+        overflowY: "auto",
+        px: 2,
+        py: 3,
       }}
     >
       <Container maxWidth="sm">
@@ -137,7 +151,8 @@ const Activate: React.FC = () => {
           sx={{
             p: 4,
             borderRadius: 3,
-            background: "rgba(255,255,255,0.95)",
+            background: "rgba(255,255,255,0.98)",
+            border: "1px solid rgba(148,163,184,0.45)",
           }}
         >
           <Box textAlign="center" mb={3}>
@@ -169,6 +184,9 @@ const Activate: React.FC = () => {
                 label="Full Name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                variant="outlined"
+                size="small"
+                sx={fieldSx}
               />
             </Grid>
 
@@ -178,6 +196,9 @@ const Activate: React.FC = () => {
                 label="Business Name"
                 value={businessName}
                 onChange={(e) => setBusinessName(e.target.value)}
+                variant="outlined"
+                size="small"
+                sx={fieldSx}
               />
             </Grid>
 
@@ -188,6 +209,9 @@ const Activate: React.FC = () => {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                variant="outlined"
+                size="small"
+                sx={fieldSx}
               />
             </Grid>
 
@@ -197,8 +221,15 @@ const Activate: React.FC = () => {
                 label="Mobile Number"
                 value={mobile}
                 onChange={(e) => setMobile(e.target.value)}
+                variant="outlined"
+                size="small"
+                sx={fieldSx}
                 InputProps={{
-                  startAdornment: <PhoneIcon sx={{ mr: 1 }} />,
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PhoneIcon sx={{ color: "#64748b" }} />
+                    </InputAdornment>
+                  ),
                 }}
               />
             </Grid>
@@ -210,6 +241,9 @@ const Activate: React.FC = () => {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                variant="outlined"
+                size="small"
+                sx={fieldSx}
               />
             </Grid>
 
@@ -220,6 +254,9 @@ const Activate: React.FC = () => {
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
+                variant="outlined"
+                size="small"
+                sx={fieldSx}
               />
             </Grid>
           </Grid>
@@ -235,8 +272,15 @@ const Activate: React.FC = () => {
               label="License Key"
               value={licenseKey}
               onChange={(e) => setLicenseKey(e.target.value)}
+              variant="outlined"
+              size="small"
+              sx={fieldSx}
               InputProps={{
-                startAdornment: <VpnKeyIcon sx={{ mr: 1 }} />,
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <VpnKeyIcon sx={{ color: "#64748b" }} />
+                  </InputAdornment>
+                ),
               }}
             />
 

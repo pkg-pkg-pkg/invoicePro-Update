@@ -44,6 +44,7 @@ export interface ElectronAPI {
   windowToggleMaximize?: () => Promise<void>;
   windowClose?: () => Promise<void>;
   windowIsMaximized?: () => Promise<boolean>;
+  openExternalUrl?: (url: string) => Promise<boolean>;
   onWindowStateChanged?: (callback: (maximized: boolean) => void) => () => void;
 }
 

@@ -466,6 +466,17 @@ ipcMain.handle('window-close', () => {
 ipcMain.handle('window-is-maximized', () =>
   Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isMaximized())
 );
+ipcMain.handle('open-external-url', async (_event, rawUrl: string) => {
+  try {
+    const url = String(rawUrl || '').trim();
+    if (!url) return false;
+    if (!/^https?:\/\//i.test(url)) return false;
+    await shell.openExternal(url);
+    return true;
+  } catch {
+    return false;
+  }
+});
 
 ipcMain.handle('print:pdf', async (_event, payload: { html?: string; fileName?: string; landscape?: boolean }) => {
   const html = String(payload?.html ?? '');

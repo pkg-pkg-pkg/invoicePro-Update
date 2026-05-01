@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   windowToggleMaximize: () => ipcRenderer.invoke('window-toggle-maximize'),
   windowClose: () => ipcRenderer.invoke('window-close'),
   windowIsMaximized: () => ipcRenderer.invoke('window-is-maximized'),
+  openExternalUrl: (url: string) => ipcRenderer.invoke('open-external-url', url),
   onWindowStateChanged: (callback: (maximized: boolean) => void) => {
     const fn = (_e: unknown, maxed: unknown) => callback(Boolean(maxed));
     ipcRenderer.on('window-state-changed', fn);

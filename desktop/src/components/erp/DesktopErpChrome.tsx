@@ -15,6 +15,7 @@ export const ERP_MENU_BG = '#2D5086';
 export const ERP_SELECT = '#FFC107';
 export const ERP_WORKSPACE_BG = '#F0F4F8';
 export const ERP_TEXT = '#1B3A6B';
+const SUPPORT_WEBSITE = 'https://www.prityvanya.com';
 
 type MenuEntry = { label: string; path: string; perm?: string; section?: string };
 type ErpMenu = { id: string; label: string; items: MenuEntry[] };
@@ -476,6 +477,18 @@ export function DesktopErpStatusBar({
     minute: '2-digit',
     hour12: true,
   }).format(now);
+  const openSupportWebsite = () => {
+    try {
+      const api = (window as any)?.electronAPI;
+      if (api && typeof api.openExternalUrl === 'function') {
+        void api.openExternalUrl(SUPPORT_WEBSITE);
+        return;
+      }
+      window.open(SUPPORT_WEBSITE, '_blank', 'noopener,noreferrer');
+    } catch {
+      // ignore
+    }
+  };
 
   const cell = (content: React.ReactNode) => (
     <Box
@@ -523,6 +536,15 @@ export function DesktopErpStatusBar({
               ({gstin})
             </Box>
           ) : null}
+        </span>
+      )}
+      {cell(
+        <span
+          onClick={openSupportWebsite}
+          title={SUPPORT_WEBSITE}
+          style={{ cursor: 'pointer', textDecoration: 'underline' }}
+        >
+          <strong>Website:</strong> www.prityvanya.com
         </span>
       )}
     </Box>
