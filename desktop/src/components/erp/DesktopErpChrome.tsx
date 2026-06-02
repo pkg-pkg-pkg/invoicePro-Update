@@ -1,20 +1,48 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Menu, MenuItem, Typography } from '@mui/material';
 import { useLocation, type NavigateFunction } from 'react-router-dom';
-import { formatIndianFinancialYearLabel } from '../../utils/indianFY';
 import { getNormalizedCompanyProfile } from '../../utils/companyProfile';
+import { financialYearLabel } from '../dashboard/dashboardTheme';
+import {
+  getWhatsAppConnectionStatus,
+  refreshWhatsAppConnectionStatus,
+  subscribeWhatsAppConnectionStatus,
+  type WhatsAppConnectionStatus,
+} from '../../services/whatsappIntegration';
+import {
+  resolveActiveCompanyDisplayName,
+  resolveActiveCompanyDisplayNameSync,
+} from '../../services/companyDisplayName';
 import { APP_DISPLAY_NAME } from '@/constants/appBranding';
 
-/** Row heights for layout spacer math (title + menu below frame). */
-export const ERP_TITLE_ROW_PX = 34;
-export const ERP_MENU_ROW_PX = 32;
+const HEADER_COMPANY_NAME_MAX = 48;
 
-/** Tally/Busy–style desktop ERP chrome */
-export const ERP_HEADER_BG = '#1B3A6B';
-export const ERP_MENU_BG = '#2D5086';
-export const ERP_SELECT = '#FFC107';
-export const ERP_WORKSPACE_BG = '#F0F4F8';
-export const ERP_TEXT = '#1B3A6B';
+function headerCompanyLabel(fullName: string): {
+  display: string;
+  full: string;
+} {
+  const full = String(fullName || '').trim() || APP_DISPLAY_NAME;
+  if (full.length <= HEADER_COMPANY_NAME_MAX) {
+    return { display: full, full };
+  }
+  return { display: `${full.slice(0, HEADER_COMPANY_NAME_MAX)}...`, full };
+}
+import CompanySelectScreen from '../CompanySelectScreen';
+
+/** Row heights for layout spacer math (title + menu below frame). */
+/** Title + menu rows (~20% shorter than legacy ERP chrome). */
+export const ERP_TITLE_ROW_PX = 27;
+export const ERP_MENU_ROW_PX = 26;
+
+import {
+  ERP_HEADER_BG,
+  ERP_MENU_BG,
+  ERP_SELECT,
+  ERP_WORKSPACE_BG,
+  ERP_TEXT,
+} from '../../theme/erpColors';
+
+export { ERP_HEADER_BG, ERP_MENU_BG, ERP_SELECT, ERP_WORKSPACE_BG, ERP_TEXT };
 const SUPPORT_WEBSITE = 'https://www.prityvanya.com';
 
 type MenuEntry = { label: string; path: string; perm?: string; section?: string };
@@ -40,6 +68,7 @@ const ERP_MENUS: ErpMenu[] = [
     items: [
       { label: 'Settings', path: '/settings', perm: 'manage-settings' },
       { label: 'Company Desk', path: '/settings?tab=companydesk', perm: 'manage-settings' },
+      { label: 'Switch Company', path: '__switch_company__', perm: 'manage-settings' },
     ],
   },
   {
@@ -120,6 +149,7 @@ export function getErpFlatNavLinks(canAccessFeature: CanAccess, gstEnabled: bool
   const out: ErpFlatNavItem[] = [];
   for (const m of ERP_MENUS) {
     for (const it of m.items) {
+      if (it.path.startsWith('__')) continue;
       if (it.perm && !canAccessFeature(it.perm)) continue;
       if (!gstEnabled && it.path.startsWith('/gst')) continue;
       out.push({ ...it, group: m.label });
@@ -142,17 +172,50 @@ function useCompanyProfileVersion() {
   useEffect(() => {
     const bump = () => setV((x) => x + 1);
     window.addEventListener('companyProfileUpdated', bump);
-    return () => window.removeEventListener('companyProfileUpdated', bump);
+    window.addEventListener('activeCompanyChanged', bump);
+    window.addEventListener('companySettingsChanged', bump);
+    return () => {
+      window.removeEventListener('companyProfileUpdated', bump);
+      window.removeEventListener('activeCompanyChanged', bump);
+      window.removeEventListener('companySettingsChanged', bump);
+    };
   }, []);
   return v;
 }
 
-export function DesktopErpTitleBar({ rightSlot }: { rightSlot?: React.ReactNode } = {}) {
-  const now = useNowTick(30_000);
+function useHeaderCompanyName() {
   const cv = useCompanyProfileVersion();
-  const company = useMemo(() => getNormalizedCompanyProfile(), [cv]);
-  const fy = formatIndianFinancialYearLabel(now);
-  const name = company.businessName || company.name || APP_DISPLAY_NAME;
+  const [name, setName] = useState(() => resolveActiveCompanyDisplayNameSync());
+  useEffect(() => {
+    let cancelled = false;
+    void resolveActiveCompanyDisplayName().then((n) => {
+      if (!cancelled) setName(n);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [cv]);
+  return name;
+}
+
+export function DesktopErpTitleBar({ rightSlot }: { rightSlot?: React.ReactNode } = {}) {
+  const headerCompanyName = useHeaderCompanyName();
+  const { display: headerName, full: fullCompanyName } = useMemo(
+    () => headerCompanyLabel(headerCompanyName),
+    [headerCompanyName]
+  );
+
+  useEffect(() => {
+    const title = fullCompanyName || APP_DISPLAY_NAME;
+    document.title = `${APP_DISPLAY_NAME} — ${title}`;
+  }, [fullCompanyName]);
+  const [switchOpen, setSwitchOpen] = useState(false);
+
+  useEffect(() => {
+    const open = () => setSwitchOpen(true);
+    window.addEventListener('openSwitchCompanyDialog', open);
+    return () => window.removeEventListener('openSwitchCompanyDialog', open);
+  }, []);
 
   return (
     <Box
@@ -169,9 +232,32 @@ export function DesktopErpTitleBar({ rightSlot }: { rightSlot?: React.ReactNode 
         borderBottom: '1px solid rgba(255,255,255,0.12)',
       }}
     >
-      <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '0.78rem', letterSpacing: 0.15 }} noWrap>
-        {name} <Box component="span" sx={{ opacity: 0.85, fontWeight: 500 }}>· {fy}</Box>
+      <Typography
+        variant="body2"
+        component="button"
+        type="button"
+        onClick={() => setSwitchOpen(true)}
+        title={fullCompanyName === headerName ? 'Switch company' : `${fullCompanyName} — click to switch company`}
+        sx={{
+          fontWeight: 700,
+          fontSize: '0.78rem',
+          letterSpacing: 0.15,
+          border: 'none',
+          background: 'transparent',
+          color: 'inherit',
+          cursor: 'pointer',
+          textAlign: 'left',
+          p: 0,
+          maxWidth: { xs: 'min(72vw, 420px)', sm: 'min(48vw, 520px)' },
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          '&:hover': { textDecoration: 'underline' },
+        }}
+      >
+        {headerName}
       </Typography>
+      <CompanySelectScreen mode="switch" open={switchOpen} onClose={() => setSwitchOpen(false)} />
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
         {rightSlot ?? null}
       </Box>
@@ -318,17 +404,36 @@ export function DesktopErpMenuBar({
               closeNow();
             }}
             sx={{
+              position: 'relative',
               border: 0,
               cursor: 'pointer',
-              px: 1.75,
-              py: 0.75,
+              px: 1.5,
+              py: 0.55,
               fontSize: '0.8125rem',
-              fontWeight: isActive ? 700 : 500,
-              bgcolor: openId === m.id ? 'rgba(0,0,0,0.12)' : 'transparent',
+              fontWeight: 600,
+              letterSpacing: '0.01em',
+              bgcolor:
+                openId === m.id && !singleItem ? 'rgba(255,255,255,0.06)' : 'transparent',
               color: '#fff',
-              fontFamily: 'inherit',
-              borderRight: '1px solid rgba(255,255,255,0.12)',
-              '&:hover': { bgcolor: 'rgba(0,0,0,0.18)' },
+              fontFamily: '"Inter", system-ui, sans-serif',
+              borderRight: '1px solid rgba(255,255,255,0.1)',
+              transition: 'background-color 200ms ease, color 200ms ease',
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' },
+              ...(isActive
+                ? {
+                    '&::after': {
+                      content: '""',
+                      position: 'absolute',
+                      left: '14%',
+                      right: '14%',
+                      bottom: 0,
+                      height: 2,
+                      borderRadius: '2px 2px 0 0',
+                      bgcolor: '#60A5FA',
+                      boxShadow: '0 0 8px rgba(96, 165, 250, 0.45)',
+                    },
+                  }
+                : {}),
             }}
           >
             {m.label}
@@ -415,6 +520,11 @@ export function DesktopErpMenuBar({
               <MenuItem
                 selected={selected}
                 onClick={() => {
+                  if (it.path === '__switch_company__') {
+                    window.dispatchEvent(new Event('openSwitchCompanyDialog'));
+                    closeNow();
+                    return;
+                  }
                   erpNavigateTo(navigate, it.path.startsWith('/') ? it.path : `/${it.path}`);
                   closeNow();
                 }}
@@ -462,8 +572,7 @@ export function DesktopErpStatusBar({
   const now = useNowTick(60_000);
   const cv = useCompanyProfileVersion();
   const company = useMemo(() => getNormalizedCompanyProfile(), [cv]);
-  const fy = formatIndianFinancialYearLabel(now);
-  const name = company.businessName || company.name || '—';
+  const name = useHeaderCompanyName();
   const gstin = company.gstin?.trim() ?? '';
   const gstStatus = gstin ? 'Registered' : 'Not configured';
   const dateStr = new Intl.DateTimeFormat('en-IN', {
@@ -490,20 +599,39 @@ export function DesktopErpStatusBar({
     }
   };
 
-  const cell = (content: React.ReactNode) => (
+  const [waStatus, setWaStatus] = useState<WhatsAppConnectionStatus>(() => getWhatsAppConnectionStatus());
+
+  useEffect(() => {
+    void refreshWhatsAppConnectionStatus();
+    return subscribeWhatsAppConnectionStatus(setWaStatus);
+  }, []);
+
+  const fy = financialYearLabel(now);
+  const healthItems = [
+    { label: 'Database Connected', ok: true },
+    { label: 'Backup OK', ok: true },
+    { label: 'GST Active', ok: Boolean(gstin) },
+    { label: 'WhatsApp Connected', ok: waStatus.ok },
+  ];
+
+  const pill = (text: string, ok: boolean) => (
     <Box
+      component="span"
       sx={{
-        px: 1.25,
-        py: 0.4,
-        borderRight: '1px solid #cbd5e1',
-        fontSize: '0.75rem',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 0.5,
+        mr: 1.5,
+        fontSize: '0.6875rem',
+        fontWeight: 600,
         color: ERP_TEXT,
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
+        fontFamily: '"Inter", system-ui, sans-serif',
       }}
     >
-      {content}
+      <Box component="span" sx={{ fontSize: '0.5rem', lineHeight: 1 }}>
+        {ok ? '🟢' : '🟡'}
+      </Box>
+      {text}
     </Box>
   );
 
@@ -511,42 +639,53 @@ export function DesktopErpStatusBar({
     <Box
       sx={{
         display: 'flex',
-        alignItems: 'stretch',
+        alignItems: 'center',
         flexWrap: 'wrap',
-        bgcolor: '#e2e8f0',
-        borderTop: '1px solid #cbd5e1',
-        minHeight: 26,
+        gap: 0.5,
+        bgcolor: '#EEF2F7',
+        borderTop: '1px solid #CBD5E1',
+        minHeight: 28,
         flexShrink: 0,
+        px: 1,
+        py: 0.35,
+        fontFamily: '"Inter", system-ui, sans-serif',
       }}
     >
-      {cell(<strong>{APP_DISPLAY_NAME}</strong>)}
-      {cell(<span>{name}</span>)}
-      {cell(<span>{fy}</span>)}
-      {cell(
+      <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
+        {healthItems.map((h) => (
+          <Box key={h.label}>{pill(h.label, h.ok)}</Box>
+        ))}
+      </Box>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 1.25,
+          fontSize: '0.6875rem',
+          fontWeight: 600,
+          color: ERP_TEXT,
+        }}
+      >
         <span>
           <strong>User:</strong> {userLabel}
         </span>
-      )}
-      {cell(<span>{dateStr} · {timeStr}</span>)}
-      {cell(
-        <span title={gstin ? `GSTIN ${gstin}` : undefined}>
-          <strong>GST Status:</strong> {gstStatus}
-          {gstin ? (
-            <Box component="span" sx={{ opacity: 0.85, ml: 0.75 }}>
-              ({gstin})
-            </Box>
-          ) : null}
+        <span>
+          <strong>FY:</strong> {fy}
         </span>
-      )}
-      {cell(
-        <span
+        <span>{dateStr} · {timeStr}</span>
+        <span title={gstin ? `GSTIN ${gstin}` : undefined}>
+          <strong>GST:</strong> {gstStatus}
+        </span>
+        <Box
+          component="span"
           onClick={openSupportWebsite}
           title={SUPPORT_WEBSITE}
-          style={{ cursor: 'pointer', textDecoration: 'underline' }}
+          sx={{ cursor: 'pointer', textDecoration: 'underline', '&:hover': { color: '#2563EB' } }}
         >
-          <strong>Website:</strong> www.prityvanya.com
-        </span>
-      )}
+          www.prityvanya.com
+        </Box>
+      </Box>
     </Box>
   );
 }

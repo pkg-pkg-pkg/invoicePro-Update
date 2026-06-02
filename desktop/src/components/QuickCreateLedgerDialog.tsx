@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -14,6 +14,8 @@ import {
 } from '@mui/material';
 import { ledgerAccountService } from '../services/masters/ledgerAccountService';
 import { autoLedgerService } from '../services/masters/autoLedgerService';
+import { usePincodeAutofill } from '../hooks/usePincodeAutofill';
+import PincodeTextField from './PincodeTextField';
 
 interface PartyDetails {
   name: string;
@@ -22,6 +24,7 @@ interface PartyDetails {
   email?: string;
   address?: string;
   city?: string;
+  district?: string;
   state?: string;
   pin?: string;
 }
@@ -73,8 +76,20 @@ export const QuickCreateLedgerDialog: React.FC<QuickCreateLedgerDialogProps> = (
     email: '',
     address: '',
     city: '',
+    district: '',
     state: '',
     pin: '',
+  });
+
+  const pinAutofill = usePincodeAutofill({
+    onFilled: useCallback((addr) => {
+      setDetails((prev) => ({
+        ...prev,
+        city: addr.city,
+        district: addr.district,
+        state: addr.state,
+      }));
+    }, []),
   });
 
   const [selectedGroupId, setSelectedGroupId] = useState<string>('');
@@ -266,24 +281,55 @@ export const QuickCreateLedgerDialog: React.FC<QuickCreateLedgerDialogProps> = (
                 disabled={loading}
               />
 
-              {/* City, State, PIN Row */}
               <Grid container spacing={2}>
-                <Grid item xs={12} sm={4}>
-                  <TextField
-                    label="City"
-                    value={details.city}
-                    onChange={(e) => setDetails({ ...details, city: e.target.value })}
+                <Grid item xs={12} sm={3}>
+                  <PincodeTextField
+                    label="PIN"
+                    value={details.pin || ''}
+                    onPinChange={(pin) => setDetails({ ...details, pin })}
+                    autofill={pinAutofill}
                     fullWidth
-                    placeholder="Bengaluru"
+                    placeholder="834005"
                     disabled={loading}
                   />
                 </Grid>
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={12} sm={3}>
+                  <TextField
+                    label="City"
+                    value={details.city}
+                    onChange={(e) => {
+                      pinAutofill.clearHighlight('city');
+                      setDetails({ ...details, city: e.target.value });
+                    }}
+                    sx={pinAutofill.fieldSx('city')}
+                    fullWidth
+                    placeholder="Ranchi"
+                    disabled={loading}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={3}>
+                  <TextField
+                    label="District"
+                    value={details.district}
+                    onChange={(e) => {
+                      pinAutofill.clearHighlight('district');
+                      setDetails({ ...details, district: e.target.value });
+                    }}
+                    sx={pinAutofill.fieldSx('district')}
+                    fullWidth
+                    disabled={loading}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={3}>
                   <TextField
                     select
                     label="State"
                     value={details.state}
-                    onChange={(e) => setDetails({ ...details, state: e.target.value })}
+                    onChange={(e) => {
+                      pinAutofill.clearHighlight('state');
+                      setDetails({ ...details, state: e.target.value });
+                    }}
+                    sx={pinAutofill.fieldSx('state')}
                     fullWidth
                     disabled={loading}
                   >
@@ -296,17 +342,6 @@ export const QuickCreateLedgerDialog: React.FC<QuickCreateLedgerDialogProps> = (
                       </MenuItem>
                     ))}
                   </TextField>
-                </Grid>
-                <Grid item xs={12} sm={4}>
-                  <TextField
-                    label="PIN"
-                    value={details.pin}
-                    onChange={(e) => setDetails({ ...details, pin: e.target.value })}
-                    fullWidth
-                    placeholder="560001"
-                    disabled={loading}
-                    inputProps={{ maxLength: 6 }}
-                  />
                 </Grid>
               </Grid>
 

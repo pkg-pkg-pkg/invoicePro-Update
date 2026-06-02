@@ -10,6 +10,14 @@ export type AppReleaseInfo = {
   mandatory: boolean;
 };
 
+/** Fallback when Admin has not set downloadUrl in app_config/public. */
+export const DEFAULT_APP_DOWNLOAD_PAGE = 'https://www.prityvanya.com/invoice-pro';
+
+export function resolveDownloadUrl(info: AppReleaseInfo | null | undefined): string {
+  const configured = String(info?.downloadUrl ?? '').trim();
+  return configured || DEFAULT_APP_DOWNLOAD_PAGE;
+}
+
 function parseSemver(s: string): number[] {
   const m = String(s ?? '')
     .trim()
@@ -43,11 +51,11 @@ export async function fetchAppRelease(): Promise<AppReleaseInfo | null> {
     const d = snap.data() as Record<string, unknown>;
     const latestVersion = String(d.latestVersion ?? '').trim();
     const downloadUrl = String(d.downloadUrl ?? '').trim();
-    if (!latestVersion || !downloadUrl) return null;
+    if (!latestVersion) return null;
     return {
       latestVersion,
       minSupportedVersion: d.minSupportedVersion != null ? String(d.minSupportedVersion) : null,
-      downloadUrl,
+      downloadUrl: downloadUrl || DEFAULT_APP_DOWNLOAD_PAGE,
       releaseNotes: String(d.releaseNotes ?? ''),
       mandatory: Boolean(d.mandatory),
     };

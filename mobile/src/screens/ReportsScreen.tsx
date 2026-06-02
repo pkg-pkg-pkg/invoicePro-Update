@@ -14,11 +14,16 @@ import { RootState } from '../store';
 import { canCreateInvoice } from '../utils/permissions';
 import { listParties, PartyRecord } from '../services/partyService';
 import { createSimpleInvoice, InvoiceLineInput } from '../services/invoiceService';
+import { useRoute } from '@react-navigation/native';
 
 export default function ReportsScreen() {
+  const route = useRoute<any>();
   const user = useSelector((state: RootState) => state.auth.user);
   const createAllowed = canCreateInvoice(user?.mobilePermissions);
-  const [invoiceType, setInvoiceType] = useState<'SALES_INVOICE' | 'PURCHASE_INVOICE'>('SALES_INVOICE');
+  const initialType = route?.params?.defaultInvoiceType as 'SALES_INVOICE' | 'PURCHASE_INVOICE' | undefined;
+  const [invoiceType, setInvoiceType] = useState<'SALES_INVOICE' | 'PURCHASE_INVOICE'>(
+    initialType === 'PURCHASE_INVOICE' ? 'PURCHASE_INVOICE' : 'SALES_INVOICE'
+  );
   const [partySearch, setPartySearch] = useState('');
   const [parties, setParties] = useState<PartyRecord[]>([]);
   const [partyId, setPartyId] = useState('');
@@ -79,7 +84,7 @@ export default function ReportsScreen() {
         items,
         notes: notes.trim() || undefined,
       });
-      setMessage(`Invoice created: ${String(invoice?.invoiceNumber || 'Saved')}`);
+      setMessage(`Invoice queued: ${String(invoice?.invoiceNumber || 'PENDING')}. It will sync to desktop.`);
       setItems([{ itemName: '', quantity: 1, rate: 0, gstRate: 18 }]);
       setNotes('');
     } catch (e: any) {

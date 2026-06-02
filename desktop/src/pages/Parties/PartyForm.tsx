@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Alert,
@@ -20,6 +20,8 @@ import {
 import { Party, PartyInput, PartyType } from '../../types/party';
 import { partyService } from '../../services/masters/partyService';
 import { INDIAN_STATES } from '../../utils/constants';
+import { usePincodeAutofill } from '../../hooks/usePincodeAutofill';
+import PincodeTextField from '../../components/PincodeTextField';
 
 export type PartyFormProps = {
   /** When true, used inside a dialog from Sales Voucher etc. — no route navigation. */
@@ -43,6 +45,8 @@ const PartyForm = ({ embedded = false, onSaved, onCancel }: PartyFormProps = {})
     mobile: '',
     gstin: '',
     address: '',
+    city: '',
+    district: '',
     state: '',
     pincode: '',
     partyType: 'BUYER',
@@ -75,6 +79,8 @@ const PartyForm = ({ embedded = false, onSaved, onCancel }: PartyFormProps = {})
           mobile: party.mobile,
           gstin: party.gstin || '',
           address: party.address || '',
+          city: party.city || '',
+          district: party.district || '',
           state: party.state || '',
           pincode: party.pincode || '',
           partyType: party.partyType,
@@ -90,6 +96,17 @@ const PartyForm = ({ embedded = false, onSaved, onCancel }: PartyFormProps = {})
       setLoading(false);
     }
   };
+
+  const pinAutofill = usePincodeAutofill({
+    onFilled: useCallback((addr) => {
+      setFormData((prev) => ({
+        ...prev,
+        city: addr.city,
+        district: addr.district,
+        state: addr.state,
+      }));
+    }, []),
+  });
 
   const handleChange = (field: keyof PartyInput, value: any) => {
     if (field === 'mobile') setMobileDuplicateHint(null);
@@ -315,12 +332,56 @@ const PartyForm = ({ embedded = false, onSaved, onCancel }: PartyFormProps = {})
                   />
                 </Grid>
 
-                <Grid item xs={12} md={4}>
+                <Grid item xs={12} md={3}>
+                  <PincodeTextField
+                    label="Pincode"
+                    value={formData.pincode || ''}
+                    onPinChange={(pin) => handleChange('pincode', pin)}
+                    autofill={pinAutofill}
+                    fullWidth
+                    disabled={loading}
+                    placeholder="e.g., 834005"
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={3}>
+                  <TextField
+                    label="City"
+                    value={formData.city || ''}
+                    onChange={(e) => {
+                      pinAutofill.clearHighlight('city');
+                      handleChange('city', e.target.value);
+                    }}
+                    sx={pinAutofill.fieldSx('city')}
+                    fullWidth
+                    disabled={loading}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={3}>
+                  <TextField
+                    label="District"
+                    value={formData.district || ''}
+                    onChange={(e) => {
+                      pinAutofill.clearHighlight('district');
+                      handleChange('district', e.target.value);
+                    }}
+                    sx={pinAutofill.fieldSx('district')}
+                    fullWidth
+                    disabled={loading}
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={3}>
                   <TextField
                     select
                     label="State"
                     value={formData.state}
-                    onChange={(e) => handleChange('state', e.target.value)}
+                    onChange={(e) => {
+                      pinAutofill.clearHighlight('state');
+                      handleChange('state', e.target.value);
+                    }}
+                    sx={pinAutofill.fieldSx('state')}
                     fullWidth
                     disabled={loading}
                   >
@@ -333,18 +394,6 @@ const PartyForm = ({ embedded = false, onSaved, onCancel }: PartyFormProps = {})
                       </MenuItem>
                     ))}
                   </TextField>
-                </Grid>
-
-                <Grid item xs={12} md={4}>
-                  <TextField
-                    label="Pincode"
-                    value={formData.pincode}
-                    onChange={(e) => handleChange('pincode', e.target.value)}
-                    fullWidth
-                    disabled={loading}
-                    placeholder="e.g., 560001"
-                    inputProps={{ maxLength: 6 }}
-                  />
                 </Grid>
 
                 <Grid item xs={12} md={4}>

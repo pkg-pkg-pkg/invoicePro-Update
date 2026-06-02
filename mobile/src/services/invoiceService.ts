@@ -1,5 +1,5 @@
-import api from './api';
 import { PartyKind } from './partyService';
+import { mobileSyncWorker } from './sync/mobileSyncWorker';
 
 export type InvoiceLineInput = {
   itemName: string;
@@ -25,7 +25,7 @@ export async function createSimpleInvoice(input: {
     discountType: 'PERCENTAGE',
   }));
 
-  const response = await api.post('/invoices', {
+  const payload = {
     type: input.invoiceType,
     date: new Date().toISOString(),
     partyId: input.partyId,
@@ -35,7 +35,13 @@ export async function createSimpleInvoice(input: {
     discount: 0,
     discountType: 'PERCENTAGE',
     items,
-  });
-  return response.data;
+  };
+  const event = await mobileSyncWorker.enqueueCreate('invoice', payload as unknown as Record<string, unknown>);
+  return {
+    success: true,
+    queued: true,
+    invoiceNumber: `PENDING-${event.id.slice(-6).toUpperCase()}`,
+    idempotencyKey: event.idempotencyKey,
+  };
 }
 

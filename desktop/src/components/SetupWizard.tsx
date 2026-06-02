@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -25,6 +25,8 @@ import {
 import { Business, Person, Palette, Backup, Restore, CheckCircle } from '@mui/icons-material';
 import { restoreCompanyDetailsFromCloud, saveCompanyDetailsToCloud, archiveCompanyDetails } from '../services/companyDetailsCloudService';
 import { APP_DISPLAY_NAME, APP_TAGLINE } from '../constants/appBranding';
+import { usePincodeAutofill } from '../hooks/usePincodeAutofill';
+import PincodeTextField from './PincodeTextField';
 
 interface CompanyData {
   name: string;
@@ -34,6 +36,7 @@ interface CompanyData {
   addressLine1: string;
   addressLine2: string;
   city: string;
+  district: string;
   state: string;
   pincode: string;
   phone: string;
@@ -103,6 +106,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ open, onComplete, onRestoreBa
     addressLine1: '',
     addressLine2: '',
     city: '',
+    district: '',
     state: '',
     pincode: '',
     phone: '',
@@ -117,6 +121,17 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ open, onComplete, onRestoreBa
   });
 
   const [errors, setErrors] = useState<Partial<CompanyData>>({});
+
+  const pinAutofill = usePincodeAutofill({
+    onFilled: useCallback((addr) => {
+      setCompanyData((prev) => ({
+        ...prev,
+        city: addr.city,
+        district: addr.district,
+        state: addr.state,
+      }));
+    }, []),
+  });
 
   const steps = hasBackup === false ? [
     'Welcome',
@@ -534,23 +549,54 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ open, onComplete, onRestoreBa
             onChange={(e) => updateCompanyData('addressLine2', e.target.value)}
           />
         </Grid>
-        <Grid item xs={12} md={4}>
+        <Grid item xs={12} md={3}>
+          <PincodeTextField
+            fullWidth
+            label="PIN Code"
+            value={companyData.pincode}
+            onPinChange={(pin) => updateCompanyData('pincode', pin)}
+            autofill={pinAutofill}
+            validationError={!!errors.pincode}
+            helperText={errors.pincode}
+            required
+          />
+        </Grid>
+        <Grid item xs={12} md={3}>
           <TextField
             fullWidth
             label="City"
             value={companyData.city}
-            onChange={(e) => updateCompanyData('city', e.target.value)}
+            onChange={(e) => {
+              pinAutofill.clearHighlight('city');
+              updateCompanyData('city', e.target.value);
+            }}
+            sx={pinAutofill.fieldSx('city')}
             error={!!errors.city}
             helperText={errors.city}
             required
           />
         </Grid>
-        <Grid item xs={12} md={4}>
-          <FormControl fullWidth error={!!errors.state}>
+        <Grid item xs={12} md={3}>
+          <TextField
+            fullWidth
+            label="District"
+            value={companyData.district}
+            onChange={(e) => {
+              pinAutofill.clearHighlight('district');
+              updateCompanyData('district', e.target.value);
+            }}
+            sx={pinAutofill.fieldSx('district')}
+          />
+        </Grid>
+        <Grid item xs={12} md={3}>
+          <FormControl fullWidth error={!!errors.state} sx={pinAutofill.fieldSx('state')}>
             <InputLabel>State *</InputLabel>
             <Select
               value={companyData.state}
-              onChange={(e) => updateCompanyData('state', e.target.value)}
+              onChange={(e) => {
+                pinAutofill.clearHighlight('state');
+                updateCompanyData('state', e.target.value);
+              }}
               label="State"
             >
               {INDIAN_STATES.map((state) => (
@@ -561,17 +607,6 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ open, onComplete, onRestoreBa
             </Select>
             {errors.state && <Typography variant="caption" color="error">{errors.state}</Typography>}
           </FormControl>
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <TextField
-            fullWidth
-            label="PIN Code"
-            value={companyData.pincode}
-            onChange={(e) => updateCompanyData('pincode', e.target.value)}
-            error={!!errors.pincode}
-            helperText={errors.pincode}
-            required
-          />
         </Grid>
       </Grid>
     </Box>

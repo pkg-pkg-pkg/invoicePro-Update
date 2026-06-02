@@ -1,3 +1,5 @@
+import { companyScopedKey, readCompanyScopedRaw } from '../../utils/companyStorage';
+
 type VoucherLike = {
   id: string;
   type: string;
@@ -9,6 +11,9 @@ type VoucherLike = {
 };
 
 type LedgerLike = { id: string; name?: string };
+
+const VOUCHERS_STORAGE_KEY = companyScopedKey('pve_vouchers');
+const LEDGERS_STORAGE_KEY = companyScopedKey('pve_ledger_accounts');
 
 export interface DueReminder {
   voucherId: string;
@@ -46,8 +51,12 @@ const startOfDayTs = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getD
 export const dueReminderService = {
   listUpcoming(daysAhead = 7): DueReminder[] {
     try {
-      const vouchers = JSON.parse(localStorage.getItem('pve_vouchers') || '[]') as VoucherLike[];
-      const ledgers = JSON.parse(localStorage.getItem('pve_ledger_accounts') || '[]') as LedgerLike[];
+      const vouchers = JSON.parse(
+        readCompanyScopedRaw('pve_vouchers') ?? localStorage.getItem(VOUCHERS_STORAGE_KEY) ?? '[]'
+      ) as VoucherLike[];
+      const ledgers = JSON.parse(
+        readCompanyScopedRaw('pve_ledger_accounts') ?? localStorage.getItem(LEDGERS_STORAGE_KEY) ?? '[]'
+      ) as LedgerLike[];
       const ledgerNameMap = new Map<string, string>(ledgers.map((l) => [String(l.id || ''), String(l.name || '')]));
       const active = vouchers.filter((v) => v && (v.status ?? 'ACTIVE') === 'ACTIVE');
       const today = new Date();

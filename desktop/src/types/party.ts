@@ -8,6 +8,7 @@ export interface Party {
   gstin?: string;
   address?: string;
   city?: string;
+  district?: string;
   state?: string;
   pincode?: string;
   partyType: PartyType;
@@ -35,6 +36,8 @@ export interface PartyInput {
   mobile: string;
   gstin?: string;
   address?: string;
+  city?: string;
+  district?: string;
   state?: string;
   pincode?: string;
   partyType: PartyType;

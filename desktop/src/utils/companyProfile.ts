@@ -5,6 +5,7 @@ export interface NormalizedCompanyProfile {
   gstin: string;
   phone: string;
   email: string;
+  website: string;
   state: string;
   city: string;
   pinCode: string;
@@ -35,6 +36,7 @@ export function getNormalizedCompanyProfile(): NormalizedCompanyProfile {
       gstin: String(parsed?.gstin || parsed?.gstNumber || localStorage.getItem('companyGSTIN') || '').trim(),
       phone: String(parsed?.phone || localStorage.getItem('companyPhone') || '').trim(),
       email: String(parsed?.email || localStorage.getItem('companyEmail') || '').trim(),
+      website: String(parsed?.website || '').trim(),
       state: String(parsed?.state || '').trim(),
       city: String(parsed?.city || '').trim(),
       pinCode: String(parsed?.pinCode || '').trim(),
@@ -53,6 +55,7 @@ export function getNormalizedCompanyProfile(): NormalizedCompanyProfile {
       gstin: '',
       phone: '',
       email: '',
+      website: '',
       state: '',
       city: '',
       pinCode: '',

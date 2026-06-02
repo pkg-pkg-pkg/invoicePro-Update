@@ -1,8 +1,9 @@
 // D:\PVEB\Desktop\src\pages\PurchaseInvoices.tsx
 // Purchase invoice screen for bills from suppliers
 
-import { useEffect, useState, FormEvent } from "react";
+import { useEffect, useMemo, useState, FormEvent } from "react";
 import { useDispatch, useSelector } from 'react-redux';
+import { useSearchParams } from "react-router-dom";
 import {
   Box,
   Typography,
@@ -43,9 +44,10 @@ import SchemePopup from '../components/SchemePopup';
 import { docApi, getHostBaseUrl } from '../services/docApi';
 import { getAppSettings, getDefaultTodayForEntry, validateTransactionDate } from '../services/appSettingsService';
 import { usePermissions } from '../hooks/usePermissions';
+import { companyScopedKey, readCompanyScopedRaw } from '../utils/companyStorage';
 
-const PURCHASE_STORAGE_KEY = 'pve_invoicepro_purchase_invoices';
-const SUPPLIERS_STORAGE_KEY = 'pve_suppliers';
+const PURCHASE_STORAGE_KEY = companyScopedKey('pve_invoicepro_purchase_invoices');
+const SUPPLIERS_STORAGE_KEY = companyScopedKey('pve_suppliers');
 
 const isLanDocsEnabled = () => {
   try {
@@ -57,7 +59,7 @@ const isLanDocsEnabled = () => {
 
 const loadStoredPurchaseBills = (): InvoiceData[] => {
   try {
-    const raw = localStorage.getItem(PURCHASE_STORAGE_KEY);
+    const raw = readCompanyScopedRaw('pve_invoicepro_purchase_invoices') ?? localStorage.getItem(PURCHASE_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as InvoiceData[]) : [];
@@ -76,7 +78,7 @@ const saveStoredPurchaseBills = (items: InvoiceData[]) => {
 
 const loadStoredSuppliers = (): any[] => {
   try {
-    const raw = localStorage.getItem(SUPPLIERS_STORAGE_KEY);
+    const raw = readCompanyScopedRaw('pve_suppliers') ?? localStorage.getItem(SUPPLIERS_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -175,7 +177,22 @@ interface InvoiceItem {
   };
 }
 
+const toLocalYmd = (date: Date): string => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const isDateWithinInclusive = (input: string, fromYmd: string, toYmd: string): boolean => {
+  const d = new Date(input);
+  if (Number.isNaN(d.getTime())) return false;
+  const at = toLocalYmd(d);
+  return at >= fromYmd && at <= toYmd;
+};
+
 export default function PurchaseInvoices() {
+  const [searchParams] = useSearchParams();
   const dispatch = useDispatch<AppDispatch>();
   const suppliersFromStore = useSelector((state: RootState) => (state as any).parties?.suppliers ?? []);
   const productsFromStore = useSelector((state: RootState) => (state as any).products?.items ?? []);
@@ -240,6 +257,8 @@ export default function PurchaseInvoices() {
   const [amountRangeFilter, setAmountRangeFilter] = useState<'all' | '0-1000' | '1000-5000' | '5000-25000' | '25000+'>('all');
   const [sortBy, setSortBy] = useState<'date' | 'amount' | 'supplier'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [periodView, setPeriodView] = useState<'default' | 'month' | 'year'>('default');
+  const [drillMonthRange, setDrillMonthRange] = useState<{ from: string; to: string; label: string } | null>(null);
 
   const [formData, setFormData] = useState<InvoiceData>({
     invoiceNumber: "",
@@ -352,6 +371,22 @@ export default function PurchaseInvoices() {
     setSortOrder('desc');
   };
 
+  useEffect(() => {
+    const requestedPeriod = String(searchParams.get('viewPeriod') || '').toLowerCase();
+    if (requestedPeriod === 'month') {
+      setPeriodView('month');
+      setDrillMonthRange(null);
+      return;
+    }
+    if (requestedPeriod === 'year') {
+      setPeriodView('year');
+      setDrillMonthRange(null);
+      return;
+    }
+    setPeriodView('default');
+    setDrillMonthRange(null);
+  }, [searchParams]);
+
   // Apply filters to purchase invoices
   const getFilteredInvoices = () => {
     let filtered = [...invoices];
@@ -450,6 +485,61 @@ export default function PurchaseInvoices() {
 
     return filtered;
   };
+
+  const fyStartYear = Number.parseInt(String(searchParams.get('fyStart') || ''), 10);
+  const fyRange = useMemo(() => {
+    if (!Number.isFinite(fyStartYear)) return null;
+    return {
+      from: `${fyStartYear}-04-01`,
+      to: `${fyStartYear + 1}-03-31`,
+      label: `${fyStartYear}-${String((fyStartYear + 1) % 100).padStart(2, '0')}`,
+    };
+  }, [fyStartYear]);
+
+  const monthRange = useMemo(() => {
+    const now = new Date();
+    return {
+      from: toLocalYmd(new Date(now.getFullYear(), now.getMonth(), 1)),
+      to: toLocalYmd(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+    };
+  }, []);
+
+  const filteredInvoices = useMemo(() => {
+    let rows = getFilteredInvoices();
+    if (periodView === 'month') {
+      rows = rows.filter((invoice) => isDateWithinInclusive(invoice.date, monthRange.from, monthRange.to));
+    } else if (periodView === 'year') {
+      if (drillMonthRange) {
+        rows = rows.filter((invoice) => isDateWithinInclusive(invoice.date, drillMonthRange.from, drillMonthRange.to));
+      } else if (fyRange) {
+        rows = rows.filter((invoice) => isDateWithinInclusive(invoice.date, fyRange.from, fyRange.to));
+      }
+    }
+    return rows;
+  }, [periodView, monthRange.from, monthRange.to, drillMonthRange, fyRange, invoices, searchTerm, dateFilter, paymentStatusFilter, amountRangeFilter, sortBy, sortOrder]);
+
+  const yearlyMonthRows = useMemo(() => {
+    if (periodView !== 'year' || drillMonthRange) return [];
+    const scoped = fyRange
+      ? filteredInvoices.filter((invoice) => isDateWithinInclusive(invoice.date, fyRange.from, fyRange.to))
+      : filteredInvoices;
+    const monthMap = new Map<string, { label: string; from: string; to: string; count: number; amount: number }>();
+    scoped.forEach((invoice) => {
+      const d = new Date(invoice.date);
+      if (Number.isNaN(d.getTime())) return;
+      const y = d.getFullYear();
+      const m = d.getMonth();
+      const key = `${y}-${String(m + 1).padStart(2, '0')}`;
+      const from = toLocalYmd(new Date(y, m, 1));
+      const to = toLocalYmd(new Date(y, m + 1, 0));
+      const label = new Date(y, m, 1).toLocaleString(undefined, { month: 'short', year: 'numeric' });
+      const cur = monthMap.get(key) ?? { label, from, to, count: 0, amount: 0 };
+      cur.count += 1;
+      cur.amount += Number(invoice.grandTotal || 0);
+      monthMap.set(key, cur);
+    });
+    return Array.from(monthMap.values()).sort((a, b) => (a.from < b.from ? 1 : -1));
+  }, [periodView, drillMonthRange, filteredInvoices, fyRange]);
 
   const calculateTotals = (items: InvoiceItem[], discount: any) => {
     const discountNum = Number(discount);
@@ -773,6 +863,22 @@ export default function PurchaseInvoices() {
           New Purchase Bill
         </Button>
       </Box>
+      {periodView !== 'default' && (
+        <Paper sx={{ p: 1.5, mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="body2" fontWeight={700}>
+            {periodView === 'month'
+              ? `Monthly view: ${monthRange.from} to ${monthRange.to}`
+              : drillMonthRange
+                ? `Yearly view (${fyRange?.label || 'FY'}) · Month: ${drillMonthRange.label}`
+                : `Yearly view (${fyRange?.label || 'All data'}) · Month-wise summary`}
+          </Typography>
+          {periodView === 'year' && drillMonthRange && (
+            <Button size="small" onClick={() => setDrillMonthRange(null)}>
+              Back to Month Summary
+            </Button>
+          )}
+        </Paper>
+      )}
 
       {/* Enhanced Filtering */}
       <Paper sx={{ p: 2, mb: 3 }}>
@@ -895,7 +1001,39 @@ export default function PurchaseInvoices() {
       </Paper>
 
       <Paper sx={{ p: 2 }}>
-        {getFilteredInvoices().length === 0 ? (
+        {periodView === 'year' && !drillMonthRange ? (
+          yearlyMonthRows.length === 0 ? (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <Typography variant="h6" color="text.secondary" gutterBottom>
+                No yearly month-wise purchase data found
+              </Typography>
+            </Box>
+          ) : (
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Month</TableCell>
+                  <TableCell align="right">Bills</TableCell>
+                  <TableCell align="right">Total Purchase</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {yearlyMonthRows.map((row) => (
+                  <TableRow
+                    key={row.from}
+                    hover
+                    sx={{ cursor: 'pointer' }}
+                    onClick={() => setDrillMonthRange({ from: row.from, to: row.to, label: row.label })}
+                  >
+                    <TableCell>{row.label}</TableCell>
+                    <TableCell align="right">{row.count}</TableCell>
+                    <TableCell align="right">₹{row.amount.toLocaleString()}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )
+        ) : filteredInvoices.length === 0 ? (
           <Box sx={{ textAlign: 'center', py: 4 }}>
             <Typography variant="h6" color="text.secondary" gutterBottom>
               No purchase bills found
@@ -919,7 +1057,7 @@ export default function PurchaseInvoices() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {getFilteredInvoices().map((invoice) => {
+              {filteredInvoices.map((invoice) => {
                 const schemeCount = (invoice.items || []).filter((it: any) => it.appliedSchemeId).length;
                 return (
                   <TableRow key={invoice.invoiceNumber} hover>

@@ -5,6 +5,7 @@ import { useTheme, alpha } from '@mui/material/styles';
 import EditIcon from '@mui/icons-material/Edit';
 import NavigationCustomization from '../components/NavigationCustomization';
 import PrintCustomization from '../components/PrintCustomization';
+import InvoiceTemplateSelector from '../components/invoice/InvoiceTemplateSelector';
 import WhatsAppSettings from '../components/WhatsAppSettings';
 import UserManagement from './UserManagement';
 import AboutAndUpdates from '../components/AboutAndUpdates';
@@ -15,6 +16,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getAppSettings, saveAppSettings } from '../services/appSettingsService';
 import { usePermissions } from '../hooks/usePermissions';
 import { isTauriRuntime, isElectronRuntime } from '../utils/runtime';
+import { persistActiveCompanyLocalData } from '../services/companyRegistryService';
 import { auth } from '../firebase/firebase';
 import {
   callSubmitMultiUserUpgrade,
@@ -46,6 +48,11 @@ import {
 } from '../theme/appearanceSettings';
 import { APP_DISPLAY_NAME } from '@/constants/appBranding';
 import { settingsIdentityHeroGradient } from '../theme/authScreenChrome';
+import CreateCompanyDialog from '../components/CreateCompanyDialog';
+import CompanySelectScreen from '../components/CompanySelectScreen';
+import { setDefaultCompany } from '../services/companyRegistryService';
+import { getActiveCompanyId } from '../utils/companyStorage';
+import { getSessionSettings, setSessionSettings } from '../services/sessionManager';
 
 // Password Change Form Component
 const PasswordChangeForm = () => {
@@ -200,6 +207,7 @@ interface CompanyProfile {
   mobiles: string;
   email: string;
   website: string;
+  upiId: string;
   gstin: string;
 }
 
@@ -326,6 +334,11 @@ export default function Settings() {
   const navigate = useNavigate();
   const [networkStatus, setNetworkStatus] = useState<NetworkStatus>(networkService.getStatus());
   const [deskHint, setDeskHint] = useState('Open Company Profile and keep legal details updated.');
+  const [createCompanyOpen, setCreateCompanyOpen] = useState(false);
+  const [switchCompanyOpen, setSwitchCompanyOpen] = useState(false);
+  const [sessionDaysDefault, setSessionDaysDefault] = useState(7);
+  const [sessionDaysRemember, setSessionDaysRemember] = useState(30);
+  const [sessionSettingsSaved, setSessionSettingsSaved] = useState(false);
 
   // Deep-link from Connect to Host: #/settings?tab=multiuser (UPI / LAN upgrade)
   useEffect(() => {
@@ -351,8 +364,31 @@ export default function Settings() {
       setActiveTab(10);
     } else if (t === 'companydesk' || t === 'companyops') {
       setActiveTab(11);
+    } else if (t === 'security') {
+      setActiveTab(12);
     }
   }, [location.search, location.pathname]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (activeTab !== 11) return;
+      if (e.altKey && e.shiftKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        setCreateCompanyOpen(true);
+        setDeskHint('Create a new company with isolated data folder (PVE1002, PVE1003, …).');
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 12) return;
+    void getSessionSettings().then((s) => {
+      setSessionDaysDefault(s.sessionDaysDefault);
+      setSessionDaysRemember(s.sessionDaysRemember);
+    });
+  }, [activeTab]);
 
   const [appSettings, setAppSettings] = useState(() => getAppSettings());
   const [appSettingsSaved, setAppSettingsSaved] = useState(false);
@@ -409,6 +445,7 @@ export default function Settings() {
     9: 'Layout',
     10: 'App Settings',
     11: 'Company Desk',
+    12: 'Security',
   };
 
   const loadCompanyProfile = (): CompanyProfile => ({
@@ -418,7 +455,8 @@ export default function Settings() {
     mobiles: localStorage.getItem('companyMobiles')?.trim() || '',
     email: localStorage.getItem('companyEmail')?.trim() || '',
     website: localStorage.getItem('companyWebsite')?.trim() || '',
-    gstin: localStorage.getItem('companyGSTIN')?.trim() || ''
+    upiId: localStorage.getItem('companyUpiId')?.trim() || '',
+    gstin: localStorage.getItem('companyGSTIN')?.trim() || '',
   });
 
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile>(loadCompanyProfile());
@@ -943,24 +981,42 @@ export default function Settings() {
       return;
     }
 
+    const statePin = companyProfile.statePin.trim();
+    const statePinParts = statePin.split(',').map((s) => s.trim()).filter(Boolean);
+    const parsedCity = statePinParts[0] || '';
+    const parsedState = (statePinParts[1] || '').replace(/\s*-?\s*\d{6}$/, '').trim();
+
     // Save to localStorage
     localStorage.setItem('companyName', companyProfile.name.trim());
     localStorage.setItem('companyAddress', companyProfile.address.trim());
-    localStorage.setItem('companyStatePin', companyProfile.statePin.trim());
+    localStorage.setItem('companyStatePin', statePin);
     localStorage.setItem('companyMobiles', companyProfile.mobiles.trim());
     localStorage.setItem('companyEmail', companyProfile.email.trim());
     localStorage.setItem('companyWebsite', companyProfile.website.trim());
+    localStorage.setItem('companyUpiId', companyProfile.upiId.trim());
     localStorage.setItem('companyGSTIN', companyProfile.gstin.trim());
 
     upsertCompanyInfo({
       name: companyProfile.name.trim(),
+      businessName: companyProfile.name.trim(),
       address: companyProfile.address.trim(),
       phone: companyProfile.mobiles.trim(),
       email: companyProfile.email.trim(),
+      upiId: companyProfile.upiId.trim(),
       gstin: companyProfile.gstin.trim(),
+      city: parsedCity,
+      state: parsedState,
+      statePin,
       logo: companyMedia.logo ?? '',
       signature: companyMedia.signature ?? '',
     });
+
+    void (async () => {
+      const persisted = await persistActiveCompanyLocalData();
+      if (!persisted.success && persisted.error) {
+        console.warn('[Settings] company disk sync failed', persisted.error);
+      }
+    })();
 
     // Dispatch event for other components to update
     window.dispatchEvent(new Event('companyProfileUpdated'));
@@ -1199,6 +1255,15 @@ export default function Settings() {
                       fullWidth
                       InputProps={{ sx: { borderRadius: 2 } }}
                     />
+                    <TextField
+                      label="UPI ID (for invoice QR)"
+                      value={companyProfile.upiId}
+                      onChange={(e) => handleFieldChange('upiId', e.target.value)}
+                      fullWidth
+                      placeholder="yourname@upi"
+                      helperText="Shown as Scan to Pay QR on printed invoices when set"
+                      InputProps={{ sx: { borderRadius: 2 } }}
+                    />
                     <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
                       <Button variant="contained" size="large" onClick={handleSave} sx={{ px: 6, borderRadius: 2 }}>
                         Save Profile
@@ -1216,6 +1281,7 @@ export default function Settings() {
                       { label: 'Phone', value: companyProfile.mobiles, icon: '📞' },
                       { label: 'Email', value: companyProfile.email, icon: '✉️' },
                       { label: 'Website', value: companyProfile.website, icon: '🌐' },
+                      { label: 'UPI ID', value: companyProfile.upiId, icon: '💳' },
                       { label: 'Address', value: companyProfile.address, icon: '📍', full: true },
                       { label: 'State & PIN', value: companyProfile.statePin, icon: '🗺️' },
                     ].map((item, idx) => (
@@ -1572,6 +1638,11 @@ export default function Settings() {
             </Typography>
             <Grid container spacing={3}>
               <AppearanceSettingsSection />
+              <Grid item xs={12}>
+                <Paper sx={{ p: 3, bgcolor: 'var(--bg-card)', borderRadius: '16px' }}>
+                  <InvoiceTemplateSelector showSaveButton />
+                </Paper>
+              </Grid>
             </Grid>
           </Box>
         )}
@@ -1854,6 +1925,46 @@ export default function Settings() {
                     >
                       Financial Year / Date Lock
                     </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      sx={{ justifyContent: 'flex-start' }}
+                      onClick={() => {
+                        setDeskHint('Create a new company; each business gets its own data folder (PVE1002, …).');
+                        setCreateCompanyOpen(true);
+                      }}
+                    >
+                      Create New Company (Alt+Shift+N)
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      sx={{ justifyContent: 'flex-start' }}
+                      onClick={() => {
+                        setDeskHint('Switch active company — invoices, stock, and masters reload from that folder.');
+                        setSwitchCompanyOpen(true);
+                      }}
+                    >
+                      Switch Company
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      sx={{ justifyContent: 'flex-start' }}
+                      onClick={() => {
+                        void (async () => {
+                          try {
+                            const id = getActiveCompanyId();
+                            await setDefaultCompany(id);
+                            setDeskHint(`${id} is now the default company when you open the app.`);
+                          } catch (e: unknown) {
+                            setDeskHint(String((e as Error)?.message ?? 'Failed to set default company'));
+                          }
+                        })();
+                      }}
+                    >
+                      Set Current as Default
+                    </Button>
                   </Stack>
 
                   <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 700 }}>
@@ -1961,6 +2072,17 @@ export default function Settings() {
                       variant="outlined"
                       sx={{ justifyContent: 'flex-start' }}
                       onClick={() => {
+                        setDeskHint('Configure login session length (7 / 30 days).');
+                        setActiveTab(12);
+                      }}
+                    >
+                      Security / Session
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      sx={{ justifyContent: 'flex-start' }}
+                      onClick={() => {
                         setDeskHint('Control FY lock, date lock and invoice numbering format.');
                         setActiveTab(10);
                       }}
@@ -1986,26 +2108,70 @@ export default function Settings() {
               <Grid item xs={12} md={8}>
                 <Paper sx={{ p: 3, border: '1px solid var(--border)', minHeight: 360 }}>
                   <Typography variant="h6" fontWeight={800} gutterBottom>
-                    Action Guidance
+                    Your companies
                   </Typography>
                   <Alert severity="info" sx={{ mb: 2 }}>
-                    {deskHint}
+                    {deskHint} Open a company, set default, or use <strong>Delete Company</strong> on the
+                    right of each card. At least one company must remain.
                   </Alert>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                    Suggested daily flow:
-                  </Typography>
-                  <Box component="ol" sx={{ m: 0, pl: 2.5 }}>
-                    <li><Typography variant="body2">Company Profile verify करें (GSTIN, contact, branding).</Typography></li>
-                    <li><Typography variant="body2">Financial Year and lock date review करें.</Typography></li>
-                    <li><Typography variant="body2">Backup status check करें (daily / weekly).</Typography></li>
-                    <li><Typography variant="body2">Network mode verify करें (single or LAN multi-user).</Typography></li>
-                    <li><Typography variant="body2">Dashboard खोलकर operations start करें.</Typography></li>
-                  </Box>
+                  <CompanySelectScreen mode="embedded" open={activeTab === 11} />
                 </Paper>
               </Grid>
             </Grid>
           </Box>
         )}
+
+        {activeTab === 12 && (
+          <Box sx={{ mt: 3 }}>
+            <Paper sx={{ p: 3, border: '1px solid var(--border)', maxWidth: 480 }}>
+              <Typography variant="h6" fontWeight={800} gutterBottom>
+                Session &amp; Login
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Control how long you stay signed in on this PC. Passwords are stored hashed locally; no internet required for session restore.
+              </Typography>
+              <Stack spacing={2}>
+                <TextField
+                  label="Default session (days)"
+                  type="number"
+                  size="small"
+                  value={sessionDaysDefault}
+                  onChange={(e) => setSessionDaysDefault(Number(e.target.value) || 7)}
+                  inputProps={{ min: 1, max: 365 }}
+                  helperText="Used when Remember me is off (default 7 days)"
+                />
+                <TextField
+                  label="Remember me session (days)"
+                  type="number"
+                  size="small"
+                  value={sessionDaysRemember}
+                  onChange={(e) => setSessionDaysRemember(Number(e.target.value) || 30)}
+                  inputProps={{ min: 1, max: 365 }}
+                  helperText="Used when Remember me is checked on login (default 30 days)"
+                />
+                <Button
+                  variant="contained"
+                  onClick={() => {
+                    void setSessionSettings({
+                      sessionDaysDefault,
+                      sessionDaysRemember,
+                    }).then(() => setSessionSettingsSaved(true));
+                  }}
+                >
+                  Save security settings
+                </Button>
+                {sessionSettingsSaved && (
+                  <Alert severity="success" onClose={() => setSessionSettingsSaved(false)}>
+                    Session settings saved.
+                  </Alert>
+                )}
+              </Stack>
+            </Paper>
+          </Box>
+        )}
+
+      <CreateCompanyDialog open={createCompanyOpen} onClose={() => setCreateCompanyOpen(false)} />
+      <CompanySelectScreen mode="switch" open={switchCompanyOpen} onClose={() => setSwitchCompanyOpen(false)} />
     </Box>
   );
 }

@@ -24,6 +24,9 @@ import { getEncryptedItem, setEncryptedItem } from './secureStorage';
 import { getDeviceId } from './deviceService';
 import { detectDeviceChange, bindCurrentDevice } from './deviceChangeDetector';
 import { syncPasswordToFirestore } from './userProfileService';
+import { isElectronRuntime } from '../utils/runtime';
+import { validateDesktopSession } from './sessionManager';
+import { withTimeout } from '../utils/withTimeout';
 
 const USERS_STORAGE_KEY = 'gst_billing_users';
 const LOCAL_LICENSE_CACHE_KEY = 'enc_license_cache_v1';
@@ -317,8 +320,22 @@ async function ensureLocalUser(email: string, password: string, activationKey: s
   return adminUser;
 }
 
+function getStoredAuthUser(): { email: string; id: string } | null {
+  try {
+    const raw = localStorage.getItem('user');
+    if (!raw) return null;
+    const u = JSON.parse(raw) as { email?: string; username?: string; id?: string };
+    const email = norm(u.email || u.username);
+    if (!email) return null;
+    return { email, id: String(u.id || '') };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * License validation for app startup (after user is authenticated).
+ * Works with Firebase user OR desktop session restored from local_users.db.
  */
 export async function validateLicenseAndDevice(): Promise<{
   isValid: boolean;
@@ -330,13 +347,17 @@ export async function validateLicenseAndDevice(): Promise<{
   try {
     const deviceId = await getDeviceId();
     const activeUser = auth?.currentUser;
-    if (!activeUser) {
+    const stored = getStoredAuthUser();
+    if (!activeUser && !stored?.email) {
       return {
         isValid: false,
         needsActivation: true,
         reason: 'Authentication required',
       };
     }
+
+    const sessionEmail = activeUser ? norm(activeUser.email || '') : stored!.email;
+    const sessionUid = activeUser ? String(activeUser.uid || '') : stored!.id;
 
     // First ensure the local device binding hasn't changed
     const deviceCheck = await detectDeviceChange();
@@ -356,7 +377,7 @@ export async function validateLicenseAndDevice(): Promise<{
     let hasValidCache = false;
     if (cachedKey) {
       const cacheUid = String(cache?.uid || '');
-      if (cacheUid && cacheUid !== String(activeUser.uid || '')) {
+      if (activeUser && cacheUid && cacheUid !== sessionUid) {
         return {
           isValid: false,
           needsActivation: true,
@@ -364,7 +385,6 @@ export async function validateLicenseAndDevice(): Promise<{
         };
       }
       const cacheEmail = String(cache?.email || '').trim().toLowerCase();
-      const sessionEmail = String(activeUser.email || '').trim().toLowerCase();
       if (cacheEmail && sessionEmail && cacheEmail !== sessionEmail) {
         return {
           isValid: false,
@@ -393,15 +413,45 @@ export async function validateLicenseAndDevice(): Promise<{
 
       const cachedAt = Number(cache?.cachedAt || 0);
       const age = cachedAt > 0 ? Date.now() - cachedAt : Number.POSITIVE_INFINITY;
-      const freshEnough = age >= 0 && age <= MAX_OFFLINE_LICENSE_CACHE_AGE_MS;
+      let freshEnough = age >= 0 && age <= MAX_OFFLINE_LICENSE_CACHE_AGE_MS;
+      if (!freshEnough && isElectronRuntime()) {
+        const desktopSession = await validateDesktopSession();
+        if (desktopSession.valid) freshEnough = true;
+      }
       if (freshEnough) {
         return { isValid: true, needsActivation: false, multiUserLan: Boolean(cache?.multiUserLan) };
       }
     }
 
-    // Cache absent/stale or mismatch => mandatory online validation.
+    // Session-only auth (no Firebase): allow startup from cache + valid desktop session
+    if (!activeUser) {
+      if (hasValidCache && isElectronRuntime()) {
+        const desktopSession = await validateDesktopSession();
+        if (desktopSession.valid) {
+          return { isValid: true, needsActivation: false, multiUserLan: Boolean(cache?.multiUserLan) };
+        }
+      }
+      return {
+        isValid: false,
+        needsActivation: true,
+        reason: isOnline()
+          ? 'Sign in while online once to refresh your licence.'
+          : 'Offline use requires a previous sign-in on this computer.',
+      };
+    }
+
+    // Cache absent/stale or mismatch => mandatory online validation (Firebase).
     try {
-      const result = await validateOnLoginOrStart();
+      const result = await withTimeout(validateOnLoginOrStart(), 15000, {
+        ok: false,
+        reason: 'License check timed out. Connect to the internet and sign in again.',
+      });
+      if (!result.ok && hasValidCache) {
+        const timedOut = String((result as any).reason || '').toLowerCase().includes('timed out');
+        if (timedOut || !isOnline()) {
+          return { isValid: true, needsActivation: false, multiUserLan: Boolean(cache?.multiUserLan) };
+        }
+      }
       if (result.ok) {
         return { isValid: true, needsActivation: false, multiUserLan: Boolean((result as any).multiUserLan) };
       }

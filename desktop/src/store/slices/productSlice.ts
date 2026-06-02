@@ -6,6 +6,7 @@ const API = (import.meta.env?.VITE_API_URL || 'http://localhost:3000/api').repla
 import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 import { docApi, getHostBaseUrl } from '../../services/docApi';
+import { companyScopedKey, readCompanyScopedRaw } from '../../utils/companyStorage';
 
 export interface Product {
   id: string;
@@ -90,14 +91,14 @@ const isLanDocsEnabled = () => {
   }
 };
 
-const PRODUCTS_STORAGE_KEY = 'pve_products';
-const INVENTORY_ITEMS_STORAGE_KEY = 'pve_inventory_items';
-const CATEGORIES_STORAGE_KEY = 'pve_product_categories';
+const PRODUCTS_STORAGE_KEY = companyScopedKey('pve_products');
+const INVENTORY_ITEMS_STORAGE_KEY = companyScopedKey('pve_inventory_items');
+const CATEGORIES_STORAGE_KEY = companyScopedKey('pve_product_categories');
 
-const SALES_INVOICES_STORAGE_KEY = 'pve_invoicepro_invoices';
-const PURCHASE_BILLS_STORAGE_KEY = 'pve_invoicepro_purchase_invoices';
-const CREDIT_NOTES_STORAGE_KEY = 'pve_invoicepro_credit_notes';
-const DEBIT_NOTES_STORAGE_KEY = 'pve_invoicepro_debit_notes';
+const SALES_INVOICES_STORAGE_KEY = companyScopedKey('pve_invoicepro_invoices');
+const PURCHASE_BILLS_STORAGE_KEY = companyScopedKey('pve_invoicepro_purchase_invoices');
+const CREDIT_NOTES_STORAGE_KEY = companyScopedKey('pve_invoicepro_credit_notes');
+const DEBIT_NOTES_STORAGE_KEY = companyScopedKey('pve_invoicepro_debit_notes');
 
 const getStoredProducts = (): Product[] => {
   try {
@@ -130,9 +131,9 @@ const getStoredProducts = (): Product[] => {
         } as Product;
       });
 
-    const raw = localStorage.getItem(PRODUCTS_STORAGE_KEY);
+    const raw = readCompanyScopedRaw('pve_products');
     if (!raw) {
-      const invRaw = localStorage.getItem(INVENTORY_ITEMS_STORAGE_KEY);
+      const invRaw = readCompanyScopedRaw('pve_inventory_items');
       if (!invRaw) return [];
       const invParsed = JSON.parse(invRaw);
       if (!Array.isArray(invParsed)) return [];
@@ -141,7 +142,7 @@ const getStoredProducts = (): Product[] => {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     if (parsed.length > 0) return parsed as Product[];
-    const invRaw = localStorage.getItem(INVENTORY_ITEMS_STORAGE_KEY);
+    const invRaw = readCompanyScopedRaw('pve_inventory_items');
     if (!invRaw) return [];
     const invParsed = JSON.parse(invRaw);
     if (!Array.isArray(invParsed)) return [];
@@ -157,7 +158,7 @@ const saveStoredProducts = (products: Product[]) => {
 
 const loadStoredList = (key: string): any[] => {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = readCompanyScopedRaw(key.replace(/::.*$/, '')) ?? localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -192,7 +193,7 @@ const isProductUsedInBilling = (product: Pick<Product, 'id' | 'name' | 'code' | 
 
 const getStoredCategories = (): Category[] => {
   try {
-    const raw = localStorage.getItem(CATEGORIES_STORAGE_KEY);
+    const raw = readCompanyScopedRaw('pve_product_categories');
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed as Category[];

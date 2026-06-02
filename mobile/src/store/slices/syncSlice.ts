@@ -1,10 +1,12 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 interface SyncState {
-  lastSyncAt: Date | null;
+  lastSyncAt: string | null;
   isSyncing: boolean;
   pendingChanges: number;
   error: string | null;
+  endpointBase: string;
+  lastError: string | null;
 }
 
 const initialState: SyncState = {
@@ -12,6 +14,8 @@ const initialState: SyncState = {
   isSyncing: false,
   pendingChanges: 0,
   error: null,
+  endpointBase: 'http://localhost:3399/mobile-sync',
+  lastError: null,
 };
 
 const syncSlice = createSlice({
@@ -27,7 +31,7 @@ const syncSlice = createSlice({
     },
     syncSuccess: (state) => {
       state.isSyncing = false;
-      state.lastSyncAt = new Date();
+      state.lastSyncAt = new Date().toISOString();
       state.pendingChanges = 0;
     },
     syncError: (state, action: PayloadAction<string>) => {

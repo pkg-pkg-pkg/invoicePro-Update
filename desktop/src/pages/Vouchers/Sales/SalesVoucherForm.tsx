@@ -37,6 +37,7 @@ import { partyService } from '../../../services/masters/partyService';
 import { inventoryItemService } from '../../../services/masters/inventoryItemService';
 import { godownService } from '../../../services/masters/godownService';
 import { voucherService } from '../../../services/vouchers/voucherService';
+import { peekNextInvoiceNumber } from '../../../services/vouchers/invoiceNumberService';
 import { LedgerAccount, InventoryItem, Godown } from '../../../types/masters';
 import { Party } from '../../../types/party';
 import { usePermission } from '../../../hooks/usePermission';
@@ -45,6 +46,9 @@ import { useFocusField } from '../../../hooks/useFocusField';
 import { generateId } from '../../../utils/id';
 import InvoiceHeader from './components/InvoiceHeader';
 import PartyCards, { PartyInfo } from './components/PartyCards';
+import { erpContainedButtonSx } from '../../../theme/erpButtonStyles';
+import { usePincodeAutofill } from '../../../hooks/usePincodeAutofill';
+import PincodeTextField from '../../../components/PincodeTextField';
 import ActionFooter from './components/ActionFooter';
 import AdditionalCharges, { AdditionalChargeState } from './components/AdditionalCharges';
 import { decideGSTType } from '../../../services/vouchers/gstDecisionEngine';
@@ -60,7 +64,15 @@ import { rateMemory } from '../../../services/reports/rateMemory';
 import { getNormalizedCompanyProfile } from '../../../utils/companyProfile';
 import schemeService, { Scheme } from '../../../services/schemeService';
 import { calculateFinalQuantity, getBestScheme } from '../../../services/schemeResolutionEngine';
-import { buildInvoiceHTML, downloadPDF, printInvoice, PrintFormat } from '../../../services/printService';
+import { buildInvoiceHTML, PrintFormat } from '../../../services/printService';
+import { getInvoicePrintLayout, getInvoiceTemplateId } from '../../../services/companySettingsService';
+import type { InvoiceTemplateId } from '../../../templates/invoice/invoiceTemplatesConfig';
+import PrintExportSetupDialog, {
+  type PrintExportAction,
+  type PrintExportBuildInput,
+} from '../../../components/invoice/PrintExportSetupDialog';
+import { resolvePrintFormatFromLayout } from '../../../services/voucherPrintBuilder';
+import { runInvoicePrintExportAction } from '../../../services/invoicePrintFlow';
 
 interface ItemLineState {
   lineId: string;
@@ -126,6 +138,7 @@ const isLineDataValid = (line: ItemLineState) =>
 
 const SalesVoucherForm = () => {
   const navigate = useNavigate();
+  const mountedRef = useRef(true);
   const { id: editVoucherId } = useParams<{ id?: string }>();
   const { can } = usePermission();
   const canCreate = can('create-vouchers');
@@ -159,12 +172,44 @@ const SalesVoucherForm = () => {
   const [showQuickCreateCustomer, setShowQuickCreateCustomer] = useState(false);
   const [showQuickCreateSales, setShowQuickCreateSales] = useState(false);
   const [showQuickCreateItem, setShowQuickCreateItem] = useState(false);
+  const [invoiceTemplateOverride, setInvoiceTemplateOverride] = useState<InvoiceTemplateId | null>(null);
+  const [printSetup, setPrintSetup] = useState<{ open: boolean; action: PrintExportAction; applyOnly?: boolean }>({
+    open: false,
+    action: 'print',
+  });
   const [pendingScannedBarcode, setPendingScannedBarcode] = useState('');
   const [partyPickerOpen, setPartyPickerOpen] = useState(false);
   const [itemPickerLineId, setItemPickerLineId] = useState<string | null>(null);
   const [itemPickerInitialQuery, setItemPickerInitialQuery] = useState('');
   const [customerConfirmOpen, setCustomerConfirmOpen] = useState(false);
   const [pendingCustomerDetails, setPendingCustomerDetails] = useState<(Partial<PartyInfo> & { partyId?: string }) | null>(null);
+  const customerPinAutofill = usePincodeAutofill({
+    onFilled: useCallback((addr) => {
+      setPendingCustomerDetails((prev) => ({
+        ...(prev || {}),
+        city: addr.city,
+        district: addr.district,
+        state: addr.state,
+      }));
+    }, []),
+  });
+
+  useEffect(() => {
+    if (!customerConfirmOpen) return;
+    customerPinAutofill.resetLastFetched();
+    const pin = String(pendingCustomerDetails?.pin || '').replace(/\D/g, '');
+    if (pin.length !== 6) return;
+    const timer = window.setTimeout(() => {
+      void customerPinAutofill.onPincodeInput(pin);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [
+    customerConfirmOpen,
+    pendingCustomerDetails?.pin,
+    customerPinAutofill.resetLastFetched,
+    customerPinAutofill.onPincodeInput,
+  ]);
+
   const [activeSalesSchemes, setActiveSalesSchemes] = useState<Scheme[]>([]);
   const authContext = useMemo(() => {
     try {
@@ -179,6 +224,14 @@ const SalesVoucherForm = () => {
   const itemPickerLineIdRef = useRef(itemPickerLineId);
   const suppressNextItemFocusOpenRef = useRef(false);
   const lineItemsSectionRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     linesRef.current = lines;
   }, [lines]);
@@ -257,20 +310,17 @@ const SalesVoucherForm = () => {
   const companyInfo = useMemo(() => getNormalizedCompanyProfile(), []);
 
   useEffect(() => {
-    // Generate initial invoice number based on settings
-    const settings = getAppSettings();
-    const inv = settings.invoiceNumbering;
-    const prefix = inv?.prefix ?? 'INV-';
-    const suffix = inv?.suffix ?? '';
-    const startNum = inv?.startingNumber ?? 1;
-    
-    // In a real app, you'd check the DB for the next available number.
-    // For now, we'll use the starting number from settings.
-    setFormState(prev => ({
-      ...prev,
-      number: `${prefix}${String(startNum).padStart(3, '0')}${suffix}`
-    }));
-  }, []);
+    if (isEditMode) return;
+    let cancelled = false;
+    void peekNextInvoiceNumber().then((number) => {
+      if (!cancelled) {
+        setFormState((prev) => ({ ...prev, number }));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditMode]);
 
   useEffect(() => {
     let mounted = true;
@@ -1149,7 +1199,9 @@ const SalesVoucherForm = () => {
     return { format, landscape, showSignature, fontSize: Number(fontSizeValue) <= 12 ? 'compact' : 'normal' };
   };
 
-  const buildCurrentInvoiceHtml = (): { html: string; fileName: string; landscape: boolean } => {
+  const buildCurrentInvoiceHtml = async (
+    opts?: PrintExportBuildInput
+  ): Promise<{ html: string; fileName: string; landscape: boolean }> => {
     const companyInfoRaw = localStorage.getItem('company-info');
     const companyLogo = localStorage.getItem('companyLogo') || '';
     const companySignature = localStorage.getItem('companySignature') || '';
@@ -1160,6 +1212,7 @@ const SalesVoucherForm = () => {
       gstin: String(companyParsed?.gstin || companyInfo.gstin || ''),
       phone: String(companyParsed?.phone || companyInfo.phone || ''),
       email: String(companyParsed?.email || companyInfo.email || ''),
+      website: String(companyParsed?.website || companyInfo.website || ''),
       city: String(companyParsed?.city || companyInfo.city || ''),
       pinCode: String(companyParsed?.pinCode || companyInfo.pinCode || ''),
       bank: String(companyParsed?.bank || companyInfo.bank || ''),
@@ -1168,7 +1221,9 @@ const SalesVoucherForm = () => {
       logo: companyLogo || undefined,
       signature: companySignature || undefined,
     };
-    const { format, landscape, showSignature, fontSize } = resolvePrintFormat();
+    const pageSize = opts?.pageSize || getInvoicePrintLayout().pageSize;
+    const orientation = opts?.orientation || getInvoicePrintLayout().orientation;
+    const { format, landscape, showSignature, fontSize } = resolvePrintFormatFromLayout(pageSize, orientation);
     const items = lines
       .filter((l) => l.itemId && toNumber(l.quantity) > 0)
       .map((l) => {
@@ -1178,7 +1233,9 @@ const SalesVoucherForm = () => {
           name: getItemName(l.itemId),
           hsn: String((l as any).hsnCode || ''),
           qty: toNumber(l.quantity),
+          unit: 'Nos',
           rate: toNumber(l.rateExclusive),
+          discount: 0,
           taxPercent: toNumber(l.taxRate),
           amount,
           cgst: taxBif.cgst,
@@ -1186,34 +1243,68 @@ const SalesVoucherForm = () => {
           igst: taxBif.igst,
         };
       });
-    const html = buildInvoiceHTML(format, company as any, {
-      invoiceNumber: formState.number,
-      invoiceDate: formState.date,
-      customerName: String(partyDraft.billing.name || ''),
-      customerGSTIN: String(partyDraft.billing.gstin || ''),
-      buyerAddress: String(partyDraft.billing.address || ''),
-      sellerAddress: String(company.address || ''),
-      billToAddress: String(partyDraft.billing.address || ''),
-      shipToAddress: String(partyDraft.shipping.address || partyDraft.billing.address || ''),
-      customerSealLabel: 'Customer Seal & Signature',
-      items,
-      subtotal: Number(totals.subtotal || 0),
-      cgstTotal: Number(totals.itemTaxBifurcated.cgst + totals.chargeTaxBifurcated.cgst || 0),
-      sgstTotal: Number(totals.itemTaxBifurcated.sgst + totals.chargeTaxBifurcated.sgst || 0),
-      igstTotal: Number(totals.itemTaxBifurcated.igst + totals.chargeTaxBifurcated.igst || 0),
-      grandTotal: Number(totals.grandTotal || 0),
-      amountInWords: amountToWordsINR(Number(totals.grandTotal || 0)),
-      declaration: 'We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',
-    } as any, {
-      showTaxBreakup: true,
-      showSignature,
-      showDeclaration: true,
-      logoPosition: 'top-left',
-      fontSize,
-      margin: 'normal',
-    });
+    const templateId = opts?.templateId || invoiceTemplateOverride || getInvoiceTemplateId();
+    const html = await buildInvoiceHTML(
+      format,
+      company as any,
+      {
+        invoiceNumber: formState.number,
+        invoiceDate: formState.date,
+        dueDate: formState.dueDate || undefined,
+        customerName: String(partyDraft.billing.name || ''),
+        customerGSTIN: String(partyDraft.billing.gstin || ''),
+        customerPhone: String(partyDraft.billing.phone || ''),
+        buyerAddress: String(partyDraft.billing.address || ''),
+        sellerAddress: String(company.address || ''),
+        billToAddress: String(partyDraft.billing.address || ''),
+        shipToAddress: String(partyDraft.shipping.address || partyDraft.billing.address || ''),
+        shipToName: String(partyDraft.shipping.name || partyDraft.billing.name || ''),
+        customerSealLabel: 'Customer Seal & Signature',
+        items,
+        subtotal: Number(totals.subtotal || 0),
+        cgstTotal: Number(totals.itemTaxBifurcated.cgst + totals.chargeTaxBifurcated.cgst || 0),
+        sgstTotal: Number(totals.itemTaxBifurcated.sgst + totals.chargeTaxBifurcated.sgst || 0),
+        igstTotal: Number(totals.itemTaxBifurcated.igst + totals.chargeTaxBifurcated.igst || 0),
+        discountTotal: 0,
+        roundOff: Number(totals.roundOff || 0),
+        grandTotal: Number(totals.grandTotal || 0),
+        amountInWords: amountToWordsINR(Number(totals.grandTotal || 0)),
+        termsAndConditions: String(formState.termsAndConditions || '').trim() || undefined,
+        declaration:
+          'We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',
+      } as any,
+      {
+        showTaxBreakup: true,
+        showSignature,
+        showDeclaration: true,
+        logoPosition: 'top-left',
+        fontSize,
+        margin: 'normal',
+      },
+      templateId
+    );
     return { html, fileName: `${formState.number}.pdf`, landscape };
   };
+
+  const runFormPrintAction = useCallback(
+    async (action: PrintExportAction) => {
+      const result = await runInvoicePrintExportAction({
+        action,
+        onNeedSetup: (next) => setPrintSetup({ open: true, action: next }),
+        buildPackage: (input) => buildCurrentInvoiceHtml(input),
+        whatsAppMeta: {
+          invoiceNumber: formState.number,
+          invoiceDate: formState.date,
+          grandTotal: Number(totals.grandTotal || 0),
+          phone: partyDraft.billing.phone,
+        },
+      });
+      if (!result.ok && result.error) {
+        window.alert(result.error);
+      }
+    },
+    [formState.number, formState.date, totals.grandTotal, partyDraft.billing.phone, buildCurrentInvoiceHtml]
+  );
 
   const saveVoucher = async (navigateAfterSave = true): Promise<boolean> => {
     if (!canSubmit) {
@@ -1285,10 +1376,14 @@ const SalesVoucherForm = () => {
       if (navigateAfterSave) navigate('/vouchers/sales');
       return true;
     } catch (err) {
-      setError((err as Error).message ?? (isEditMode ? 'Failed to update voucher' : 'Failed to create voucher'));
+      if (mountedRef.current) {
+        setError((err as Error).message ?? (isEditMode ? 'Failed to update voucher' : 'Failed to create voucher'));
+      }
       return false;
     } finally {
-      setSaving(false);
+      if (mountedRef.current) {
+        setSaving(false);
+      }
     }
   };
 
@@ -1306,6 +1401,7 @@ const SalesVoucherForm = () => {
     phone: billingLedger?.contactDetails?.phone ?? partyDraft.billing.phone,
     email: billingLedger?.contactDetails?.email ?? partyDraft.billing.email,
     city: partyDraft.billing.city,
+    district: partyDraft.billing.district,
     state: partyDraft.billing.state,
     pin: partyDraft.billing.pin,
   };
@@ -1318,6 +1414,7 @@ const SalesVoucherForm = () => {
     phone: partyDraft.shipping.phone ?? billingParty.phone,
     email: partyDraft.shipping.email ?? billingParty.email,
     city: partyDraft.shipping.city ?? billingParty.city,
+    district: partyDraft.shipping.district ?? billingParty.district,
     state: partyDraft.shipping.state ?? billingParty.state,
     pin: partyDraft.shipping.pin ?? billingParty.pin,
   };
@@ -1358,7 +1455,8 @@ const SalesVoucherForm = () => {
           pincode: String(payload.pin || ''),
           email: String(payload.email || ''),
           city: String(payload.city || ''),
-        } as any);
+          district: String(payload.district || ''),
+        });
         setParties((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
       } catch (e) {
         setError((e as Error).message || 'Failed to save customer details.');
@@ -1713,18 +1811,39 @@ const SalesVoucherForm = () => {
             void saveVoucher(true);
           }}
           onSaveDraft={() => setMode('view')}
-          onSaveAndPrint={async () => {
-            const saved = await saveVoucher(false);
-            if (!saved) return;
-            const { html } = buildCurrentInvoiceHtml();
-            await printInvoice(html);
-            navigate('/vouchers/sales');
+          onSaveAndPrint={() => {
+            void (async () => {
+              try {
+                const saved = await saveVoucher(false);
+                if (!saved || !mountedRef.current) return;
+                await runFormPrintAction('print');
+              } catch (err) {
+                console.error('Save & print failed', err);
+                if (mountedRef.current) {
+                  setError((err as Error).message || 'Save & print failed');
+                }
+              }
+            })();
           }}
           onEdit={() => setMode('edit')}
-          onDownloadPDF={async () => {
-            const { html, fileName, landscape } = buildCurrentInvoiceHtml();
-            const resPath = await downloadPDF(html, fileName, landscape);
-            if (resPath) alert(`PDF saved to: ${resPath}`);
+          onDownloadPDF={() => void runFormPrintAction('download')}
+          onShareWhatsApp={() => void runFormPrintAction('whatsapp')}
+          onChangeTemplate={() => setPrintSetup({ open: true, action: 'print', applyOnly: true })}
+        />
+
+        <PrintExportSetupDialog
+          open={printSetup.open}
+          action={printSetup.action}
+          applyOnly={printSetup.applyOnly}
+          confirmLabel={printSetup.applyOnly ? 'Apply' : undefined}
+          onApply={(input) => setInvoiceTemplateOverride(input.templateId)}
+          onClose={() => setPrintSetup((p) => ({ ...p, open: false, applyOnly: false }))}
+          buildPackage={(input) => buildCurrentInvoiceHtml(input)}
+          whatsAppMeta={{
+            invoiceNumber: formState.number,
+            invoiceDate: formState.date,
+            grandTotal: Number(totals.grandTotal || 0),
+            phone: partyDraft.billing.phone,
           }}
         />
 
@@ -1834,6 +1953,7 @@ const SalesVoucherForm = () => {
               phone: selectedParty.mobile,
               email: selectedParty.email,
               city: selectedParty.city,
+              district: selectedParty.district,
               state: selectedParty.state,
               pin: selectedParty.pincode,
             };
@@ -2017,36 +2137,54 @@ const SalesVoucherForm = () => {
                     fullWidth
                   />
                 </Grid>
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={12} sm={3}>
+                  <PincodeTextField
+                    label="Pincode"
+                    size="small"
+                    value={pendingCustomerDetails?.pin || ''}
+                    onPinChange={(pin) =>
+                      setPendingCustomerDetails((prev) => ({ ...(prev || {}), pin }))
+                    }
+                    autofill={customerPinAutofill}
+                    fullWidth
+                  />
+                </Grid>
+                <Grid item xs={12} sm={3}>
                   <TextField
                     label="City"
                     size="small"
                     value={pendingCustomerDetails?.city || ''}
-                    onChange={(e) =>
-                      setPendingCustomerDetails((prev) => ({ ...(prev || {}), city: e.target.value }))
-                    }
+                    onChange={(e) => {
+                      customerPinAutofill.clearHighlight('city');
+                      setPendingCustomerDetails((prev) => ({ ...(prev || {}), city: e.target.value }));
+                    }}
+                    sx={customerPinAutofill.fieldSx('city')}
                     fullWidth
                   />
                 </Grid>
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={12} sm={3}>
+                  <TextField
+                    label="District"
+                    size="small"
+                    value={pendingCustomerDetails?.district || ''}
+                    onChange={(e) => {
+                      customerPinAutofill.clearHighlight('district');
+                      setPendingCustomerDetails((prev) => ({ ...(prev || {}), district: e.target.value }));
+                    }}
+                    sx={customerPinAutofill.fieldSx('district')}
+                    fullWidth
+                  />
+                </Grid>
+                <Grid item xs={12} sm={3}>
                   <TextField
                     label="State"
                     size="small"
                     value={pendingCustomerDetails?.state || ''}
-                    onChange={(e) =>
-                      setPendingCustomerDetails((prev) => ({ ...(prev || {}), state: e.target.value }))
-                    }
-                    fullWidth
-                  />
-                </Grid>
-                <Grid item xs={12} sm={4}>
-                  <TextField
-                    label="Pincode"
-                    size="small"
-                    value={pendingCustomerDetails?.pin || ''}
-                    onChange={(e) =>
-                      setPendingCustomerDetails((prev) => ({ ...(prev || {}), pin: e.target.value }))
-                    }
+                    onChange={(e) => {
+                      customerPinAutofill.clearHighlight('state');
+                      setPendingCustomerDetails((prev) => ({ ...(prev || {}), state: e.target.value }));
+                    }}
+                    sx={customerPinAutofill.fieldSx('state')}
                     fullWidth
                   />
                 </Grid>
@@ -2066,6 +2204,7 @@ const SalesVoucherForm = () => {
               variant="contained"
               onClick={applyConfirmedCustomer}
               disabled={!String(pendingCustomerDetails?.address || '').trim()}
+              sx={erpContainedButtonSx}
             >
               Accept & Continue (Ctrl+A)
             </Button>

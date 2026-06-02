@@ -4,48 +4,65 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSelector } from 'react-redux';
 import { RootState } from '../store';
 import LoginScreen from '../screens/LoginScreen';
+import DashboardScreen from '../screens/DashboardScreen';
 import PartiesScreen from '../screens/PartiesScreen';
 import ProductsScreen from '../screens/ProductsScreen';
 import InvoicesScreen from '../screens/InvoicesScreen';
 import ReportsScreen from '../screens/ReportsScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import OutstandingScreen from '../screens/OutstandingScreen';
+import PayableScreen from '../screens/PayableScreen';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
+const MoreStack = createStackNavigator();
+
+function MoreStackScreen() {
+  return (
+    <MoreStack.Navigator>
+      <MoreStack.Screen name="Party Master" component={PartiesScreen} />
+      <MoreStack.Screen name="Ledger Create" component={ProductsScreen} />
+      <MoreStack.Screen name="Outstanding" component={OutstandingScreen} />
+      <MoreStack.Screen name="Payable" component={PayableScreen} />
+      <MoreStack.Screen name="Settings" component={SettingsScreen} />
+    </MoreStack.Navigator>
+  );
+}
 
 function MainTabs() {
   return (
     <Tab.Navigator
-      screenOptions={({ route }: { route: any }) => ({
+      screenOptions={({ route }: { route: { name: string } }) => ({
+        headerShown: true,
+        tabBarLabelStyle: { fontSize: 10 },
         tabBarIcon: ({ color, size }: { color: string; size: number }) => {
-          let iconName: string;
-
-          if (route.name === 'Parties') {
-            iconName = 'groups';
-          } else if (route.name === 'Ledgers') {
-            iconName = 'inventory';
-          } else if (route.name === 'Entries') {
-            iconName = 'receipt';
-          } else if (route.name === 'Bills') {
-            iconName = 'assessment';
-          } else if (route.name === 'Settings') {
-            iconName = 'settings';
-          } else {
-            iconName = 'help';
-          }
-
-          return <Icon name={iconName} size={size} color={color} />;
+          const icons: Record<string, string> = {
+            Home: 'dashboard',
+            Sales: 'point-of-sale',
+            Purchase: 'shopping-cart',
+            Vouchers: 'receipt',
+            More: 'menu',
+          };
+          return <Icon name={icons[route.name] || 'help'} size={size} color={color} />;
         },
         tabBarActiveTintColor: '#1976d2',
         tabBarInactiveTintColor: 'gray',
       })}
     >
-      <Tab.Screen name="Parties" component={PartiesScreen} />
-      <Tab.Screen name="Ledgers" component={ProductsScreen} />
-      <Tab.Screen name="Entries" component={InvoicesScreen} />
-      <Tab.Screen name="Bills" component={ReportsScreen} />
-      <Tab.Screen name="Settings" component={SettingsScreen} />
+      <Tab.Screen name="Home" component={DashboardScreen} options={{ title: 'Dashboard' }} />
+      <Tab.Screen
+        name="Sales"
+        component={ReportsScreen}
+        initialParams={{ defaultInvoiceType: 'SALES_INVOICE' }}
+      />
+      <Tab.Screen
+        name="Purchase"
+        component={ReportsScreen}
+        initialParams={{ defaultInvoiceType: 'PURCHASE_INVOICE' }}
+      />
+      <Tab.Screen name="Vouchers" component={InvoicesScreen} options={{ title: 'Receipt / Payment' }} />
+      <Tab.Screen name="More" component={MoreStackScreen} options={{ headerShown: false }} />
     </Tab.Navigator>
   );
 }
@@ -63,4 +80,3 @@ export default function AppNavigator() {
     </Stack.Navigator>
   );
 }
-

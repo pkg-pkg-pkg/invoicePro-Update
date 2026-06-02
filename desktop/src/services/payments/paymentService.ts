@@ -1,3 +1,5 @@
+import { companyScopedKey, readCompanyScopedRaw } from '../../utils/companyStorage';
+
 /**
  * Payment & Receipt Service
  * Handles fetching outstanding invoices and payment processing
@@ -29,6 +31,9 @@ export interface PaymentData {
   totalAmount: number;
   selectedInvoices: OutstandingInvoice[];
 }
+
+const VOUCHERS_STORAGE_KEY = companyScopedKey('pve_vouchers');
+const LEDGERS_STORAGE_KEY = companyScopedKey('pve_ledger_accounts');
 
 const parseInvoiceAllocations = (narration?: string): Record<string, number> => {
   const map: Record<string, number> = {};
@@ -65,8 +70,12 @@ export async function fetchOutstandingInvoices(
   // For now, use local storage calculation only
   // Backend API endpoint doesn't exist yet
   try {
-    const vouchers = JSON.parse(localStorage.getItem('pve_vouchers') || '[]');
-    const ledgers = JSON.parse(localStorage.getItem('pve_ledger_accounts') || '[]');
+    const vouchers = JSON.parse(
+      readCompanyScopedRaw('pve_vouchers') ?? localStorage.getItem(VOUCHERS_STORAGE_KEY) ?? '[]'
+    );
+    const ledgers = JSON.parse(
+      readCompanyScopedRaw('pve_ledger_accounts') ?? localStorage.getItem(LEDGERS_STORAGE_KEY) ?? '[]'
+    );
     const ledgerNameMap = new Map<string, string>(
       (Array.isArray(ledgers) ? ledgers : []).map((ledger: any) => [String(ledger?.id ?? ''), String(ledger?.name ?? '')])
     );

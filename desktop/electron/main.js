@@ -1,12 +1,61 @@
-const { app, BrowserWindow, ipcMain, Notification, Menu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, Menu, shell, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
+const { createDesktopMobileSyncMiddleware } = require('./mobileSyncMiddleware');
+const { startDesktopSyncTunnel, stopDesktopSyncTunnel } = require('./mobileSyncTunnel');
+const companyRegistry = require('./companyRegistry.cjs');
+const { registerSessionIpc } = require('./registerSessionIpc.cjs');
+const { registerPincodeIpc } = require('./registerPincodeIpc.cjs');
+const { execFile } = require('child_process');
+const whatsappBridge = require('./whatsappBridge.cjs');
+
+function openUrlWithFallback(url) {
+    return new Promise((resolve) => {
+        shell.openExternal(url)
+            .then((ok) => resolve(Boolean(ok)))
+            .catch(() => {
+                if (process.platform !== 'win32') {
+                    resolve(false);
+                    return;
+                }
+                execFile('cmd', ['/c', 'start', '', url], { windowsHide: true }, (err) => {
+                    resolve(!err);
+                });
+            });
+    });
+}
+registerPincodeIpc();
+let sessionStore;
+try {
+    sessionStore = require('./sessionStore.cjs');
+    registerSessionIpc(app, sessionStore, companyRegistry);
+}
+catch (sessionLoadErr) {
+    console.error('[session] Failed to load sessionStore — registering fallback IPC handlers:', sessionLoadErr);
+    sessionStore = {
+        validateSession: () => ({ valid: false, reason: 'session_unavailable' }),
+        loginWithPassword: () => ({ success: false, reason: 'Session database unavailable' }),
+        registerSessionAfterLogin: () => ({
+            success: false,
+            reason: 'Session database unavailable. Restart the app from npm run electron:dev.',
+        }),
+        ensureSessionFromLegacy: () => ({ valid: false, reason: 'session_unavailable' }),
+        logoutSession: () => ({ success: true }),
+        touchSession: () => ({ success: false }),
+        getSessionSettings: () => ({ sessionDaysDefault: 7, sessionDaysRemember: 30 }),
+        setSessionSettings: () => ({ sessionDaysDefault: 7, sessionDaysRemember: 30 }),
+    };
+    registerSessionIpc(app, sessionStore, companyRegistry);
+}
 let mainWindow = null;
 let splashWindow = null;
 let db = null;
+let mobileSyncMiddleware = null;
+let mobileSyncTunnel = null;
 const isDev = process.env.NODE_ENV === 'development';
+const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173';
 console.log('Starting Electron app...');
 console.log('isDev:', isDev);
 function resolveWindowIcon() {
@@ -17,11 +66,34 @@ function resolveWindowIcon() {
     else {
         candidates.push(path.join(__dirname, '../dist/SQLOGO.png'), path.join(__dirname, '../public/SQLOGO.png'), path.join(__dirname, '../dist/invoicepro-logo.png'), path.join(__dirname, '../public/invoicepro-logo.png'), path.join(__dirname, '../dist/InvoicePro LOGO.png'), path.join(__dirname, '../public/InvoicePro LOGO.png'));
     }
+    candidates.push(path.join(__dirname, 'icon.ico'));
     for (const p of candidates) {
         if (fs.existsSync(p))
             return p;
     }
     return undefined;
+}
+function createAppChildWindowOptions(extra = {}) {
+    const windowIcon = resolveWindowIcon();
+    return {
+        autoHideMenuBar: true,
+        backgroundColor: '#f4f7fb',
+        ...(windowIcon ? { icon: windowIcon } : {}),
+        ...extra,
+    };
+}
+function getPrintToolbarLogoDataUri() {
+    const iconPath = resolveWindowIcon();
+    if (!iconPath)
+        return '';
+    try {
+        const ext = path.extname(iconPath).toLowerCase();
+        const mime = ext === '.ico' ? 'image/x-icon' : 'image/png';
+        return `data:${mime};base64,${fs.readFileSync(iconPath).toString('base64')}`;
+    }
+    catch {
+        return '';
+    }
 }
 /** First path that exists for a file under dist/ in a packaged build. */
 function resolvePackagedDistFile(filename) {
@@ -109,7 +181,7 @@ function createWindow() {
         show: false,
     });
     if (isDev) {
-        mainWindow.loadURL('http://localhost:5173');
+        mainWindow.loadURL(DEV_SERVER_URL);
         mainWindow.webContents.openDevTools();
     }
     else {
@@ -180,8 +252,32 @@ function createWindow() {
       `);
         }
     }
-    mainWindow.webContents.once('did-fail-load', () => {
+    const showLoadErrorPage = (errorCode, errorDescription, validatedURL) => {
         closeSplashWindow();
+        console.error('[window] did-fail-load', errorCode, errorDescription, validatedURL);
+        const devHint = isDev
+            ? `<p><strong>Development:</strong> Close this app and run from the <code>desktop</code> folder:</p>
+         <pre style="background:#0f172a;padding:12px;border-radius:8px;">npm run electron:dev</pre>
+         <p>Wait until Vite shows <em>ready</em> on port 5173, then the window will load.</p>`
+            : `<p><strong>Production:</strong> Rebuild the UI, then start Electron:</p>
+         <pre style="background:#0f172a;padding:12px;border-radius:8px;">npm run build
+npm run electron</pre>`;
+        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Load failed</title></head>
+      <body style="margin:0;font-family:Segoe UI,sans-serif;background:#0b1628;color:#e2e8f0;padding:32px;line-height:1.5;">
+        <h1 style="color:#ffc107;margin-top:0;">PVE InvoicePro 360 could not start</h1>
+        <p>The window opened but the app page did not load.</p>
+        ${devHint}
+        <p style="color:#94a3b8;font-size:13px;">URL: ${validatedURL || 'unknown'}<br/>Error ${errorCode}: ${errorDescription || 'failed'}</p>
+      </body></html>`;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            void mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+            mainWindow.show();
+        }
+    };
+    mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+        if (!isMainFrame || errorCode === -3)
+            return; // aborted navigation
+        showLoadErrorPage(errorCode, errorDescription, validatedURL);
     });
     mainWindow.once('ready-to-show', () => {
         console.log('Window ready to show');
@@ -208,17 +304,93 @@ function createWindow() {
         }
     });
 }
-function initDatabase() {
+function closeDatabase() {
     try {
-        const dbPath = path.join(app.getPath('userData'), 'gst-billing.db');
+        if (db)
+            db.close();
+    }
+    catch (_a) {
+        /* ignore */
+    }
+    db = null;
+}
+function initDatabase(companyId) {
+    try {
+        closeDatabase();
+        companyRegistry.ensureInitialized(app, null);
+        const id = companyId || companyRegistry.readActiveId(app);
+        const dbPath = companyRegistry.getCompanyDbPath(app, id);
         console.log('Initializing database at:', dbPath);
         db = new Database(dbPath);
         db.prepare('CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)').run();
-        console.log('Database initialized successfully');
+        console.log('Database initialized successfully for', id);
     }
     catch (error) {
         console.error('Database initialization failed:', error);
     }
+}
+function readKvSyncState(key, fallback) {
+    if (!db)
+        return fallback;
+    try {
+        const row = db.prepare('SELECT value FROM kv_store WHERE key = ?').get(key);
+        if (!(row === null || row === void 0 ? void 0 : row.value))
+            return fallback;
+        return JSON.parse(row.value);
+    }
+    catch (_a) {
+        return fallback;
+    }
+}
+function writeKvSyncState(key, value) {
+    if (!db)
+        return;
+    try {
+        db.prepare('INSERT INTO kv_store(key, value, updated_at) VALUES(?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at').run(key, JSON.stringify(value));
+    }
+    catch (error) {
+        console.warn('Failed to write sync state', error);
+    }
+}
+function mobileSyncToken() {
+    const fromEnv = String(process.env.DESKTOP_SYNC_TOKEN || '').trim();
+    if (fromEnv)
+        return fromEnv;
+    const saved = String(readKvSyncState('mobile_sync_token', '') || '').trim();
+    if (saved)
+        return saved;
+    const generated = `sync_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+    writeKvSyncState('mobile_sync_token', generated);
+    return generated;
+}
+function startEmbeddedMobileSync() {
+    if (mobileSyncMiddleware)
+        return;
+    mobileSyncMiddleware = createDesktopMobileSyncMiddleware({
+        port: Number(process.env.DESKTOP_SYNC_PORT || 3399),
+        authTokenProvider: () => mobileSyncToken(),
+        loadState: () => readKvSyncState('mobile_sync_state', {}),
+        persistState: (state) => writeKvSyncState('mobile_sync_state', state),
+        onStatus: (status) => {
+            broadcastUpdate('mobile-sync-status', status);
+        },
+        onRetry: async () => {
+            const drained = (mobileSyncMiddleware === null || mobileSyncMiddleware === void 0 ? void 0 : mobileSyncMiddleware.drainInbox(500)) || [];
+            broadcastUpdate('mobile-sync-drain', { drainedCount: drained.length });
+        },
+    });
+    mobileSyncMiddleware.start();
+    startDesktopSyncTunnel(Number(process.env.DESKTOP_SYNC_PORT || 3399))
+        .then((tunnel) => {
+        mobileSyncTunnel = tunnel;
+        if (mobileSyncTunnel === null || mobileSyncTunnel === void 0 ? void 0 : mobileSyncTunnel.url) {
+            mobileSyncMiddleware === null || mobileSyncMiddleware === void 0 ? void 0 : mobileSyncMiddleware.setPublicEndpoint(mobileSyncTunnel.url, true);
+        }
+    })
+        .catch(() => {
+        var _a;
+        (_a = mobileSyncMiddleware === null || mobileSyncMiddleware === void 0 ? void 0 : mobileSyncMiddleware.setPublicEndpoint) === null || _a === void 0 ? void 0 : _a.call(mobileSyncMiddleware, null, false);
+    });
 }
 // IPC Handlers
 ipcMain.handle('get-db', () => {
@@ -250,17 +422,119 @@ ipcMain.handle('kv-remove', (_event, key) => {
     db.prepare('DELETE FROM kv_store WHERE key = ?').run(key);
     return true;
 });
+ipcMain.handle('companies-ensure-initialized', (_event, localData) => {
+    const res = companyRegistry.ensureInitialized(app, localData || {});
+    if (res.activeId)
+        initDatabase(res.activeId);
+    return res;
+});
+ipcMain.handle('companies-list', () => {
+    return companyRegistry.listCompanies(app);
+});
+ipcMain.handle('companies-list-enriched', () => companyRegistry.listCompaniesEnriched(app));
+ipcMain.handle('companies-set-default', (_event, companyId) => companyRegistry.setDefaultCompany(app, companyId));
+ipcMain.handle('companies-get-active', () => {
+    return companyRegistry.getActiveCompany(app);
+});
+ipcMain.handle('companies-create', (_event, payload) => {
+    const res = companyRegistry.createCompany(app, payload || {}, (payload === null || payload === void 0 ? void 0 : payload.currentLocalData) || {});
+    initDatabase(res.activeId);
+    const active = companyRegistry.getActiveCompany(app);
+    return Object.assign(Object.assign({}, active), { activeId: res.activeId });
+});
+ipcMain.handle('companies-switch', (_event, payload) => {
+    const res = companyRegistry.switchCompany(app, (payload === null || payload === void 0 ? void 0 : payload.targetId) || '', (payload === null || payload === void 0 ? void 0 : payload.currentLocalData) || {});
+    initDatabase(res.activeId);
+    sessionStore.touchSession(app, res.activeId);
+    const active = companyRegistry.getActiveCompany(app);
+    return Object.assign(Object.assign({}, active), { activeId: res.activeId });
+});
+ipcMain.handle('companies-delete', (_event, payload) => {
+    const res = companyRegistry.deleteCompany(app, (payload === null || payload === void 0 ? void 0 : payload.companyId) || '', (payload === null || payload === void 0 ? void 0 : payload.currentLocalData) || {});
+    if (res.switched && res.activeId) {
+        initDatabase(res.activeId);
+        sessionStore.touchSession(app, res.activeId);
+        const active = companyRegistry.getActiveCompany(app);
+        return Object.assign(Object.assign({}, res), active);
+    }
+    return res;
+});
+ipcMain.handle('company-settings-read', () => {
+    try {
+        const id = companyRegistry.readActiveId(app);
+        if (!id) {
+            console.error('[company-settings-read] no active company id');
+            return { success: false, error: 'No active company', settings: companyRegistry.DEFAULT_COMPANY_SETTINGS };
+        }
+        const settings = companyRegistry.readCompanySettings(app, id);
+        return { success: true, settings };
+    }
+    catch (err) {
+        console.error('[company-settings-read] failed', err);
+        return { success: false, error: err && err.message ? err.message : String(err), settings: companyRegistry.DEFAULT_COMPANY_SETTINGS };
+    }
+});
+ipcMain.handle('company-settings-write', (_event, partial) => {
+    try {
+        const id = companyRegistry.readActiveId(app);
+        if (!id) {
+            console.error('[company-settings-write] no active company id');
+            return { success: false, error: 'No active company' };
+        }
+        return companyRegistry.writeCompanySettings(app, id, partial || {});
+    }
+    catch (err) {
+        console.error('[company-settings-write] failed', err);
+        return { success: false, error: err && err.message ? err.message : String(err) };
+    }
+});
+ipcMain.handle('company-local-data-persist', (_event, localData) => {
+    try {
+        const id = companyRegistry.readActiveId(app);
+        if (!id)
+            return { success: false, error: 'No active company' };
+        return companyRegistry.persistCompanyLocalData(app, id, localData || {});
+    }
+    catch (err) {
+        console.error('[company-local-data-persist] failed', err);
+        return { success: false, error: err && err.message ? err.message : String(err) };
+    }
+});
 ipcMain.handle('sync-status', async () => {
     // Check sync status
     return {
         lastSyncAt: null,
         isSyncing: false,
         pendingChanges: 0,
+        mobileSync: (mobileSyncMiddleware === null || mobileSyncMiddleware === void 0 ? void 0 : mobileSyncMiddleware.getStatus()) || null,
     };
 });
 ipcMain.handle('sync-now', async () => {
     // Perform sync
-    return { success: true, syncedAt: new Date() };
+    var _a;
+    if (mobileSyncMiddleware === null || mobileSyncMiddleware === void 0 ? void 0 : mobileSyncMiddleware.retryNow) {
+        await mobileSyncMiddleware.retryNow();
+    }
+    return { success: true, syncedAt: new Date(), mobileSync: ((_a = mobileSyncMiddleware === null || mobileSyncMiddleware === void 0 ? void 0 : mobileSyncMiddleware.getStatus) === null || _a === void 0 ? void 0 : _a.call(mobileSyncMiddleware)) || null };
+});
+ipcMain.handle('mobile-sync-status', async () => {
+    var _a;
+    const status = ((_a = mobileSyncMiddleware === null || mobileSyncMiddleware === void 0 ? void 0 : mobileSyncMiddleware.getStatus) === null || _a === void 0 ? void 0 : _a.call(mobileSyncMiddleware)) || null;
+    return {
+        token: mobileSyncToken(),
+        localEndpoint: `http://127.0.0.1:${Number(process.env.DESKTOP_SYNC_PORT || 3399)}/mobile-sync`,
+        status,
+    };
+});
+ipcMain.handle('mobile-sync-retry', async () => {
+    var _a, _b;
+    await ((_a = mobileSyncMiddleware === null || mobileSyncMiddleware === void 0 ? void 0 : mobileSyncMiddleware.retryNow) === null || _a === void 0 ? void 0 : _a.call(mobileSyncMiddleware));
+    return ((_b = mobileSyncMiddleware === null || mobileSyncMiddleware === void 0 ? void 0 : mobileSyncMiddleware.getStatus) === null || _b === void 0 ? void 0 : _b.call(mobileSyncMiddleware)) || null;
+});
+ipcMain.handle('mobile-sync-publish-change', async (_event, change) => {
+    var _a;
+    (_a = mobileSyncMiddleware === null || mobileSyncMiddleware === void 0 ? void 0 : mobileSyncMiddleware.publishDesktopChange) === null || _a === void 0 ? void 0 : _a.call(mobileSyncMiddleware, change);
+    return true;
 });
 function broadcastUpdate(channel, payload) {
     BrowserWindow.getAllWindows().forEach((win) => {
@@ -364,6 +638,21 @@ ipcMain.handle('window-close', () => {
         mainWindow.close();
 });
 ipcMain.handle('window-is-maximized', () => Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isMaximized()));
+ipcMain.handle('open-external-url', async (_event, rawUrl) => {
+    try {
+        const url = String(rawUrl || '').trim();
+        if (!url)
+            return false;
+        if (!/^(https?|whatsapp):\/\//i.test(url))
+            return false;
+        return await openUrlWithFallback(url);
+    }
+    catch {
+        return false;
+    }
+});
+ipcMain.handle('whatsapp-check-status', async () => whatsappBridge.checkWhatsAppStatus());
+ipcMain.handle('whatsapp-open-chat', async (_event, phone, message) => whatsappBridge.openWhatsAppChat(phone, message));
 ipcMain.handle('print:pdf', async (_event, payload) => {
     const html = String(payload?.html ?? '');
     const suggested = String(payload?.fileName || `invoice-${Date.now()}.pdf`);
@@ -371,12 +660,12 @@ ipcMain.handle('print:pdf', async (_event, payload) => {
         return null;
     let printWindow = null;
     try {
-        printWindow = new BrowserWindow({
+        printWindow = new BrowserWindow(createAppChildWindowOptions({
             show: false,
             webPreferences: {
                 sandbox: false,
             },
-        });
+        }));
         await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
         const pdfBuffer = await printWindow.webContents.printToPDF({
             printBackground: true,
@@ -404,19 +693,70 @@ ipcMain.handle('print:pdf', async (_event, payload) => {
         }
     }
 });
+const wrapPrintPreviewHtml = (html) => {
+    if (html.includes('pve-print-toolbar'))
+        return html;
+    const logoUri = getPrintToolbarLogoDataUri();
+    const logoHtml = logoUri
+        ? `<img src="${logoUri}" alt="PVE" style="width:24px;height:24px;border-radius:5px;object-fit:contain;background:#fff;padding:2px;" />`
+        : `<span style="display:inline-flex;width:24px;height:24px;border-radius:5px;background:#fff;color:#1f4e79;font-weight:800;font-size:10px;align-items:center;justify-content:center;">PVE</span>`;
+    const toolbar = `<div id="pve-print-toolbar" style="position:sticky;top:0;z-index:9999;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:10px 14px;background:#1f4e79;color:#fff;font-family:Segoe UI,Arial,sans-serif;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.15);"><div style="display:flex;align-items:center;gap:10px;">${logoHtml}<div><strong style="display:block;line-height:1.2;">PVE InvoicePro 360</strong><span style="font-size:12px;opacity:.88;font-weight:500;">Print Preview</span></div></div><div style="display:flex;gap:8px;"><button type="button" onclick="window.print()" style="cursor:pointer;padding:6px 14px;border:none;border-radius:4px;background:#fff;color:#1f4e79;font-weight:600;">Print</button><button type="button" onclick="window.close()" style="cursor:pointer;padding:6px 14px;border:1px solid #fff;border-radius:4px;background:transparent;color:#fff;">Close</button></div></div>`;
+    if (/<body[^>]*>/i.test(html)) {
+        return html.replace(/<body([^>]*)>/i, `<body$1>${toolbar}`);
+    }
+    return `<!doctype html><html><head><meta charset="utf-8" /></head><body>${toolbar}${html}</body></html>`;
+};
+ipcMain.handle('print:open-preview', async (_event, payload) => {
+    const html = String(payload?.html ?? '');
+    if (!html)
+        return false;
+    let previewWindow = null;
+    try {
+        previewWindow = new BrowserWindow(createAppChildWindowOptions({
+            show: true,
+            width: 980,
+            height: 920,
+            title: 'PVE InvoicePro 360 — Print Preview',
+            webPreferences: {
+                sandbox: false,
+            },
+        }));
+        const doc = wrapPrintPreviewHtml(html);
+        await previewWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(doc)}`);
+        previewWindow.on('closed', () => {
+            previewWindow = null;
+        });
+        return true;
+    }
+    catch (error) {
+        console.error('print:open-preview failed', error);
+        if (previewWindow && !previewWindow.isDestroyed()) {
+            previewWindow.close();
+        }
+        return false;
+    }
+});
 ipcMain.handle('print:direct', async (_event, payload) => {
     const html = String(payload?.html ?? '');
     if (!html)
         return false;
     let printWindow = null;
     try {
-        printWindow = new BrowserWindow({
-            show: false,
+        printWindow = new BrowserWindow(createAppChildWindowOptions({
+            show: true,
+            width: 980,
+            height: 920,
+            title: 'PVE InvoicePro 360 — Print',
             webPreferences: {
                 sandbox: false,
             },
+        }));
+        const doc = wrapPrintPreviewHtml(html);
+        await new Promise((resolve, reject) => {
+            printWindow.webContents.once('did-finish-load', () => resolve());
+            printWindow.webContents.once('did-fail-load', (_e, code, desc) => reject(new Error(`${code}: ${desc}`)));
+            void printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(doc)}`);
         });
-        await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
         await new Promise((resolve, reject) => {
             printWindow.webContents.print({
                 silent: Boolean(payload?.silent),
@@ -443,10 +783,13 @@ ipcMain.handle('print:direct', async (_event, payload) => {
 });
 app.whenReady().then(() => {
     console.log('App is ready, initializing...');
+    registerSessionIpc(app, sessionStore, companyRegistry);
     if (process.platform !== 'darwin') {
         Menu.setApplicationMenu(null);
     }
-    initDatabase();
+    companyRegistry.ensureInitialized(app, null);
+    initDatabase(companyRegistry.readActiveId(app));
+    startEmbeddedMobileSync();
     createSplashWindow();
     createWindow();
     console.log('Initialization complete');
@@ -468,6 +811,14 @@ app.on('window-all-closed', () => {
     }
 });
 app.on('before-quit', () => {
+    var _a;
+    try {
+        (_a = mobileSyncMiddleware === null || mobileSyncMiddleware === void 0 ? void 0 : mobileSyncMiddleware.stop) === null || _a === void 0 ? void 0 : _a.call(mobileSyncMiddleware);
+    }
+    catch (_b) {
+        // ignore
+    }
+    void stopDesktopSyncTunnel();
     if (db) {
         db.close();
     }

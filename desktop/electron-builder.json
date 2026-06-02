@@ -13,8 +13,8 @@
   },
   "files": [
     "dist/**/*",
-    "electron/preload.js",
-    "electron/main.js",
+    "electron/**/*.js",
+    "electron/**/*.cjs",
     "node_modules/**/*"
   ],
   "win": {
@@ -39,6 +39,7 @@
     "provider": "github"
   },
   "nsis": {
+    "include": "build/installer.nsh",
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,

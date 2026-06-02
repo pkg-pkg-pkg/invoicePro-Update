@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Box,
   Paper,
@@ -13,12 +13,15 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/auth';
 import { saveCompanyDetailsToCloud } from '../services/companyDetailsCloudService';
 import { getNormalizedCompanyProfile } from '../utils/companyProfile';
+import { usePincodeAutofill } from '../hooks/usePincodeAutofill';
+import PincodeTextField from '../components/PincodeTextField';
 
 type FormState = {
   businessName: string;
   ownerName: string;
   address: string;
   city: string;
+  district: string;
   state: string;
   pinCode: string;
   phone: string;
@@ -38,11 +41,23 @@ export default function BusinessProfile(): JSX.Element {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const pinAutofill = usePincodeAutofill({
+    onFilled: useCallback((addr) => {
+      setForm((prev) => ({
+        ...prev,
+        city: addr.city,
+        district: addr.district,
+        state: addr.state,
+      }));
+    }, []),
+  });
+
   const [form, setForm] = useState<FormState>({
     businessName: '',
     ownerName: '',
     address: '',
     city: '',
+    district: '',
     state: '',
     pinCode: '',
     phone: '',
@@ -79,6 +94,7 @@ export default function BusinessProfile(): JSX.Element {
             ownerName: String(p?.name ?? '').trim(),
             address: String(p?.address ?? '').trim(),
             city: String(p?.city ?? '').trim(),
+            district: String(p?.district ?? '').trim(),
             state: String(p?.state ?? '').trim(),
             pinCode: String(p?.pinCode ?? '').trim(),
             phone: String(p?.phone ?? '').trim(),
@@ -113,6 +129,7 @@ export default function BusinessProfile(): JSX.Element {
     const ownerName = form.ownerName.trim();
     const address = form.address.trim();
     const city = form.city.trim();
+    const district = form.district.trim();
     const state = form.state.trim();
     const pinCode = form.pinCode.trim();
     const phone = form.phone.trim();
@@ -140,6 +157,7 @@ export default function BusinessProfile(): JSX.Element {
         ownerName,
         address,
         city,
+        district,
         state,
         pinCode,
         phone,
@@ -257,29 +275,50 @@ export default function BusinessProfile(): JSX.Element {
                 minRows={2}
               />
             </Grid>
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={3}>
+              <PincodeTextField
+                label="PIN Code *"
+                value={form.pinCode}
+                onPinChange={(pin) => setForm((p) => ({ ...p, pinCode: pin }))}
+                autofill={pinAutofill}
+                fullWidth
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={3}>
               <TextField
                 label="City *"
                 value={form.city}
-                onChange={(e) => setForm((p) => ({ ...p, city: e.target.value }))}
+                onChange={(e) => {
+                  pinAutofill.clearHighlight('city');
+                  setForm((p) => ({ ...p, city: e.target.value }));
+                }}
+                sx={pinAutofill.fieldSx('city')}
                 fullWidth
                 required
               />
             </Grid>
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={3}>
+              <TextField
+                label="District"
+                value={form.district}
+                onChange={(e) => {
+                  pinAutofill.clearHighlight('district');
+                  setForm((p) => ({ ...p, district: e.target.value }));
+                }}
+                sx={pinAutofill.fieldSx('district')}
+                fullWidth
+              />
+            </Grid>
+            <Grid item xs={12} md={3}>
               <TextField
                 label="State *"
                 value={form.state}
-                onChange={(e) => setForm((p) => ({ ...p, state: e.target.value }))}
-                fullWidth
-                required
-              />
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <TextField
-                label="PIN Code *"
-                value={form.pinCode}
-                onChange={(e) => setForm((p) => ({ ...p, pinCode: e.target.value }))}
+                onChange={(e) => {
+                  pinAutofill.clearHighlight('state');
+                  setForm((p) => ({ ...p, state: e.target.value }));
+                }}
+                sx={pinAutofill.fieldSx('state')}
                 fullWidth
                 required
               />

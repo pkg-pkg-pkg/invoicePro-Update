@@ -4,12 +4,43 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const Database = require('better-sqlite3');
+const { createDesktopMobileSyncMiddleware } = require('./mobileSyncMiddleware');
+const { startDesktopSyncTunnel, stopDesktopSyncTunnel } = require('./mobileSyncTunnel');
+const companyRegistry = require('./companyRegistry.cjs');
+const { registerSessionIpc } = require('./registerSessionIpc.cjs');
+const { registerPincodeIpc } = require('./registerPincodeIpc.cjs');
+const whatsappBridge = require('./whatsappBridge.cjs');
+registerPincodeIpc();
+let sessionStore: typeof import('./sessionStore.cjs');
+try {
+  sessionStore = require('./sessionStore.cjs');
+  registerSessionIpc(app, sessionStore, companyRegistry);
+} catch (sessionLoadErr) {
+  console.error('[session] Failed to load sessionStore — registering fallback IPC handlers:', sessionLoadErr);
+  sessionStore = {
+    validateSession: () => ({ valid: false, reason: 'session_unavailable' }),
+    loginWithPassword: () => ({ success: false, reason: 'Session database unavailable' }),
+    registerSessionAfterLogin: () => ({
+      success: false,
+      reason: 'Session database unavailable. Restart the app from npm run electron:dev.',
+    }),
+    ensureSessionFromLegacy: () => ({ valid: false, reason: 'session_unavailable' }),
+    logoutSession: () => ({ success: true }),
+    touchSession: () => ({ success: false }),
+    getSessionSettings: () => ({ sessionDaysDefault: 7, sessionDaysRemember: 30 }),
+    setSessionSettings: () => ({ sessionDaysDefault: 7, sessionDaysRemember: 30 }),
+  } as typeof sessionStore;
+  registerSessionIpc(app, sessionStore, companyRegistry);
+}
 
 let mainWindow: any = null;
 let splashWindow: any = null;
 let db: any = null;
+let mobileSyncMiddleware: any = null;
+let mobileSyncTunnel: any = null;
 
 const isDev = process.env.NODE_ENV === 'development';
+const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173';
 
 console.log('Starting Electron app...');
 console.log('isDev:', isDev);
@@ -33,10 +64,33 @@ function resolveWindowIcon() {
       path.join(__dirname, '../public/InvoicePro LOGO.png')
     );
   }
+  candidates.push(path.join(__dirname, 'icon.ico'));
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
   }
   return undefined;
+}
+
+function createAppChildWindowOptions(extra: Record<string, unknown> = {}) {
+  const windowIcon = resolveWindowIcon();
+  return {
+    autoHideMenuBar: true,
+    backgroundColor: '#f4f7fb',
+    ...(windowIcon ? { icon: windowIcon } : {}),
+    ...extra,
+  };
+}
+
+function getPrintToolbarLogoDataUri(): string {
+  const iconPath = resolveWindowIcon();
+  if (!iconPath) return '';
+  try {
+    const ext = path.extname(iconPath).toLowerCase();
+    const mime = ext === '.ico' ? 'image/x-icon' : 'image/png';
+    return `data:${mime};base64,${fs.readFileSync(iconPath).toString('base64')}`;
+  } catch {
+    return '';
+  }
 }
 
 /** First path that exists for a file under dist/ in a packaged build. */
@@ -128,7 +182,7 @@ function createWindow() {
   });
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.loadURL(DEV_SERVER_URL);
     mainWindow.webContents.openDevTools();
   } else {
     // Load HTML file from correct location
@@ -201,8 +255,32 @@ function createWindow() {
     }
   }
 
-  mainWindow.webContents.once('did-fail-load', () => {
+  const showLoadErrorPage = (errorCode: number, errorDescription: string, validatedURL: string) => {
     closeSplashWindow();
+    console.error('[window] did-fail-load', errorCode, errorDescription, validatedURL);
+    const devHint = isDev
+      ? `<p><strong>Development:</strong> Close this app and run from the <code>desktop</code> folder:</p>
+         <pre style="background:#0f172a;padding:12px;border-radius:8px;">npm run electron:dev</pre>
+         <p>Wait until Vite shows <em>ready</em> on port 5173, then the window will load.</p>`
+      : `<p><strong>Production:</strong> Rebuild the UI, then start Electron:</p>
+         <pre style="background:#0f172a;padding:12px;border-radius:8px;">npm run build
+npm run electron</pre>`;
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Load failed</title></head>
+      <body style="margin:0;font-family:Segoe UI,sans-serif;background:#0b1628;color:#e2e8f0;padding:32px;line-height:1.5;">
+        <h1 style="color:#ffc107;margin-top:0;">PVE InvoicePro 360 could not start</h1>
+        <p>The window opened but the app page did not load.</p>
+        ${devHint}
+        <p style="color:#94a3b8;font-size:13px;">URL: ${validatedURL || 'unknown'}<br/>Error ${errorCode}: ${errorDescription || 'failed'}</p>
+      </body></html>`;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      void mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+      mainWindow.show();
+    }
+  };
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3) return;
+    showLoadErrorPage(errorCode, errorDescription, validatedURL);
   });
 
   mainWindow.once('ready-to-show', () => {
@@ -231,18 +309,91 @@ function createWindow() {
   });
 }
 
-function initDatabase() {
+function closeDatabase() {
   try {
-    const dbPath = path.join(app.getPath('userData'), 'gst-billing.db');
+    if (db) db.close();
+  } catch {
+    /* ignore */
+  }
+  db = null;
+}
+
+function initDatabase(companyId?: string) {
+  try {
+    closeDatabase();
+    companyRegistry.ensureInitialized(app, null);
+    const id = companyId || companyRegistry.readActiveId(app);
+    const dbPath = companyRegistry.getCompanyDbPath(app, id);
     console.log('Initializing database at:', dbPath);
     db = new Database(dbPath);
     db.prepare(
       'CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)'
     ).run();
-    console.log('Database initialized successfully');
+    console.log('Database initialized successfully for', id);
   } catch (error) {
     console.error('Database initialization failed:', error);
   }
+}
+
+function readKvSyncState(key: string, fallback: unknown) {
+  if (!db) return fallback;
+  try {
+    const row = db.prepare('SELECT value FROM kv_store WHERE key = ?').get(key) as any;
+    if (!row?.value) return fallback;
+    return JSON.parse(row.value);
+  } catch {
+    return fallback;
+  }
+}
+
+function writeKvSyncState(key: string, value: unknown) {
+  if (!db) return;
+  try {
+    db.prepare(
+      'INSERT INTO kv_store(key, value, updated_at) VALUES(?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at'
+    ).run(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn('Failed to write sync state', error);
+  }
+}
+
+function mobileSyncToken() {
+  const fromEnv = String(process.env.DESKTOP_SYNC_TOKEN || '').trim();
+  if (fromEnv) return fromEnv;
+  const saved = String(readKvSyncState('mobile_sync_token', '') || '').trim();
+  if (saved) return saved;
+  const generated = `sync_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  writeKvSyncState('mobile_sync_token', generated);
+  return generated;
+}
+
+function startEmbeddedMobileSync() {
+  if (mobileSyncMiddleware) return;
+  mobileSyncMiddleware = createDesktopMobileSyncMiddleware({
+    port: Number(process.env.DESKTOP_SYNC_PORT || 3399),
+    authTokenProvider: () => mobileSyncToken(),
+    loadState: () => readKvSyncState('mobile_sync_state', {}),
+    persistState: (state: unknown) => writeKvSyncState('mobile_sync_state', state),
+    onStatus: (status: unknown) => {
+      broadcastUpdate('mobile-sync-status', status);
+    },
+    onRetry: async () => {
+      const drained = mobileSyncMiddleware?.drainInbox?.(500) || [];
+      broadcastUpdate('mobile-sync-drain', { drainedCount: drained.length });
+    },
+  });
+  mobileSyncMiddleware.start();
+
+  startDesktopSyncTunnel(Number(process.env.DESKTOP_SYNC_PORT || 3399))
+    .then((tunnel: any) => {
+      mobileSyncTunnel = tunnel;
+      if (mobileSyncTunnel?.url) {
+        mobileSyncMiddleware?.setPublicEndpoint?.(mobileSyncTunnel.url, true);
+      }
+    })
+    .catch(() => {
+      mobileSyncMiddleware?.setPublicEndpoint?.(null, false);
+    });
 }
 
 // IPC Handlers
@@ -276,18 +427,144 @@ ipcMain.handle('kv-remove', (_event, key: string) => {
   return true;
 });
 
+ipcMain.handle('companies-ensure-initialized', (_event, localData: Record<string, string>) => {
+  const res = companyRegistry.ensureInitialized(app, localData || {});
+  if (res.activeId) initDatabase(res.activeId);
+  return res;
+});
+
+ipcMain.handle('companies-list', () => companyRegistry.listCompanies(app));
+
+ipcMain.handle('companies-list-enriched', () => companyRegistry.listCompaniesEnriched(app));
+
+ipcMain.handle('companies-set-default', (_event, companyId: string) =>
+  companyRegistry.setDefaultCompany(app, companyId)
+);
+
+ipcMain.handle('companies-get-active', () => companyRegistry.getActiveCompany(app));
+
+ipcMain.handle('companies-create', (_event, payload: Record<string, unknown>) => {
+  const res = companyRegistry.createCompany(
+    app,
+    payload || {},
+    (payload?.currentLocalData as Record<string, string>) || {}
+  );
+  initDatabase(res.activeId);
+  const active = companyRegistry.getActiveCompany(app);
+  return { ...active, activeId: res.activeId };
+});
+
+ipcMain.handle(
+  'companies-switch',
+  (_event, payload: { targetId?: string; currentLocalData?: Record<string, string> }) => {
+    const res = companyRegistry.switchCompany(
+      app,
+      payload?.targetId || '',
+      payload?.currentLocalData || {}
+    );
+    initDatabase(res.activeId);
+    sessionStore.touchSession(app, res.activeId);
+    const active = companyRegistry.getActiveCompany(app);
+    return { ...active, activeId: res.activeId };
+  }
+);
+
+ipcMain.handle(
+  'companies-delete',
+  (_event, payload: { companyId?: string; currentLocalData?: Record<string, string> }) => {
+    const res = companyRegistry.deleteCompany(
+      app,
+      payload?.companyId || '',
+      payload?.currentLocalData || {}
+    );
+    if (res.switched && res.activeId) {
+      initDatabase(res.activeId);
+      sessionStore.touchSession(app, res.activeId);
+      const active = companyRegistry.getActiveCompany(app);
+      return { ...res, ...active };
+    }
+    return res;
+  }
+);
+
+ipcMain.handle('company-settings-read', () => {
+  try {
+    const id = companyRegistry.readActiveId(app);
+    if (!id) {
+      console.error('[company-settings-read] no active company id');
+      return { success: false, error: 'No active company', settings: companyRegistry.DEFAULT_COMPANY_SETTINGS };
+    }
+    const settings = companyRegistry.readCompanySettings(app, id);
+    return { success: true, settings };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[company-settings-read] failed', err);
+    return { success: false, error: message, settings: companyRegistry.DEFAULT_COMPANY_SETTINGS };
+  }
+});
+
+ipcMain.handle('company-settings-write', (_event, partial: Record<string, unknown>) => {
+  try {
+    const id = companyRegistry.readActiveId(app);
+    if (!id) {
+      console.error('[company-settings-write] no active company id');
+      return { success: false, error: 'No active company' };
+    }
+    return companyRegistry.writeCompanySettings(app, id, partial || {});
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[company-settings-write] failed', err);
+    return { success: false, error: message };
+  }
+});
+
+ipcMain.handle('company-local-data-persist', (_event, localData: Record<string, string>) => {
+  try {
+    const id = companyRegistry.readActiveId(app);
+    if (!id) return { success: false, error: 'No active company' };
+    return companyRegistry.persistCompanyLocalData(app, id, localData || {});
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[company-local-data-persist] failed', err);
+    return { success: false, error: message };
+  }
+});
+
 ipcMain.handle('sync-status', async () => {
   // Check sync status
   return {
     lastSyncAt: null,
     isSyncing: false,
     pendingChanges: 0,
+    mobileSync: mobileSyncMiddleware?.getStatus?.() || null,
   };
 });
 
 ipcMain.handle('sync-now', async () => {
   // Perform sync
-  return { success: true, syncedAt: new Date() };
+  if (mobileSyncMiddleware?.retryNow) {
+    await mobileSyncMiddleware.retryNow();
+  }
+  return { success: true, syncedAt: new Date(), mobileSync: mobileSyncMiddleware?.getStatus?.() || null };
+});
+
+ipcMain.handle('mobile-sync-status', async () => {
+  const status = mobileSyncMiddleware?.getStatus?.() || null;
+  return {
+    token: mobileSyncToken(),
+    localEndpoint: `http://127.0.0.1:${Number(process.env.DESKTOP_SYNC_PORT || 3399)}/mobile-sync`,
+    status,
+  };
+});
+
+ipcMain.handle('mobile-sync-retry', async () => {
+  await mobileSyncMiddleware?.retryNow?.();
+  return mobileSyncMiddleware?.getStatus?.() || null;
+});
+
+ipcMain.handle('mobile-sync-publish-change', async (_event, change: unknown) => {
+  mobileSyncMiddleware?.publishDesktopChange?.(change);
+  return true;
 });
 
 function broadcastUpdate(channel: string, payload: unknown) {
@@ -470,13 +747,18 @@ ipcMain.handle('open-external-url', async (_event, rawUrl: string) => {
   try {
     const url = String(rawUrl || '').trim();
     if (!url) return false;
-    if (!/^https?:\/\//i.test(url)) return false;
+    if (!/^(https?|whatsapp):\/\//i.test(url)) return false;
     await shell.openExternal(url);
     return true;
   } catch {
     return false;
   }
 });
+
+ipcMain.handle('whatsapp-check-status', async () => whatsappBridge.checkWhatsAppStatus());
+ipcMain.handle('whatsapp-open-chat', async (_event, phone: string, message: string) =>
+  whatsappBridge.openWhatsAppChat(phone, message)
+);
 
 ipcMain.handle('print:pdf', async (_event, payload: { html?: string; fileName?: string; landscape?: boolean }) => {
   const html = String(payload?.html ?? '');
@@ -485,12 +767,12 @@ ipcMain.handle('print:pdf', async (_event, payload: { html?: string; fileName?: 
 
   let printWindow: any = null;
   try {
-    printWindow = new BrowserWindow({
+    printWindow = new BrowserWindow(createAppChildWindowOptions({
       show: false,
       webPreferences: {
         sandbox: false,
       },
-    });
+    }));
 
     await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
     const pdfBuffer = await printWindow.webContents.printToPDF({
@@ -517,20 +799,66 @@ ipcMain.handle('print:pdf', async (_event, payload: { html?: string; fileName?: 
   }
 });
 
+const wrapPrintPreviewHtml = (html: string): string => {
+  if (html.includes('pve-print-toolbar')) return html;
+  const logoUri = getPrintToolbarLogoDataUri();
+  const logoHtml = logoUri
+    ? `<img src="${logoUri}" alt="PVE" style="width:24px;height:24px;border-radius:5px;object-fit:contain;background:#fff;padding:2px;" />`
+    : `<span style="display:inline-flex;width:24px;height:24px;border-radius:5px;background:#fff;color:#1f4e79;font-weight:800;font-size:10px;align-items:center;justify-content:center;">PVE</span>`;
+  const toolbar = `<div id="pve-print-toolbar" style="position:sticky;top:0;z-index:9999;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:10px 14px;background:#1f4e79;color:#fff;font-family:Segoe UI,Arial,sans-serif;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.15);"><div style="display:flex;align-items:center;gap:10px;">${logoHtml}<div><strong style="display:block;line-height:1.2;">PVE InvoicePro 360</strong><span style="font-size:12px;opacity:.88;font-weight:500;">Print Preview</span></div></div><div style="display:flex;gap:8px;"><button type="button" onclick="window.print()" style="cursor:pointer;padding:6px 14px;border:none;border-radius:4px;background:#fff;color:#1f4e79;font-weight:600;">Print</button><button type="button" onclick="window.close()" style="cursor:pointer;padding:6px 14px;border:1px solid #fff;border-radius:4px;background:transparent;color:#fff;">Close</button></div></div>`;
+  if (/<body[^>]*>/i.test(html)) {
+    return html.replace(/<body([^>]*)>/i, `<body$1>${toolbar}`);
+  }
+  return `<!doctype html><html><head><meta charset="utf-8" /></head><body>${toolbar}${html}</body></html>`;
+};
+
+ipcMain.handle('print:open-preview', async (_event, payload: { html?: string }) => {
+  const html = String(payload?.html ?? '');
+  if (!html) return false;
+  let previewWindow: BrowserWindow | null = null;
+  try {
+    previewWindow = new BrowserWindow(createAppChildWindowOptions({
+      show: true,
+      width: 980,
+      height: 920,
+      title: 'PVE InvoicePro 360 — Print Preview',
+      webPreferences: { sandbox: false },
+    }));
+    const doc = wrapPrintPreviewHtml(html);
+    await previewWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(doc)}`);
+    previewWindow.on('closed', () => {
+      previewWindow = null;
+    });
+    return true;
+  } catch (error) {
+    console.error('print:open-preview failed', error);
+    if (previewWindow && !previewWindow.isDestroyed()) {
+      previewWindow.close();
+    }
+    return false;
+  }
+});
+
 ipcMain.handle('print:direct', async (_event, payload: { html?: string; silent?: boolean }) => {
   const html = String(payload?.html ?? '');
   if (!html) return false;
-  let printWindow: any = null;
+  let printWindow: BrowserWindow | null = null;
   try {
-    printWindow = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        sandbox: false,
-      },
-    });
-    await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    printWindow = new BrowserWindow(createAppChildWindowOptions({
+      show: true,
+      width: 980,
+      height: 920,
+      title: 'PVE InvoicePro 360 — Print',
+      webPreferences: { sandbox: false },
+    }));
+    const doc = wrapPrintPreviewHtml(html);
     await new Promise<void>((resolve, reject) => {
-      printWindow.webContents.print(
+      printWindow!.webContents.once('did-finish-load', () => resolve());
+      printWindow!.webContents.once('did-fail-load', (_e, code, desc) => reject(new Error(`${code}: ${desc}`)));
+      void printWindow!.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(doc)}`);
+    });
+    await new Promise<void>((resolve, reject) => {
+      printWindow!.webContents.print(
         {
           silent: Boolean(payload?.silent),
           printBackground: true,
@@ -557,10 +885,13 @@ ipcMain.handle('print:direct', async (_event, payload: { html?: string; silent?:
 
 app.whenReady().then(() => {
   console.log('App is ready, initializing...');
+  registerSessionIpc(app, sessionStore, companyRegistry);
   if (process.platform !== 'darwin') {
     Menu.setApplicationMenu(null);
   }
-  initDatabase();
+  companyRegistry.ensureInitialized(app, null);
+  initDatabase(companyRegistry.readActiveId(app));
+  startEmbeddedMobileSync();
   createSplashWindow();
   createWindow();
   console.log('Initialization complete');
@@ -586,6 +917,12 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  try {
+    mobileSyncMiddleware?.stop?.();
+  } catch {
+    // ignore
+  }
+  void stopDesktopSyncTunnel();
   if (db) {
     db.close();
   }

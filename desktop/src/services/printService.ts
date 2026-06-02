@@ -1,3 +1,6 @@
+import { renderInvoiceTemplate } from '../templates/invoice/invoiceTemplateRenderer';
+import { getInvoiceTemplateId } from './companySettingsService';
+import { openWhatsAppChat } from './whatsappIntegration';
 
 export type PrintFormat = 'A4_PORTRAIT' | 'A4_LANDSCAPE' | 'A5_PORTRAIT' | 'A5_LANDSCAPE' | 'THERMAL_80' | 'THERMAL_58';
 
@@ -7,6 +10,7 @@ export interface CompanyInfo {
   gstin?: string;
   phone?: string;
   email?: string;
+  website?: string;
   city?: string;
   pinCode?: string;
   bank?: string;
@@ -20,7 +24,9 @@ export interface InvoiceItem {
   name: string;
   hsn?: string;
   qty: number;
+  unit?: string;
   rate: number;
+  discount?: number;
   taxPercent: number; // 0/5/12/18/28
   amount: number; // inclusive of tax if needed
   cgst?: number;
@@ -31,21 +37,28 @@ export interface InvoiceItem {
 export interface InvoiceData {
   invoiceNumber: string;
   invoiceDate: string; // ISO
+  dueDate?: string;
   customerName: string;
   customerGSTIN?: string;
+  customerPhone?: string;
   items: InvoiceItem[];
   subtotal: number;
   cgstTotal: number;
   sgstTotal: number;
   igstTotal: number;
+  discountTotal?: number;
+  roundOff?: number;
   grandTotal: number;
   amountInWords: string;
   buyerAddress?: string;
   sellerAddress?: string;
   billToAddress?: string;
   shipToAddress?: string;
+  shipToName?: string;
+  shipToGstin?: string;
   customerSealLabel?: string;
   declaration?: string;
+  termsAndConditions?: string;
 }
 
 export interface PrintOptions {
@@ -90,7 +103,19 @@ const cssBase = (format: PrintFormat, opts: PrintOptions) => {
   `;
 };
 
-export function buildInvoiceHTML(format: PrintFormat, company: CompanyInfo, data: InvoiceData, opts: PrintOptions): string {
+export async function buildInvoiceHTML(
+  format: PrintFormat,
+  company: CompanyInfo,
+  data: InvoiceData,
+  opts: PrintOptions,
+  templateId?: string
+): Promise<string> {
+  const selectedTemplate = templateId || getInvoiceTemplateId();
+  return renderInvoiceTemplate(selectedTemplate, format, company, data, opts);
+}
+
+/** @deprecated Legacy single-format builder; kept for reference. Use buildInvoiceHTML. */
+export function buildInvoiceHTMLLegacy(format: PrintFormat, company: CompanyInfo, data: InvoiceData, opts: PrintOptions): string {
   const css = cssBase(format, opts);
   const logoHtml = company.logo && opts.logoPosition ? `<img class="logo" src="${company.logo}" alt="Logo" />` : '';
   const signatureHtml = opts.showSignature && company.signature ? `<img style="max-height:70px" src="${company.signature}" alt="Signature" />` : '';
@@ -206,12 +231,37 @@ export function buildInvoiceHTML(format: PrintFormat, company: CompanyInfo, data
   `;
 }
 
-export function openPrintPreview(html: string) {
+/** Wrap invoice HTML with a simple toolbar for Electron preview windows. */
+export function wrapPrintPreviewDocument(html: string): string {
+  if (html.includes('pve-print-toolbar')) return html;
+  const toolbar = `
+    <div id="pve-print-toolbar" style="position:sticky;top:0;z-index:9999;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:10px 14px;background:#1f4e79;color:#fff;font-family:Segoe UI,Arial,sans-serif;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.15);">
+      <strong>Print Preview</strong>
+      <div style="display:flex;gap:8px;">
+        <button type="button" onclick="window.print()" style="cursor:pointer;padding:6px 14px;border:none;border-radius:4px;background:#fff;color:#1f4e79;font-weight:600;">Print</button>
+        <button type="button" onclick="window.close()" style="cursor:pointer;padding:6px 14px;border:1px solid #fff;border-radius:4px;background:transparent;color:#fff;">Close</button>
+      </div>
+    </div>`;
+  if (/<body[^>]*>/i.test(html)) {
+    return html.replace(/<body([^>]*)>/i, `<body$1>${toolbar}`);
+  }
+  return `<!doctype html><html><head><meta charset="utf-8" /></head><body>${toolbar}${html}</body></html>`;
+}
+
+export async function openPrintPreview(html: string): Promise<void> {
   try {
     localStorage.setItem('pve_print_html', html);
+    const w: any = window as any;
+    if (w.electronAPI && typeof w.electronAPI.openPrintPreview === 'function') {
+      await w.electronAPI.openPrintPreview({ html });
+      return;
+    }
     const base = window.location.origin;
     const target = `${base}/#/print`;
-    window.open(target, '_blank', 'noopener,noreferrer');
+    const popup = window.open(target, '_blank', 'noopener,noreferrer');
+    if (!popup) {
+      alert('Unable to open print preview. Please allow popups and try again.');
+    }
   } catch (e) {
     console.error('Print preview error', e);
   }
@@ -234,17 +284,54 @@ export async function downloadPDF(html: string, fileName: string, landscape = fa
 }
 
 export async function printInvoice(html: string): Promise<boolean> {
-  try {
-    const w: any = window as any;
-    if (w.electronAPI && typeof w.electronAPI.printDirect === 'function') {
-      const ok = await w.electronAPI.printDirect({ html, silent: false });
-      return Boolean(ok);
+  await openPrintPreview(html);
+  return true;
+}
+
+export async function openExternalUrl(url: string): Promise<void> {
+  const w: any = window as any;
+  if (w.electronAPI?.openExternalUrl) {
+    try {
+      const ok = await w.electronAPI.openExternalUrl(url);
+      if (ok) return;
+    } catch (e) {
+      console.warn('openExternalUrl IPC failed', e);
     }
-  } catch (e) {
-    console.warn('Electron direct print failed', e);
+    throw new Error(
+      'Could not open link. Restart PVE InvoicePro and ensure WhatsApp Desktop is installed.'
+    );
   }
-  openPrintPreview(html);
-  return false;
+  const opened = window.open(url, '_blank', 'noopener,noreferrer');
+  if (!opened) {
+    throw new Error('Could not open link. Allow pop-ups or install WhatsApp Desktop.');
+  }
+}
+
+export function buildInvoiceWhatsAppMessage(
+  voucherNumber: string,
+  voucherDate: string,
+  grandTotal: number
+): string {
+  const amount = Number(grandTotal || 0).toFixed(2);
+  const date = new Date(voucherDate).toLocaleDateString('en-IN');
+  return `Invoice ${voucherNumber}\nDate: ${date}\nAmount: ₹${amount}\nThank you for your business!`;
+}
+
+export async function shareInvoiceOnWhatsApp(
+  voucherNumber: string,
+  voucherDate: string,
+  grandTotal: number,
+  phone?: string
+): Promise<void> {
+  const message = buildInvoiceWhatsAppMessage(voucherNumber, voucherDate, grandTotal);
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) {
+    throw new Error('Customer phone number is required to share on WhatsApp.');
+  }
+  const result = await openWhatsAppChat(digits, message);
+  if (!result.ok) {
+    throw new Error(result.error || 'WhatsApp is not connected. Install WhatsApp Desktop or use WhatsApp Web.');
+  }
 }
 
 export function systemPrint() {

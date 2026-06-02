@@ -1,0 +1,29 @@
+{
+  "appId": "com.invoicepro.admin",
+  "productName": "InvoicePro Admin",
+  "icon": "electron/icon.ico",
+  "directories": {
+    "buildResources": "electron",
+    "output": "dist-electron"
+  },
+  "files": ["dist/**/*", "electron/**/*", "package.json"],
+  "asar": true,
+  "asarUnpack": ["dist/**/*"],
+  "win": {
+    "signAndEditExecutable": false,
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "artifactName": "InvoicePro-Admin-Setup-${version}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "InvoicePro Admin"
+  }
+}

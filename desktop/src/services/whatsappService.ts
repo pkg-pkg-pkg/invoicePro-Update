@@ -1,4 +1,6 @@
 // src/services/whatsappService.ts
+import { openExternalUrl } from './printService';
+
 export interface WhatsAppSettings {
   apiKey: string;
   phoneNumber: string;
@@ -65,6 +67,16 @@ export class WhatsAppService {
   // Check if WhatsApp is configured and enabled
   isConfigured(): boolean {
     return !!(this.settings?.isEnabled && this.settings?.apiKey && this.settings?.phoneNumber);
+  }
+
+  /** Desktop flow: open wa.me with pre-filled text (works without Business API). */
+  async openWebChat(customerPhone: string, message: string): Promise<void> {
+    const digits = String(customerPhone).replace(/\D/g, '');
+    const intl = digits.length === 10 ? `91${digits}` : digits;
+    const url = intl
+      ? `https://wa.me/${intl}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/?text=${encodeURIComponent(message)}`;
+    await openExternalUrl(url);
   }
 
   // Send invoice message

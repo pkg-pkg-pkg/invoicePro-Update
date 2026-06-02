@@ -13,6 +13,7 @@ import {
   ListItemText,
   Grid,
   Divider,
+  Stack,
 } from '@mui/material';
 import {
   SystemUpdate as UpdateIcon,
@@ -22,6 +23,19 @@ import {
   ContactSupport as ContactSupportIcon,
 } from '@mui/icons-material';
 import { APP_DISPLAY_NAME, APP_TAGLINE } from '../constants/appBranding';
+import {
+  checkForAppUpdate,
+  fetchAppRelease,
+  isOlderVersion,
+  resolveDownloadUrl,
+} from '../services/appUpdateService';
+import { openExternalUrl } from '../services/printService';
+
+function releaseNotesToChangelog(notes?: string): string[] | undefined {
+  const text = String(notes ?? '').trim();
+  if (!text) return undefined;
+  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+}
 
 interface UpdateInfo {
   updateAvailable: boolean;
@@ -39,6 +53,21 @@ interface DownloadProgress {
   speed: number;
 }
 
+interface MobileSyncStatusResponse {
+  token: string;
+  localEndpoint: string;
+  status: {
+    running: boolean;
+    publicUrl: string | null;
+    tunnelConnected: boolean;
+    pendingInboxCount: number;
+    pendingOutboxCount: number;
+    lastUploadAt: string | null;
+    lastDownloadAt: string | null;
+    lastError: string | null;
+  } | null;
+}
+
 const AboutAndUpdates: React.FC = () => {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [checkingForUpdates, setCheckingForUpdates] = useState(false);
@@ -51,6 +80,8 @@ const AboutAndUpdates: React.FC = () => {
   );
   const [gatewayUpdatesEntitled, setGatewayUpdatesEntitled] = useState<boolean>(true);
   const [gatewayValidUntilMs, setGatewayValidUntilMs] = useState<number | null>(null);
+  const [mobileSyncInfo, setMobileSyncInfo] = useState<MobileSyncStatusResponse | null>(null);
+  const [mobileSyncLoading, setMobileSyncLoading] = useState(false);
 
   const currentVersion =
     (typeof import.meta.env.VITE_APP_VERSION === 'string' && import.meta.env.VITE_APP_VERSION) || '1.0.0';
@@ -126,23 +157,135 @@ const AboutAndUpdates: React.FC = () => {
     })();
   }, []);
 
+  const loadMobileSyncStatus = async () => {
+    if (!window.electronAPI?.mobileSyncStatus) return;
+    setMobileSyncLoading(true);
+    try {
+      const info = await window.electronAPI.mobileSyncStatus();
+      setMobileSyncInfo(info);
+    } catch (err) {
+      setError((err as Error)?.message || 'Failed to load mobile sync status');
+    } finally {
+      setMobileSyncLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadMobileSyncStatus();
+    if (!window.electronAPI?.onMobileSyncStatus) return;
+    window.electronAPI.onMobileSyncStatus((data: any) => {
+      setMobileSyncInfo((prev) => ({
+        token: prev?.token || '',
+        localEndpoint: prev?.localEndpoint || '',
+        status: data,
+      }));
+    });
+  }, []);
+
   const handleCheckForUpdates = async () => {
     setCheckingForUpdates(true);
     setError(null);
 
     try {
-      if (window.electronAPI) {
-        const result = await window.electronAPI.checkForUpdates();
-        setUpdateInfo(result);
-        setLastChecked(new Date().toLocaleString());
-        localStorage.setItem('lastUpdateCheck', new Date().toISOString());
+      let info: UpdateInfo = {
+        updateAvailable: false,
+        currentVersion,
+      };
+
+      try {
+        const pendingNotes = localStorage.getItem('pve_pending_release_notes');
+        const pendingVersion = localStorage.getItem('pve_pending_update_version');
+        if (pendingNotes) {
+          info.releaseNotes = pendingNotes;
+          info.changelog = releaseNotesToChangelog(pendingNotes);
+          localStorage.removeItem('pve_pending_release_notes');
+        }
+        if (pendingVersion) {
+          info.newVersion = pendingVersion;
+          localStorage.removeItem('pve_pending_update_version');
+        }
+      } catch {
+        // ignore
       }
+
+      const cloud = await checkForAppUpdate();
+      info = {
+        updateAvailable: cloud.updateAvailable,
+        currentVersion: cloud.currentVersion,
+        newVersion: cloud.info?.latestVersion || info.newVersion,
+        releaseNotes: cloud.info?.releaseNotes || info.releaseNotes,
+        changelog:
+          releaseNotesToChangelog(cloud.info?.releaseNotes) || info.changelog,
+      };
+
+      if (window.electronAPI?.checkForUpdates) {
+        const electronResult = await window.electronAPI.checkForUpdates();
+        const rawNotes = (electronResult as { releaseNotes?: unknown }).releaseNotes;
+        const electronNotes =
+          typeof rawNotes === 'string'
+            ? rawNotes
+            : Array.isArray(rawNotes)
+              ? rawNotes.map(String).join('\n')
+              : '';
+        if (electronResult?.updateAvailable) {
+          info = {
+            updateAvailable: true,
+            currentVersion: electronResult.currentVersion || info.currentVersion,
+            newVersion: electronResult.newVersion || info.newVersion,
+            releaseNotes: electronNotes || info.releaseNotes,
+            changelog: releaseNotesToChangelog(electronNotes) || info.changelog,
+            releaseDate: electronResult.releaseDate,
+          };
+        } else if (!cloud.updateAvailable) {
+          info = {
+            ...info,
+            updateAvailable: false,
+            currentVersion: electronResult?.currentVersion || info.currentVersion,
+          };
+        }
+      }
+
+      if (!info.changelog?.length) {
+        const rel = await fetchAppRelease();
+        if (rel?.releaseNotes) {
+          info.releaseNotes = rel.releaseNotes;
+          info.changelog = releaseNotesToChangelog(rel.releaseNotes);
+        }
+        if (
+          rel &&
+          isOlderVersion(info.currentVersion, rel.latestVersion) &&
+          !info.updateAvailable
+        ) {
+          info = {
+            ...info,
+            updateAvailable: true,
+            newVersion: rel.latestVersion,
+          };
+        }
+      }
+
+      setUpdateInfo(info);
+      setLastChecked(new Date().toLocaleString());
+      localStorage.setItem('lastUpdateCheck', new Date().toISOString());
     } catch (err: any) {
       setError(err.message || 'Failed to check for updates');
     } finally {
       setCheckingForUpdates(false);
     }
   };
+
+  useEffect(() => {
+    try {
+      const flag = localStorage.getItem('auto_check_updates_once');
+      if (flag === '1') {
+        localStorage.removeItem('auto_check_updates_once');
+        void handleCheckForUpdates();
+      }
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleDownloadUpdate = async () => {
     setDownloading(true);
@@ -172,6 +315,16 @@ const AboutAndUpdates: React.FC = () => {
   const handleInstallUpdate = () => {
     if (window.electronAPI) {
       window.electronAPI.installUpdate();
+    }
+  };
+
+  const handleMobileSyncRetry = async () => {
+    if (!window.electronAPI?.mobileSyncRetry) return;
+    try {
+      await window.electronAPI.mobileSyncRetry();
+      await loadMobileSyncStatus();
+    } catch (err) {
+      setError((err as Error)?.message || 'Failed to retry mobile sync');
     }
   };
 
@@ -344,7 +497,7 @@ const AboutAndUpdates: React.FC = () => {
               )}
             </Box>
 
-            {updateInfo && !updateInfo.updateAvailable && !checkingForUpdates && (
+            {updateInfo && !updateInfo.updateAvailable && !checkingForUpdates && !updateInfo.changelog?.length && (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
                 ℹ️ You are using the latest version
               </Typography>
@@ -352,7 +505,7 @@ const AboutAndUpdates: React.FC = () => {
           </Paper>
         </Grid>
 
-        {updateInfo?.updateAvailable && updateInfo.changelog && (
+        {updateInfo?.changelog && updateInfo.changelog.length > 0 && (
           <Grid item xs={12}>
             <Paper sx={{ p: 3 }}>
               <Typography variant="h6" gutterBottom>
@@ -426,6 +579,63 @@ const AboutAndUpdates: React.FC = () => {
                 </Alert>
               </Grid>
             </Grid>
+          </Paper>
+        </Grid>
+
+        <Grid item xs={12}>
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+              <ContactSupportIcon sx={{ mr: 1 }} />
+              Mobile Sync Middleware
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Desktop embedded middleware status and manual retry controls.
+            </Typography>
+            <List dense>
+              <ListItem>
+                <ListItemText
+                  primary="Local Endpoint"
+                  secondary={mobileSyncInfo?.localEndpoint || 'Not available'}
+                />
+              </ListItem>
+              <ListItem>
+                <ListItemText
+                  primary="Public Endpoint"
+                  secondary={mobileSyncInfo?.status?.publicUrl || 'Tunnel not connected'}
+                />
+              </ListItem>
+              <ListItem>
+                <ListItemText
+                  primary="Sync Token"
+                  secondary={mobileSyncInfo?.token || 'Not generated'}
+                />
+              </ListItem>
+              <ListItem>
+                <ListItemText
+                  primary="Queue"
+                  secondary={`Inbox pending: ${mobileSyncInfo?.status?.pendingInboxCount || 0}, Outbox pending: ${mobileSyncInfo?.status?.pendingOutboxCount || 0}`}
+                />
+              </ListItem>
+              <ListItem>
+                <ListItemText
+                  primary="Last Activity"
+                  secondary={`Upload: ${mobileSyncInfo?.status?.lastUploadAt || '-'} | Download: ${mobileSyncInfo?.status?.lastDownloadAt || '-'}`}
+                />
+              </ListItem>
+            </List>
+            {mobileSyncInfo?.status?.lastError && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                {mobileSyncInfo.status.lastError}
+              </Alert>
+            )}
+            <Stack direction="row" spacing={1}>
+              <Button variant="outlined" onClick={loadMobileSyncStatus} disabled={mobileSyncLoading}>
+                Refresh status
+              </Button>
+              <Button variant="contained" onClick={handleMobileSyncRetry}>
+                Retry now
+              </Button>
+            </Stack>
           </Paper>
         </Grid>
       </Grid>

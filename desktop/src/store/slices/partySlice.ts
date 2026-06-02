@@ -2,6 +2,7 @@
 import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 import { docApi, getHostBaseUrl } from '../../services/docApi';
+import { companyScopedKey, readCompanyScopedRaw } from '../../utils/companyStorage';
 
 const API = (import.meta.env?.VITE_API_URL || 'http://localhost:3000/api').replace('/api', '');
 
@@ -146,41 +147,49 @@ export interface PartyState {
   };
 }
 
+const CUSTOMERS_STORAGE_KEY = companyScopedKey('pve_customers');
+const SUPPLIERS_STORAGE_KEY = companyScopedKey('pve_suppliers');
+const SALES_INVOICES_STORAGE_KEY = companyScopedKey('pve_invoicepro_invoices');
+const PURCHASE_INVOICES_STORAGE_KEY = companyScopedKey('pve_invoicepro_purchase_invoices');
+const CREDIT_NOTES_STORAGE_KEY = companyScopedKey('pve_invoicepro_credit_notes');
+const DEBIT_NOTES_STORAGE_KEY = companyScopedKey('pve_invoicepro_debit_notes');
+const PAYMENTS_STORAGE_KEY = companyScopedKey('pve_invoicepro_payments');
+
 // Helper functions for localStorage persistence
 const getStoredCustomers = (): Customer[] => {
   try {
-    const stored = localStorage.getItem('pve_customers');
+    const stored = readCompanyScopedRaw('pve_customers');
     if (stored) {
       const parsed = JSON.parse(stored);
       return parsed;
     }
   } catch (e) {
     console.error("Failed to parse customers from localStorage", e);
-    localStorage.removeItem('pve_customers');
+    localStorage.removeItem(CUSTOMERS_STORAGE_KEY);
   }
   return [];
 };
 
 const saveCustomers = (customers: Customer[]) => {
-  localStorage.setItem('pve_customers', JSON.stringify(customers));
+  localStorage.setItem(CUSTOMERS_STORAGE_KEY, JSON.stringify(customers));
 };
 
 const getStoredSuppliers = (): Supplier[] => {
   try {
-    const stored = localStorage.getItem('pve_suppliers');
+    const stored = readCompanyScopedRaw('pve_suppliers');
     if (stored) {
       const parsed = JSON.parse(stored);
       return parsed;
     }
   } catch (e) {
     console.error("Failed to parse suppliers from localStorage", e);
-    localStorage.removeItem('pve_suppliers');
+    localStorage.removeItem(SUPPLIERS_STORAGE_KEY);
   }
   return [];
 };
 
 const saveSuppliers = (suppliers: Supplier[]) => {
-  localStorage.setItem('pve_suppliers', JSON.stringify(suppliers));
+  localStorage.setItem(SUPPLIERS_STORAGE_KEY, JSON.stringify(suppliers));
 };
 
 const toDateSafe = (value: any): Date | null => {
@@ -212,7 +221,7 @@ const isInRange = (dateStr: any, fromDate?: string, toDate?: string) => {
 
 const getStoredSalesInvoices = (): any[] => {
   try {
-    const raw = localStorage.getItem('pve_invoicepro_invoices');
+    const raw = readCompanyScopedRaw('pve_invoicepro_invoices');
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -223,7 +232,7 @@ const getStoredSalesInvoices = (): any[] => {
 
 const getStoredPurchaseBills = (): any[] => {
   try {
-    const raw = localStorage.getItem('pve_invoicepro_purchase_invoices');
+    const raw = readCompanyScopedRaw('pve_invoicepro_purchase_invoices');
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -234,7 +243,7 @@ const getStoredPurchaseBills = (): any[] => {
 
 const getStoredCreditNotes = (): any[] => {
   try {
-    const raw = localStorage.getItem('pve_invoicepro_credit_notes');
+    const raw = readCompanyScopedRaw('pve_invoicepro_credit_notes');
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -245,7 +254,7 @@ const getStoredCreditNotes = (): any[] => {
 
 const getStoredDebitNotes = (): any[] => {
   try {
-    const raw = localStorage.getItem('pve_invoicepro_debit_notes');
+    const raw = readCompanyScopedRaw('pve_invoicepro_debit_notes');
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -256,7 +265,7 @@ const getStoredDebitNotes = (): any[] => {
 
 const getStoredPayments = (): any[] => {
   try {
-    const raw = localStorage.getItem('pve_invoicepro_payments');
+    const raw = readCompanyScopedRaw('pve_invoicepro_payments');
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -292,7 +301,7 @@ const getStoredPurchaseBillsSmart = async (): Promise<any[]> => {
     try {
       const rows = await docApi.listPayloads<any>('purchase_invoice');
       try {
-        localStorage.setItem('pve_invoicepro_purchase_invoices', JSON.stringify(rows));
+        localStorage.setItem(PURCHASE_INVOICES_STORAGE_KEY, JSON.stringify(rows));
       } catch {
         // ignore
       }
@@ -309,7 +318,7 @@ const getStoredDebitNotesSmart = async (): Promise<any[]> => {
     try {
       const rows = await docApi.listPayloads<any>('debit_note');
       try {
-        localStorage.setItem('pve_invoicepro_debit_notes', JSON.stringify(rows));
+        localStorage.setItem(DEBIT_NOTES_STORAGE_KEY, JSON.stringify(rows));
       } catch {
         // ignore
       }
@@ -326,7 +335,7 @@ const getStoredCreditNotesSmart = async (): Promise<any[]> => {
     try {
       const rows = await docApi.listPayloads<any>('credit_note');
       try {
-        localStorage.setItem('pve_invoicepro_credit_notes', JSON.stringify(rows));
+        localStorage.setItem(CREDIT_NOTES_STORAGE_KEY, JSON.stringify(rows));
       } catch {
         // ignore
       }

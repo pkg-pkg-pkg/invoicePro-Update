@@ -10,6 +10,7 @@ dotenv.config();
 const pkg = JSON.parse(readFileSync(path.join(__dirname, "package.json"), "utf-8")) as { version?: string };
 
 export default defineConfig({
+  base: "./",
   define: {
     'import.meta.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL || 'http://localhost:3000/api'),
     'import.meta.env.VITE_ENV': JSON.stringify(process.env.VITE_ENV || 'development'),
@@ -28,7 +29,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: false,
+    strictPort: true,
+    host: "127.0.0.1",
     fs: {
       // allow Vite to access parent folder so it can read ../shared/src
       allow: [path.resolve(__dirname, "..")]

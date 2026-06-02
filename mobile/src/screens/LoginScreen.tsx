@@ -46,7 +46,7 @@ export default function LoginScreen() {
     <View style={styles.container}>
       <Surface style={styles.surface}>
         <Text variant="headlineMedium" style={styles.title}>
-          GST Billing
+          PVE InvoicePro 360
         </Text>
         <Text variant="bodyMedium" style={styles.subtitle}>
           Sign in to your account

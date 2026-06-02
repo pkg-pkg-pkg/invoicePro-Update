@@ -11,11 +11,18 @@ import React, {
 import { signOut } from "firebase/auth";
 import { auth } from "../../firebase/firebase";
 import { syncHostMultiUserLanFromCloud } from "../../services/hostLicenseSyncService";
+import {
+  ensureLegacyDesktopSession,
+  logoutDesktopSession,
+  validateDesktopSession,
+  type SessionUser,
+} from "../../services/sessionManager";
+import { isElectronRuntime } from "../../utils/runtime";
+import { withTimeout } from "../../utils/withTimeout";
 
 interface Company {
   id: string;
   name: string;
-  // add other fields if needed
 }
 
 interface User {
@@ -44,28 +51,85 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+function sessionUserToAuthUser(u: SessionUser): User {
+  return {
+    id: u.id,
+    username: u.username,
+    email: u.email,
+    fullName: u.fullName,
+    role: u.role,
+    companyId: u.companyId || '',
+    company: null,
+    completedBusinessProfile: u.completedBusinessProfile,
+  };
+}
+
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedToken = localStorage.getItem("token");
-    const savedUser = localStorage.getItem("user");
+    let cancelled = false;
 
-    if (savedToken && savedUser) {
+    const restore = async () => {
       try {
-        const parsedUser: User = JSON.parse(savedUser);
-        setToken(savedToken);
-        setUser(parsedUser);
+        if (isElectronRuntime()) {
+          const session = await withTimeout(validateDesktopSession(), 6000, {
+            valid: false,
+            reason: 'session_validate_timeout',
+          });
+          if (!cancelled && session.valid && session.user && session.sessionToken) {
+            const authUser = sessionUserToAuthUser(session.user as SessionUser);
+            setToken(session.sessionToken);
+            setUser(authUser);
+            localStorage.setItem('token', session.sessionToken);
+            localStorage.setItem('user', JSON.stringify(authUser));
+            setLoading(false);
+            return;
+          }
+        }
+
+        const savedToken = localStorage.getItem("token");
+        const savedUser = localStorage.getItem("user");
+
+        if (savedToken && savedUser) {
+          const parsedUser: User = JSON.parse(savedUser);
+          if (isElectronRuntime()) {
+            const legacy = await ensureLegacyDesktopSession({
+              userId: parsedUser.id,
+              username: parsedUser.username,
+              email: parsedUser.email,
+              fullName: parsedUser.fullName,
+            });
+            if (!cancelled && legacy.valid && legacy.sessionToken && legacy.user) {
+              const authUser = sessionUserToAuthUser(legacy.user as SessionUser);
+              setToken(legacy.sessionToken);
+              setUser(authUser);
+              localStorage.setItem('token', legacy.sessionToken);
+              localStorage.setItem('user', JSON.stringify(authUser));
+              setLoading(false);
+              return;
+            }
+          }
+          if (!cancelled) {
+            setToken(savedToken);
+            setUser(parsedUser);
+          }
+        }
       } catch (err) {
-        console.error("Failed to parse saved user", err);
+        console.error("Failed to restore session", err);
         localStorage.removeItem("token");
         localStorage.removeItem("user");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    }
+    };
 
-    setLoading(false);
+    void restore();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = useCallback(async (newToken: string, newUser: User) => {
@@ -80,9 +144,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setUser(null);
     localStorage.removeItem("token");
     localStorage.removeItem("user");
+    void logoutDesktopSession();
     void signOut(auth).catch(() => undefined);
-    // Keep local device binding + encrypted license cache so the same user can log in again on this PC
-    // without hitting activation. Device-change / deactivation flows still clear binding via deviceChangeDetector.
     void syncHostMultiUserLanFromCloud(false);
   }, []);
 

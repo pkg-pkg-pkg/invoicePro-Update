@@ -4,10 +4,11 @@ import { Payment, PaymentType, PartyType } from "@gst-billing/shared";
 import { CreatePaymentData } from '../../services/paymentService';
 
 import { docApi, getHostBaseUrl } from '../../services/docApi';
+import { companyScopedKey, readCompanyScopedRaw } from '../../utils/companyStorage';
 
-const PAYMENTS_STORAGE_KEY = 'pve_invoicepro_payments';
-const CUSTOMERS_STORAGE_KEY = 'pve_customers';
-const SUPPLIERS_STORAGE_KEY = 'pve_suppliers';
+const PAYMENTS_STORAGE_KEY = companyScopedKey('pve_invoicepro_payments');
+const CUSTOMERS_STORAGE_KEY = companyScopedKey('pve_customers');
+const SUPPLIERS_STORAGE_KEY = companyScopedKey('pve_suppliers');
 
 const isLanDocsEnabled = () => {
   try {
@@ -55,7 +56,7 @@ const serializePayment = (p: Payment) => {
 
 const getStoredPayments = (): Payment[] => {
   try {
-    const raw = localStorage.getItem(PAYMENTS_STORAGE_KEY);
+    const raw = readCompanyScopedRaw('pve_invoicepro_payments') ?? localStorage.getItem(PAYMENTS_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -90,7 +91,8 @@ const getStoredPaymentsSmart = async (): Promise<Payment[]> => {
 const getPartyName = (partyType: PartyType, partyId: string): string => {
   try {
     const key = partyType === PartyType.SUPPLIER ? SUPPLIERS_STORAGE_KEY : CUSTOMERS_STORAGE_KEY;
-    const raw = localStorage.getItem(key);
+    const baseKey = partyType === PartyType.SUPPLIER ? 'pve_suppliers' : 'pve_customers';
+    const raw = readCompanyScopedRaw(baseKey) ?? localStorage.getItem(key);
     if (!raw) return '';
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return '';
@@ -122,7 +124,8 @@ const applyPartyBalanceDelta = (partyType: PartyType, partyId: string, delta: nu
   const key = partyType === PartyType.SUPPLIER ? SUPPLIERS_STORAGE_KEY : CUSTOMERS_STORAGE_KEY;
 
   try {
-    const raw = localStorage.getItem(key);
+    const baseKey = partyType === PartyType.SUPPLIER ? 'pve_suppliers' : 'pve_customers';
+    const raw = readCompanyScopedRaw(baseKey) ?? localStorage.getItem(key);
     if (!raw) return;
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return;

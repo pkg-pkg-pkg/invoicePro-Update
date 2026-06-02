@@ -71,6 +71,11 @@ const PINCODE_MASTER: Record<string, PincodeInfo> = {
   // West Bengal
   '700001': { pincode: '700001', district: 'Kolkata', state: 'West Bengal', region: 'Urban' },
   '700014': { pincode: '700014', district: 'Kolkata', state: 'West Bengal', region: 'Urban' },
+
+  // Jharkhand (Ranchi area — offline fallback when API unreachable)
+  '834001': { pincode: '834001', district: 'Ranchi', state: 'Jharkhand', region: 'Urban' },
+  '834002': { pincode: '834002', district: 'Ranchi', state: 'Jharkhand', region: 'Urban' },
+  '834005': { pincode: '834005', district: 'Ranchi', state: 'Jharkhand', region: 'Urban' },
 };
 
 /**

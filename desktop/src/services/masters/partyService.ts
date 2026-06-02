@@ -333,6 +333,8 @@ class PartyService {
       mobile: input.mobile,
       gstin: input.gstin,
       address: input.address,
+      city: input.city,
+      district: input.district,
       state: input.state,
       pincode: input.pincode,
       partyType: input.partyType,

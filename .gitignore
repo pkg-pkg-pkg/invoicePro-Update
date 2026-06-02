@@ -57,6 +57,11 @@ desktop/out/
 desktop/.vite/
 desktop/releases/
 
+# Admin
+Admin/dist/
+Admin/dist-electron/
+Admin/tsconfig.tsbuildinfo
+
 # Nested clone (Expo app) — not part of this repository
 GSTBillingMobile/
 

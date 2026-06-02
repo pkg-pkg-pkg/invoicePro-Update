@@ -27,6 +27,22 @@ export default function PartyReports({ canExport }: PartyReportsProps) {
       <Grid container spacing={2}>
         <Grid item xs={12} md={6} lg={4}>
           <Card>
+            <CardActionArea onClick={() => navigate('/reports/outstanding-aging')}>
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <ReceiptLongIcon color="primary" />
+                  <Typography variant="subtitle1">Outstanding Aging</Typography>
+                </Box>
+                <Typography variant="body2" color="text.secondary">
+                  Age-wise outstanding (0–30, 30–60, 60–90, 90+ days) with party detail
+                </Typography>
+              </CardContent>
+            </CardActionArea>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} md={6} lg={4}>
+          <Card>
             <CardActionArea onClick={() => navigate('/parties/ledger-report')}>
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>

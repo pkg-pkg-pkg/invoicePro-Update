@@ -5,12 +5,14 @@ export type AppTopBarProps = {
   left: React.ReactNode;
   center: React.ReactNode;
   right: React.ReactNode;
+  /** Wider center zone for global command-style search */
+  wideSearch?: boolean;
 };
 
 /**
  * Fixed three-zone top bar: left (title), center (search), right (user cluster).
  */
-export default function AppTopBar({ left, center, right }: AppTopBarProps) {
+export default function AppTopBar({ left, center, right, wideSearch = false }: AppTopBarProps) {
   return (
     <Box
       sx={{
@@ -21,10 +23,20 @@ export default function AppTopBar({ left, center, right }: AppTopBarProps) {
         px: { xs: 0.5, sm: 1 },
       }}
     >
-      <Box sx={{ flex: '0 1 34%', minWidth: 0, display: 'flex', alignItems: 'center' }}>{left}</Box>
       <Box
         sx={{
-          flex: '1 1 32%',
+          flex: wideSearch ? '0 1 22%' : '0 1 34%',
+          minWidth: 0,
+          display: 'flex',
+          alignItems: 'center',
+        }}
+      >
+        {left}
+      </Box>
+      <Box
+        sx={{
+          flex: wideSearch ? '1 1 55%' : '1 1 32%',
+          maxWidth: wideSearch ? '55%' : undefined,
           minWidth: 0,
           display: 'flex',
           justifyContent: 'center',
@@ -36,7 +48,7 @@ export default function AppTopBar({ left, center, right }: AppTopBarProps) {
       </Box>
       <Box
         sx={{
-          flex: '0 1 34%',
+          flex: wideSearch ? '0 1 23%' : '0 1 34%',
           minWidth: 0,
           display: 'flex',
           justifyContent: 'flex-end',

@@ -39,4 +39,13 @@ export type UserProfileDoc = {
 
   createdAt: Timestamp;
   lastLogin: Timestamp | null;
+  lastActiveAt?: Timestamp | null;
+  lastAppOpenAt?: Timestamp | null;
+  lastSessionEndedAt?: Timestamp | null;
+  lastSessionDurationMinutes?: number;
+  totalUsageMinutes?: number;
+  liveSessionMinutes?: number;
+  sessionCount?: number;
+  usagePlatform?: string;
+  appVersion?: string;
 };

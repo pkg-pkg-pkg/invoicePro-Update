@@ -1,6 +1,6 @@
 import { VoucherType } from './vouchers';
 
-export type SummaryPeriod = 'today' | 'week' | 'month' | 'year';
+export type SummaryPeriod = 'today' | 'week' | 'month' | 'lastMonth' | 'year';
 
 export interface DashboardSummary {
   totalSales: number;
@@ -16,6 +16,12 @@ export interface DashboardSummary {
   profitLoss: number;
   overdueAmount: number;
   overdueCount: number;
+  /** Sum of RECEIPT vouchers in the filtered period (today when period=today). */
+  todayReceipts?: number;
+  /** Current inventory valuation (all active items). */
+  stockValue?: number;
+  /** Count of SALES invoices with balance > 0. */
+  pendingInvoiceCount?: number;
 }
 
 export interface SalesAnalyticsData {
@@ -40,6 +46,15 @@ export interface CustomerSummary {
   currentBalance: number;
 }
 
+/** Sales voucher line used for FIFO outstanding aging. */
+export interface AgingSaleVoucher {
+  id: string;
+  invoiceNumber: string;
+  date: string;
+  amount: number;
+  partyLedgerId: string;
+}
+
 export interface SupplierSummary {
   id: string;
   name: string;
@@ -53,6 +68,7 @@ export interface TransactionInvoice {
   grandTotal: number;
   paymentStatus: string;
   type: VoucherType;
+  partyName?: string;
 }
 
 export interface TransactionPayment {
@@ -90,4 +106,7 @@ export interface LowStockItem {
   name: string;
   currentStock: number;
   reorderLevel: number;
+  /** Units needed to reach reorder level */
+  requiredQuantity?: number;
+  supplier?: string;
 }

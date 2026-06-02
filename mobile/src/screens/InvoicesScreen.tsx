@@ -14,11 +14,14 @@ import { listParties, PartyRecord } from '../services/partyService';
 import { useSelector } from 'react-redux';
 import { RootState } from '../store';
 import { canCreateEntry } from '../utils/permissions';
+import { useRoute } from '@react-navigation/native';
 
 export default function InvoicesScreen() {
+  const route = useRoute<any>();
   const user = useSelector((state: RootState) => state.auth.user);
   const createAllowed = canCreateEntry(user?.mobilePermissions);
-  const [entryType, setEntryType] = useState<EntryType>('RECEIPT');
+  const initialType = route?.params?.defaultEntryType as EntryType | undefined;
+  const [entryType, setEntryType] = useState<EntryType>(initialType === 'PAYMENT' ? 'PAYMENT' : 'RECEIPT');
   const [partySearch, setPartySearch] = useState('');
   const [partyLoading, setPartyLoading] = useState(false);
   const [parties, setParties] = useState<PartyRecord[]>([]);
@@ -84,7 +87,7 @@ export default function InvoicesScreen() {
         notes: notes.trim() || undefined,
         date: new Date().toISOString(),
       });
-      setMessage(`${entryType === 'RECEIPT' ? 'Receipt' : 'Payment'} entry created successfully.`);
+      setMessage(`${entryType === 'RECEIPT' ? 'Receipt' : 'Payment'} queued. It will sync when desktop endpoint is reachable.`);
       setAmount('');
       setNotes('');
     } catch (e: any) {

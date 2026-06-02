@@ -26,7 +26,7 @@ admin.firestore().settings({ ignoreUndefinedProperties: true });
 
 type LicenseDoc = {
   licenseKey: string;
-  version: 2;
+  version: 1 | 2;
   assignedToEmail?: string;
   createdAt: admin.firestore.Timestamp | admin.firestore.FieldValue;
   createdByUid: string;
@@ -279,6 +279,12 @@ function serializeFirestoreValue(v: any): any {
   if (v == null) return v;
   if (typeof v?.toMillis === "function") return v.toMillis();
   if (typeof v?.toDate === "function") return v.toDate().toISOString();
+  if (typeof v?.path === "string" && v?.constructor?.name === "DocumentReference") {
+    return v.path;
+  }
+  if (typeof v?.latitude === "number" && typeof v?.longitude === "number") {
+    return { latitude: v.latitude, longitude: v.longitude };
+  }
   if (Array.isArray(v)) return v.map(serializeFirestoreValue);
   if (typeof v === "object") {
     const out: Record<string, unknown> = {};
@@ -286,6 +292,23 @@ function serializeFirestoreValue(v: any): any {
     return out;
   }
   return v;
+}
+
+function sortByCreatedAtDesc<T extends { createdAt?: unknown }>(items: T[]): T[] {
+  return [...items].sort((a, b) => Number(b?.createdAt ?? 0) - Number(a?.createdAt ?? 0));
+}
+
+async function queryWithCreatedAtFallback(
+  ordered: () => Promise<admin.firestore.QuerySnapshot>,
+  unordered: () => Promise<admin.firestore.QuerySnapshot>,
+  label: string
+): Promise<admin.firestore.QuerySnapshot> {
+  try {
+    return await ordered();
+  } catch (err: any) {
+    logger.warn(`${label}_ordered_query_failed`, err);
+    return unordered();
+  }
 }
 
 export const generateLicense = functions
@@ -305,9 +328,40 @@ export const generateLicense = functions
       throw new functions.https.HttpsError("invalid-argument", "Invalid validityDays");
     }
 
-    const body = base32Encode(crypto.randomBytes(BODY_BYTES));
-    const sig = signBody(secret, body);
-    const licenseKey = `${KEY_PREFIX}-${body}-${sig}`;
+    const customRaw = data?.customKey != null ? String(data.customKey).trim().toUpperCase() : "";
+    let licenseKey: string;
+    let version: 1 | 2 = 2;
+
+    if (customRaw) {
+      const exists = await admin.firestore().doc(`licenses/${customRaw}`).get();
+      if (exists.exists) {
+        throw new functions.https.HttpsError("already-exists", "License key already exists");
+      }
+
+      if (isSignedLicenseKey(customRaw)) {
+        verifySignedKeyOrThrow(secret, customRaw);
+        licenseKey = customRaw;
+        version = 2;
+      } else if (new RegExp(`^${KEY_PREFIX}-([A-Z2-7]+)$`).test(customRaw)) {
+        const body = customRaw.replace(new RegExp(`^${KEY_PREFIX}-`), "");
+        const sig = signBody(secret, body);
+        licenseKey = `${KEY_PREFIX}-${body}-${sig}`;
+        version = 2;
+      } else if (/^[A-Z][A-Z0-9_-]{3,63}$/.test(customRaw)) {
+        licenseKey = customRaw;
+        version = 1;
+      } else {
+        throw new functions.https.HttpsError(
+          "invalid-argument",
+          "Custom key must be INV2-… (signed), INV2-BODY (we add signature), or legacy e.g. INVPRO0001"
+        );
+      }
+    } else {
+      const body = base32Encode(crypto.randomBytes(BODY_BYTES));
+      const sig = signBody(secret, body);
+      licenseKey = `${KEY_PREFIX}-${body}-${sig}`;
+      version = 2;
+    }
 
     const expiryDate =
       validityDays == null
@@ -316,7 +370,7 @@ export const generateLicense = functions
 
     const doc: LicenseDoc = {
       licenseKey,
-      version: 2,
+      version,
       assignedToEmail: "",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       createdByUid: String(context.auth?.uid ?? ""),
@@ -498,6 +552,7 @@ export const activateLicense = functions
             email,
             licenseKey,
             lastLogin: now,
+            lastActiveAt: now,
           },
           { merge: true }
         );
@@ -563,6 +618,7 @@ export const validateLicense = functions
       if (!licenseKey) throw new functions.https.HttpsError("invalid-argument", "licenseKey required");
 
       const licRef = admin.firestore().doc(`licenses/${licenseKey}`);
+      const userRef = admin.firestore().doc(`users/${email}`);
       const licSnap = await licRef.get();
       if (!licSnap.exists) throw new functions.https.HttpsError("not-found", "License not found");
       const lic = licSnap.data() as any;
@@ -599,6 +655,16 @@ export const validateLicense = functions
               lastSeenAt: admin.firestore.FieldValue.serverTimestamp(),
             },
           },
+        },
+        { merge: true }
+      );
+
+      await userRef.set(
+        {
+          email,
+          licenseKey,
+          lastActiveAt: admin.firestore.FieldValue.serverTimestamp(),
+          lastLogin: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
@@ -727,6 +793,7 @@ export const transferLicense = functions
             email,
             licenseKey,
             lastLogin: now,
+            lastActiveAt: now,
           },
           { merge: true }
         );
@@ -904,35 +971,52 @@ export const verifyActivationForLogin = functions
 export const listAuditEvents = functions
   .runWith({ maxInstances: 5 })
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
-    await requireAdmin(context);
-    const limitN = Math.min(Math.max(Number(data?.limit ?? 100), 1), 500);
-    const snap = await admin
-      .firestore()
-      .collectionGroup("events")
-      .orderBy("createdAt", "desc")
-      .limit(limitN)
-      .get();
-    const items = snap.docs.map((d) => {
-      const raw = d.data() as any;
-      return {
-        id: d.id,
-        ...serializeFirestoreValue(raw),
-      };
-    });
-    return { ok: true, items };
+    try {
+      await requireAdmin(context);
+      const limitN = Math.min(Math.max(Number(data?.limit ?? 100), 1), 500);
+      const snap = await queryWithCreatedAtFallback(
+        () =>
+          admin
+            .firestore()
+            .collectionGroup("events")
+            .orderBy("createdAt", "desc")
+            .limit(limitN)
+            .get(),
+        () => admin.firestore().collectionGroup("events").limit(limitN * 3).get(),
+        "listAuditEvents"
+      );
+      const items = snap.docs.map((d) => {
+        const raw = d.data() as any;
+        return {
+          id: d.id,
+          ...serializeFirestoreValue(raw),
+        };
+      });
+      return { ok: true, items: sortByCreatedAtDesc(items).slice(0, limitN) };
+    } catch (err: any) {
+      if (err instanceof functions.https.HttpsError) throw err;
+      logger.error("listAuditEvents_failed", err);
+      return { ok: true, items: [] };
+    }
   });
 
 export const listUsers = functions
   .runWith({ maxInstances: 5 })
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
-    await requireAdmin(context);
-    const pageSize = Math.min(Math.max(Number(data?.pageSize ?? 200), 1), 500);
-    const snap = await admin.firestore().collection("users").limit(pageSize).get();
-    const items = snap.docs.map((d) => ({
-      id: d.id,
-      ...(serializeFirestoreValue(d.data()) as any),
-    }));
-    return { ok: true, items };
+    try {
+      await requireAdmin(context);
+      const pageSize = Math.min(Math.max(Number(data?.pageSize ?? 200), 1), 500);
+      const snap = await admin.firestore().collection("users").limit(pageSize).get();
+      const items = snap.docs.map((d) => ({
+        id: d.id,
+        ...(serializeFirestoreValue(d.data()) as any),
+      }));
+      return { ok: true, items };
+    } catch (err: any) {
+      if (err instanceof functions.https.HttpsError) throw err;
+      logger.error("listUsers_failed", err);
+      return { ok: true, items: [] };
+    }
   });
 
 export const updateLicenseAdmin = functions
@@ -1162,29 +1246,55 @@ export const getMyMultiUserUpgradeStatus = functions
 export const listMultiUserUpgradeRequests = functions
   .runWith({ maxInstances: 5 })
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
-    await requireAdmin(context);
-    const statusFilter = data?.status != null ? String(data.status) : "";
-    let qy: admin.firestore.Query = admin
-      .firestore()
-      .collection("license_upgrade_requests")
-      .orderBy("createdAt", "desc")
-      .limit(Math.min(Math.max(Number(data?.limit ?? 50), 1), 200));
+    try {
+      await requireAdmin(context);
+      const statusFilter = data?.status != null ? String(data.status) : "";
+      const limitN = Math.min(Math.max(Number(data?.limit ?? 50), 1), 200);
 
-    if (statusFilter === "pending" || statusFilter === "approved" || statusFilter === "rejected") {
-      qy = admin
-        .firestore()
-        .collection("license_upgrade_requests")
-        .where("status", "==", statusFilter)
-        .orderBy("createdAt", "desc")
-        .limit(Math.min(Math.max(Number(data?.limit ?? 50), 1), 200));
+      let snap: admin.firestore.QuerySnapshot;
+      if (statusFilter === "pending" || statusFilter === "approved" || statusFilter === "rejected") {
+        snap = await queryWithCreatedAtFallback(
+          () =>
+            admin
+              .firestore()
+              .collection("license_upgrade_requests")
+              .where("status", "==", statusFilter)
+              .orderBy("createdAt", "desc")
+              .limit(limitN)
+              .get(),
+          () =>
+            admin
+              .firestore()
+              .collection("license_upgrade_requests")
+              .where("status", "==", statusFilter)
+              .limit(limitN * 3)
+              .get(),
+          "listMultiUserUpgradeRequests"
+        );
+      } else {
+        snap = await queryWithCreatedAtFallback(
+          () =>
+            admin
+              .firestore()
+              .collection("license_upgrade_requests")
+              .orderBy("createdAt", "desc")
+              .limit(limitN)
+              .get(),
+          () => admin.firestore().collection("license_upgrade_requests").limit(limitN * 3).get(),
+          "listMultiUserUpgradeRequests"
+        );
+      }
+
+      const items = snap.docs.map((d) => ({
+        id: d.id,
+        ...(serializeFirestoreValue(d.data()) as any),
+      }));
+      return { ok: true, items: sortByCreatedAtDesc(items).slice(0, limitN) };
+    } catch (err: any) {
+      if (err instanceof functions.https.HttpsError) throw err;
+      logger.error("listMultiUserUpgradeRequests_failed", err);
+      return { ok: true, items: [] };
     }
-
-    const snap = await qy.get();
-    const items = snap.docs.map((d) => ({
-      id: d.id,
-      ...(serializeFirestoreValue(d.data()) as any),
-    }));
-    return { ok: true, items };
   });
 
 export const approveMultiUserUpgradeRequest = functions
@@ -1439,29 +1549,55 @@ export const getMyGatewayRenewalStatus = functions
 export const listGatewayRenewalRequests = functions
   .runWith({ maxInstances: 5 })
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
-    await requireAdmin(context);
-    const statusFilter = data?.status != null ? String(data.status) : "";
-    let qy: admin.firestore.Query = admin
-      .firestore()
-      .collection("gateway_renewal_requests")
-      .orderBy("createdAt", "desc")
-      .limit(Math.min(Math.max(Number(data?.limit ?? 50), 1), 200));
+    try {
+      await requireAdmin(context);
+      const statusFilter = data?.status != null ? String(data.status) : "";
+      const limitN = Math.min(Math.max(Number(data?.limit ?? 50), 1), 200);
 
-    if (statusFilter === "pending" || statusFilter === "approved" || statusFilter === "rejected") {
-      qy = admin
-        .firestore()
-        .collection("gateway_renewal_requests")
-        .where("status", "==", statusFilter)
-        .orderBy("createdAt", "desc")
-        .limit(Math.min(Math.max(Number(data?.limit ?? 50), 1), 200));
+      let snap: admin.firestore.QuerySnapshot;
+      if (statusFilter === "pending" || statusFilter === "approved" || statusFilter === "rejected") {
+        snap = await queryWithCreatedAtFallback(
+          () =>
+            admin
+              .firestore()
+              .collection("gateway_renewal_requests")
+              .where("status", "==", statusFilter)
+              .orderBy("createdAt", "desc")
+              .limit(limitN)
+              .get(),
+          () =>
+            admin
+              .firestore()
+              .collection("gateway_renewal_requests")
+              .where("status", "==", statusFilter)
+              .limit(limitN * 3)
+              .get(),
+          "listGatewayRenewalRequests"
+        );
+      } else {
+        snap = await queryWithCreatedAtFallback(
+          () =>
+            admin
+              .firestore()
+              .collection("gateway_renewal_requests")
+              .orderBy("createdAt", "desc")
+              .limit(limitN)
+              .get(),
+          () => admin.firestore().collection("gateway_renewal_requests").limit(limitN * 3).get(),
+          "listGatewayRenewalRequests"
+        );
+      }
+
+      const items = snap.docs.map((d) => ({
+        id: d.id,
+        ...(serializeFirestoreValue(d.data()) as any),
+      }));
+      return { ok: true, items: sortByCreatedAtDesc(items).slice(0, limitN) };
+    } catch (err: any) {
+      if (err instanceof functions.https.HttpsError) throw err;
+      logger.error("listGatewayRenewalRequests_failed", err);
+      return { ok: true, items: [] };
     }
-
-    const snap = await qy.get();
-    const items = snap.docs.map((d) => ({
-      id: d.id,
-      ...(serializeFirestoreValue(d.data()) as any),
-    }));
-    return { ok: true, items };
   });
 
 export const approveGatewayRenewalRequest = functions

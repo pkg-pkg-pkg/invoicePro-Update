@@ -2,6 +2,7 @@ import { parseISO } from 'date-fns';
 import { LedgerAccount, LedgerGroup } from '../../types/masters';
 import { Voucher, VoucherLine, VoucherType } from '../../types/vouchers';
 import {
+  AgingSaleVoucher,
   CustomerSummary,
   DashboardSummary,
   GstSnapshot,
@@ -19,6 +20,10 @@ import { ledgerAccountService } from '../masters/ledgerAccountService';
 import { ledgerGroupService } from '../masters/ledgerGroupService';
 import { voucherService } from '../vouchers/voucherService';
 import { sumPurchaseExclusivePreGst, sumSalesItemExclusiveRevenue } from '../reports/preGstProfitService';
+import {
+  computeSalesInvoicePaymentStatus,
+  countPendingSalesInvoices,
+} from '../vouchers/invoicePaymentStatus';
 
 const SALES_TYPES = new Set<VoucherType>(['SALES']);
 const SALES_RETURN_TYPES = new Set<VoucherType>(['SALES_RETURN']);
@@ -84,6 +89,11 @@ const isInPeriod = (dateISO: string, period: SummaryPeriod): boolean => {
     }
     case 'month':
       return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+    case 'lastMonth': {
+      const m = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+      const y = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+      return date.getMonth() === m && date.getFullYear() === y;
+    }
     case 'year':
       return date.getFullYear() === now.getFullYear();
     default:
@@ -216,6 +226,7 @@ const INPUT_GST_LEDGER_IDS = new Set(['led-cgst-input', 'led-sgst-input', 'led-i
 
 const buildDashboardSummaryFromFiltered = (
   filtered: Voucher[],
+  allVouchers: Voucher[],
   ledgers: LedgerAccount[],
   groupMap: Map<string, LedgerGroup>
 ): DashboardSummary => {
@@ -237,6 +248,12 @@ const buildDashboardSummaryFromFiltered = (
   const preGstSalesItems = sumSalesItemExclusiveRevenue(filtered);
   const preGstPurchases = sumPurchaseExclusivePreGst(filtered);
 
+  const todayReceipts = filtered
+    .filter((voucher) => RECEIPT_TYPES.has(voucher.type))
+    .reduce((sum, voucher) => sum + voucherAmount(voucher), 0);
+
+  const pendingInvoiceCount = countPendingSalesInvoices(allVouchers);
+
   return {
     totalSales: netSales,
     salesCount,
@@ -252,8 +269,29 @@ const buildDashboardSummaryFromFiltered = (
     profitLoss: Number((preGstSalesItems - preGstPurchases).toFixed(2)),
     overdueAmount: 0,
     overdueCount: 0,
+    todayReceipts: Number(todayReceipts.toFixed(2)),
+    pendingInvoiceCount,
   };
 };
+
+async function computeStockValue(): Promise<number> {
+  const items = await inventoryItemService.list({ includeInactive: false });
+  const total = items
+    .filter((item) => item.status === 'ACTIVE')
+    .reduce((sum, item) => {
+      const rate =
+        Number(item.pricing?.sale ?? 0) ||
+        Number(item.pricing?.purchase ?? 0) ||
+        (item.openingStock > 0 ? item.openingValue / item.openingStock : 0);
+      return sum + Number(item.currentStock || 0) * rate;
+    }, 0);
+  return Number(total.toFixed(2));
+}
+
+const attachStockValue = async (summary: DashboardSummary): Promise<DashboardSummary> => ({
+  ...summary,
+  stockValue: await computeStockValue(),
+});
 
 export const dashboardAggregator = {
   async summary(period: SummaryPeriod): Promise<DashboardSummary> {
@@ -265,7 +303,8 @@ export const dashboardAggregator = {
 
     const groupMap = buildGroupMap(groups);
     const filtered = vouchers.filter((voucher) => isInPeriod(voucher.date, period));
-    return buildDashboardSummaryFromFiltered(filtered, ledgers, groupMap);
+    const summary = buildDashboardSummaryFromFiltered(filtered, vouchers, ledgers, groupMap);
+    return attachStockValue(summary);
   },
 
   /** Indian FY or any window: `fromYmd` / `toYmd` as `yyyy-mm-dd` (voucher `date` compared inclusively). */
@@ -277,7 +316,8 @@ export const dashboardAggregator = {
     ]);
     const groupMap = buildGroupMap(groups);
     const filtered = vouchers.filter((voucher) => isInDateRangeInclusive(voucher.date, fromYmd, toYmd));
-    return buildDashboardSummaryFromFiltered(filtered, ledgers, groupMap);
+    const summary = buildDashboardSummaryFromFiltered(filtered, vouchers, ledgers, groupMap);
+    return attachStockValue(summary);
   },
 
   async salesAnalytics(params: { period: SummaryPeriod; groupBy: 'day' | 'week' | 'month' }): Promise<SalesAnalytics> {
@@ -325,16 +365,40 @@ export const dashboardAggregator = {
     return { analytics, topProducts };
   },
 
-  async outstandingSummary(): Promise<{ customers: CustomerSummary[] }> {
-    const [ledgers, groups] = await Promise.all([
+  async outstandingSummary(): Promise<{
+    customers: CustomerSummary[];
+    salesVouchers: AgingSaleVoucher[];
+  }> {
+    const [ledgers, groups, vouchers] = await Promise.all([
       ledgerAccountService.list({ includeInactive: false }),
       ledgerGroupService.list({ includeInactive: true }),
+      voucherService.list(),
     ]);
     const groupMap = buildGroupMap(groups);
+    const ledgerMap = new Map(ledgers.map((ledger) => [ledger.id, ledger]));
     const customers = summarizeLedgers(ledgers, groupMap).customers
-      .sort((a, b) => b.currentBalance - a.currentBalance)
-      .slice(0, 10);
-    return { customers };
+      .filter((c) => Number(c.currentBalance) > 0)
+      .sort((a, b) => b.currentBalance - a.currentBalance);
+
+    const salesVouchers: AgingSaleVoucher[] = vouchers
+      .filter((voucher) => SALES_TYPES.has(voucher.type))
+      .map((voucher) => {
+        const partyLine = (voucher.lines ?? []).find((line) =>
+          CUSTOMER_GROUP_IDS.has(ledgerMap.get(line.ledgerId ?? '')?.groupId ?? '')
+        );
+        const partyLedgerId = partyLine?.ledgerId ?? '';
+        return {
+          id: voucher.id,
+          invoiceNumber: voucher.number,
+          date: voucher.date,
+          amount: voucherAmount(voucher),
+          partyLedgerId,
+        };
+      })
+      .filter((row) => row.partyLedgerId && row.amount > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    return { customers, salesVouchers };
   },
 
   async payableSummary(): Promise<{ suppliers: SupplierSummary[] }> {
@@ -349,21 +413,31 @@ export const dashboardAggregator = {
     return { suppliers };
   },
 
-  async recentTransactions(limit = 5): Promise<RecentTransactions> {
+  async recentTransactions(
+    limit = 5,
+    options?: { invoicePeriod?: SummaryPeriod }
+  ): Promise<RecentTransactions> {
     const [vouchers, ledgers] = await Promise.all([
       voucherService.list(),
       ledgerAccountService.list({ includeInactive: true }),
     ]);
     const ledgerMap = new Map(ledgers.map((ledger) => [ledger.id, ledger]));
 
-    const toInvoice = (voucher: Voucher): RecentTransactions['invoices'][number] => ({
-      id: voucher.id,
-      invoiceNumber: voucher.number,
-      date: voucher.date,
-      grandTotal: voucherAmount(voucher),
-      paymentStatus: 'POSTED',
-      type: voucher.type,
-    });
+    const toInvoice = (voucher: Voucher): RecentTransactions['invoices'][number] => {
+      const partyLine = (voucher.lines ?? []).find((line) =>
+        CUSTOMER_GROUP_IDS.has(ledgerMap.get(line.ledgerId ?? '')?.groupId ?? '')
+      );
+      const partyName = partyLine ? ledgerMap.get(partyLine.ledgerId!)?.name ?? '' : '';
+      return {
+        id: voucher.id,
+        invoiceNumber: voucher.number,
+        date: voucher.date,
+        grandTotal: voucherAmount(voucher),
+        paymentStatus: computeSalesInvoicePaymentStatus(voucher, vouchers),
+        type: voucher.type,
+        partyName,
+      };
+    };
 
     const toPayment = (voucher: Voucher): RecentTransactions['payments'][number] => ({
       id: voucher.id,
@@ -388,7 +462,14 @@ export const dashboardAggregator = {
 
     const sorted = [...vouchers].sort((a, b) => parseISO(b.date).getTime() - parseISO(a.date).getTime());
 
-    const invoices = sorted.filter((voucher) => SALES_TYPES.has(voucher.type)).slice(0, limit).map(toInvoice);
+    let salesVouchers = sorted.filter((voucher) => SALES_TYPES.has(voucher.type));
+    if (options?.invoicePeriod) {
+      salesVouchers = salesVouchers.filter((voucher) =>
+        isInPeriod(voucher.date, options.invoicePeriod!)
+      );
+    }
+
+    const invoices = salesVouchers.slice(0, limit).map(toInvoice);
     const payments = sorted
       .filter((voucher) => RECEIPT_TYPES.has(voucher.type) || PAYMENT_TYPES.has(voucher.type))
       .slice(0, limit)
@@ -468,17 +549,96 @@ export const dashboardAggregator = {
     };
   },
 
+  async gstSnapshotForDateRange(fromYmd: string, toYmd: string): Promise<GstSnapshot> {
+    const [vouchers, ledgers] = await Promise.all([
+      voucherService.list(),
+      ledgerAccountService.list({ includeInactive: true }),
+    ]);
+    const ledgerMap = new Map(ledgers.map((ledger) => [ledger.id, ledger]));
+
+    let output = 0;
+    let input = 0;
+
+    vouchers
+      .filter((voucher) => isInDateRangeInclusive(voucher.date, fromYmd, toYmd))
+      .forEach((voucher) => {
+        const gstMode = gstDirectionForVoucher(voucher.type);
+        if (!gstMode) return;
+
+        const direction = SALES_TYPES.has(voucher.type)
+          ? 1
+          : SALES_RETURN_TYPES.has(voucher.type)
+          ? -1
+          : PURCHASE_TYPES.has(voucher.type)
+          ? 1
+          : PURCHASE_RETURN_TYPES.has(voucher.type)
+          ? -1
+          : 0;
+
+        if (direction === 0) return;
+        const explicitTaxTotal = (voucher.lines ?? []).reduce(
+          (sum, line) => sum + Number(line.cgstAmount || 0) + Number(line.sgstAmount || 0) + Number(line.igstAmount || 0),
+          0
+        );
+
+        const validLedgerIds = gstMode === 'output' ? OUTPUT_GST_LEDGER_IDS : INPUT_GST_LEDGER_IDS;
+        const fallbackGstLedgerTotal = (voucher.lines ?? []).reduce((sum, line) => {
+          const lineLedgerId = String(line.ledgerId || '');
+          if (validLedgerIds.has(lineLedgerId)) return sum + Number(lineAmount(line));
+          const ledger = ledgerMap.get(lineLedgerId);
+          const isGstTaxLedger = ledger?.groupId === GST_GROUP_ID && looksLikeGstLedger(ledger, line);
+          if (!isGstTaxLedger) return sum;
+          const token = `${String(ledger?.name || '').toLowerCase()} ${lineLedgerId.toLowerCase()}`;
+          if (gstMode === 'output' && token.includes('input')) return sum;
+          if (gstMode === 'input' && token.includes('output')) return sum;
+          return sum + Number(lineAmount(line));
+        }, 0);
+
+        const taxBase = explicitTaxTotal > 0 ? explicitTaxTotal : fallbackGstLedgerTotal;
+        if (taxBase <= 0) return;
+        const total = taxBase * direction;
+
+        if (SALES_TYPES.has(voucher.type) || SALES_RETURN_TYPES.has(voucher.type)) {
+          output += total;
+        } else {
+          input += total;
+        }
+      });
+
+    const netOutput = Math.max(0, output);
+    const netInput = Math.max(0, input);
+    const net = netOutput - netInput;
+
+    return {
+      outputGst: Number(netOutput.toFixed(2)),
+      inputItc: Number(netInput.toFixed(2)),
+      payable: net > 0 ? Number(net.toFixed(2)) : 0,
+      receivable: net < 0 ? Number(Math.abs(net).toFixed(2)) : 0,
+    };
+  },
+
   async lowStock(): Promise<LowStockItem[]> {
     const items = await inventoryItemService.list({ includeInactive: false });
     return items
-      .filter((item) => item.status === 'ACTIVE' && item.reorderLevel != null && item.reorderLevel > 0 && item.currentStock <= item.reorderLevel)
-      .map((item) => ({
-        id: item.id,
-        name: item.name,
-        currentStock: Number(item.currentStock.toFixed(2)),
-        reorderLevel: item.reorderLevel ?? 0,
-      }))
-      .sort((a, b) => a.currentStock - b.currentStock)
-      .slice(0, 10);
+      .filter(
+        (item) =>
+          item.status === 'ACTIVE' &&
+          item.reorderLevel != null &&
+          item.reorderLevel > 0 &&
+          item.currentStock <= item.reorderLevel
+      )
+      .map((item) => {
+        const reorder = item.reorderLevel ?? 0;
+        const required = Math.max(0, reorder - item.currentStock);
+        return {
+          id: item.id,
+          name: item.name,
+          currentStock: Number(item.currentStock.toFixed(2)),
+          reorderLevel: reorder,
+          requiredQuantity: Number(required.toFixed(2)),
+          supplier: item.brand?.trim() || '—',
+        };
+      })
+      .sort((a, b) => a.currentStock - b.currentStock);
   },
 };

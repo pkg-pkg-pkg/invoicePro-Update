@@ -1,56 +1,93 @@
 import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, StatusBar, StyleSheet, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Provider as PaperProvider } from 'react-native-paper';
 import { Provider } from 'react-redux';
 import { NavigationContainer } from '@react-navigation/native';
-import { ActivityIndicator, PaperProvider } from 'react-native-paper';
 import { store } from './src/store';
 import AppNavigator from './src/navigation/AppNavigator';
-import { readAuthSession } from './src/services/authStorage';
+import MobileErrorBoundary from './src/components/MobileErrorBoundary';
+import { restoreAuthSession } from './src/services/authStorage';
 import { setCredentials } from './src/store/slices/authSlice';
-import { setMobileAuthToken } from './src/services/api';
+import { setMobileApiBaseUrl, setMobileAuthToken } from './src/services/api';
+import { readSyncConfig } from './src/services/sync/storage';
+import { setSyncStatus } from './src/store/slices/syncSlice';
+import { mobileSyncWorker } from './src/services/sync/mobileSyncWorker';
 
 export default function App() {
   const [bootstrapped, setBootstrapped] = useState(false);
 
   useEffect(() => {
-    let mounted = true;
+    let cancelled = false;
     const bootstrap = async () => {
       try {
-        const saved = await readAuthSession();
-        if (saved?.token && saved?.user) {
-          setMobileAuthToken(saved.token);
+        const session = await restoreAuthSession();
+        if (session?.token && session.user) {
+          setMobileAuthToken(session.token);
           store.dispatch(
             setCredentials({
-              token: saved.token,
-              user: saved.user,
+              user: session.user,
+              token: session.token,
             })
           );
         }
+        const syncConfig = await readSyncConfig();
+        store.dispatch(
+          setSyncStatus({
+            endpointBase: syncConfig.endpointBase,
+          })
+        );
+        if (syncConfig.endpointBase) {
+          setMobileApiBaseUrl(syncConfig.endpointBase.replace(/\/mobile-sync\/?$/, '/api'));
+        }
+      } catch (e) {
+        console.warn('Mobile bootstrap failed', e);
       } finally {
-        if (mounted) setBootstrapped(true);
+        if (!cancelled) setBootstrapped(true);
       }
     };
-    void bootstrap();
+    bootstrap();
+    mobileSyncWorker.start();
     return () => {
-      mounted = false;
+      cancelled = true;
+      mobileSyncWorker.stop();
     };
   }, []);
 
   if (!bootstrapped) {
     return (
-      <PaperProvider>
-        <ActivityIndicator style={{ flex: 1 }} animating />
-      </PaperProvider>
+      <View style={styles.boot}>
+        <StatusBar barStyle="dark-content" backgroundColor="#f5f5f5" />
+        <ActivityIndicator size="large" color="#1976d2" />
+      </View>
     );
   }
 
   return (
-    <Provider store={store}>
-      <PaperProvider>
-        <NavigationContainer>
-          <AppNavigator />
-        </NavigationContainer>
-      </PaperProvider>
-    </Provider>
+    <GestureHandlerRootView style={styles.flex}>
+      <SafeAreaProvider>
+        <Provider store={store}>
+          <PaperProvider>
+            <MobileErrorBoundary>
+              <NavigationContainer>
+                <StatusBar barStyle="dark-content" backgroundColor="#f5f5f5" />
+                <AppNavigator />
+              </NavigationContainer>
+            </MobileErrorBoundary>
+          </PaperProvider>
+        </Provider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  boot: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+  },
+});

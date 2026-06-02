@@ -36,6 +36,7 @@ import Autocomplete from "@mui/material/Autocomplete";
 import { docApi, getHostBaseUrl } from '../services/docApi';
 import { getAppSettings, getDefaultTodayForEntry, validateTransactionDate } from '../services/appSettingsService';
 import { usePermissions } from '../hooks/usePermissions';
+import { companyScopedKey, readCompanyScopedRaw } from '../utils/companyStorage';
 import { APP_DISPLAY_NAME } from "../constants/appBranding";
 import { getNormalizedCompanyProfile } from "../utils/companyProfile";
 
@@ -141,12 +142,12 @@ interface Product {
   salePrice?: number;
 }
 
-const INVOICE_STORAGE_KEY = 'pve_invoicepro_invoices';
-const CUSTOMERS_STORAGE_KEY = 'pve_customers';
+const INVOICE_STORAGE_KEY = companyScopedKey('pve_invoicepro_invoices');
+const CUSTOMERS_STORAGE_KEY = companyScopedKey('pve_customers');
 
 const loadStoredInvoices = (): Invoice[] => {
   try {
-    const raw = localStorage.getItem(INVOICE_STORAGE_KEY);
+    const raw = readCompanyScopedRaw('pve_invoicepro_invoices') ?? localStorage.getItem(INVOICE_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as Invoice[]) : [];
@@ -165,7 +166,7 @@ const saveStoredInvoices = (items: Invoice[]) => {
 
 const loadStoredCustomers = (): any[] => {
   try {
-    const raw = localStorage.getItem(CUSTOMERS_STORAGE_KEY);
+    const raw = readCompanyScopedRaw('pve_customers') ?? localStorage.getItem(CUSTOMERS_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];

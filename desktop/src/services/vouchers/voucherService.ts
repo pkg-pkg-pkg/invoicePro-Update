@@ -3,11 +3,16 @@ import { generateId } from '../../utils/id';
 import { nowIso, readList, sanitizeString, writeList } from '../masters/storageHelpers';
 import { postVoucher, reverseVoucherPosting } from './postingEngine';
 import { applyStockImpact, reverseStockImpact } from './stockImpactEngine';
+import { companyScopedKey } from '../../utils/companyStorage';
+import {
+  assertUniqueSalesInvoiceNumber,
+  commitInvoiceNumber,
+} from './invoiceNumberService';
 
 // Re-export types for other modules
 export type { Voucher, VoucherLine };
 
-const STORAGE_KEY = 'pve_vouchers';
+const STORAGE_KEY = companyScopedKey('pve_vouchers');
 
 export type CreateVoucherInput = Omit<Voucher, 'id' | 'createdAt' | 'status'> & {
   status?: Voucher['status'];
@@ -81,12 +86,21 @@ export const voucherService = {
       throw new Error('New vouchers must be active');
     }
 
+    if (voucher.type === 'SALES') {
+      await assertUniqueSalesInvoiceNumber(voucher.number);
+    }
+
     await postVoucher(voucher);
     await applyStockImpact(voucher);
 
     const vouchers = await readList<Voucher>(STORAGE_KEY);
     vouchers.push(voucher);
     await writeList(STORAGE_KEY, vouchers);
+
+    if (voucher.type === 'SALES') {
+      await commitInvoiceNumber(voucher.number);
+    }
+
     return voucher;
   },
 
@@ -102,6 +116,9 @@ export const voucherService = {
     }
     if (payload.type !== existing.type) {
       throw new Error('Voucher type cannot be changed in edit');
+    }
+    if (existing.type === 'SALES') {
+      await assertUniqueSalesInvoiceNumber(payload.number ?? '', id);
     }
     if (existing.type === 'SALES' || existing.type === 'PURCHASE') {
       const now = new Date();

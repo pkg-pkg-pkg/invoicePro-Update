@@ -21,20 +21,34 @@ if (!rootElement) {
   throw new Error("Root element not found");
 }
 
+/** Single React 18 root — never call replaceChildren() (breaks fiber / causes "Should have a queue"). */
+let appRoot: ReturnType<typeof ReactDOM.createRoot> | null = null;
+
+function getAppRoot() {
+  if (!appRoot) {
+    appRoot = ReactDOM.createRoot(rootElement!);
+  }
+  return appRoot;
+}
+
+const appTree = (
+  <div data-react-mounted style={{ height: "100%", width: "100%" }}>
+    <React.StrictMode>
+      <ErrorBoundary>
+        <Provider store={store}>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </Provider>
+      </ErrorBoundary>
+    </React.StrictMode>
+  </div>
+);
+
 const renderApp = () => {
   console.log("✅ Root element found, rendering app...");
   try {
-    ReactDOM.createRoot(rootElement).render(
-      <React.StrictMode>
-        <ErrorBoundary>
-          <Provider store={store}>
-            <AuthProvider>
-              <App />
-            </AuthProvider>
-          </Provider>
-        </ErrorBoundary>
-      </React.StrictMode>
-    );
+    getAppRoot().render(appTree);
     console.log("✅ App rendered successfully!");
   } catch (error) {
     console.error("❌ Error rendering app:", error);
@@ -48,7 +62,15 @@ const renderApp = () => {
   }
 };
 
-const bootstrap = async () => {
+renderApp();
+
+if (import.meta.hot) {
+  import.meta.hot.accept(() => {
+    renderApp();
+  });
+}
+
+void (async () => {
   try {
     await initMasters();
   } catch (error) {
@@ -61,8 +83,4 @@ const bootstrap = async () => {
   } catch (error) {
     console.error("⚠️ Failed to initialize sync service:", error);
   }
-
-  renderApp();
-};
-
-bootstrap();
+})();

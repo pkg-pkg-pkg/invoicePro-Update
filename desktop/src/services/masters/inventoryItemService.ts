@@ -5,8 +5,9 @@ import { godownService } from './godownService';
 import { assertInventoryItemCanBeDeactivated } from './masterUsageGuard';
 import { unitOfMeasureService } from './unitOfMeasureService';
 import { nowIso, readList, sanitizeString, writeList } from './storageHelpers';
+import { companyScopedKey } from '../../utils/companyStorage';
 
-const STORAGE_KEY = 'pve_inventory_items';
+const STORAGE_KEY = companyScopedKey('pve_inventory_items');
 
 export interface InventoryItemFilters {
   includeInactive?: boolean;
@@ -196,7 +197,11 @@ const buildInventoryItem = async (
     payload.currentStock !== undefined
       ? normalizeNumber(payload.currentStock, 0)
       : openingStock;
-  ensureNonNegative(currentStock, 'Current stock');
+  // On create, stock must be non‑negative. On update, master form does not move stock; preserve DB value even if
+  // vouchers produced temporary negative stock so users can still fix name/HSN/GST etc.
+  if (isCreate) {
+    ensureNonNegative(currentStock, 'Current stock');
+  }
 
   const reorderLevel =
     payload.reorderLevel === null || payload.reorderLevel === undefined
@@ -206,7 +211,13 @@ const buildInventoryItem = async (
     ensureNonNegative(reorderLevel, 'Reorder level');
   }
 
-  let godownStocks = await validateGodownStocks(payload.godownStocks, currentStock);
+  let godownStocks: InventoryGodownStock[] | undefined;
+  if (!isCreate && currentStock < 0) {
+    // Negative on-hand stock (e.g. oversell): still allow saving master data without re-proving godown totals here.
+    godownStocks = Array.isArray(payload.godownStocks) ? payload.godownStocks.map((s) => ({ ...s })) : [];
+  } else {
+    godownStocks = await validateGodownStocks(payload.godownStocks, currentStock);
+  }
   if ((!godownStocks || godownStocks.length === 0) && Number(currentStock.toFixed(4)) === 0) {
     try {
       const activeGodowns = await godownService.list({ includeInactive: false });

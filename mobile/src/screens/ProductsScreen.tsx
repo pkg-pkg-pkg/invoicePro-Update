@@ -42,7 +42,7 @@ export default function ProductsScreen() {
       } else {
         await createSupplier(payload);
       }
-      setMessage(`${mode === 'CUSTOMER' ? 'Customer' : 'Supplier'} created successfully.`);
+      setMessage(`${mode === 'CUSTOMER' ? 'Customer' : 'Supplier'} queued. It will sync to desktop automatically.`);
       setName('');
       setPhone('');
       setCity('');

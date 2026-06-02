@@ -6,7 +6,17 @@ import { ThemeProvider } from "@mui/material/styles";
 import { APPEARANCE_CHANGED_EVENT, readAppearance } from "./theme/appearanceSettings";
 import { createAppTheme } from "./theme/createAppTheme";
 import CssBaseline from "@mui/material/CssBaseline";
-import { Box, Typography, CircularProgress } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Typography,
+} from "@mui/material";
 import { APP_DISPLAY_NAME } from "@/constants/appBranding";
 
 import Layout from "./components/Layout";
@@ -16,6 +26,8 @@ import Dashboard from "./pages/Dashboard";
 import PartyList from "./pages/Parties/PartyList";
 import PartyForm from "./pages/Parties/PartyForm";
 import PartyLedgerReport from "./pages/PartyLedgerReport";
+import OutstandingAgingReport from "./pages/Reports/OutstandingAgingReport";
+import LowStockReport from "./pages/Reports/LowStockReport";
 import LedgerStatementByLedgerId from "./pages/LedgerStatementByLedgerId";
 import PurchaseInvoices from "./pages/PurchaseInvoices";
 import DebitNotes from "./pages/DebitNotes";
@@ -31,7 +43,7 @@ import ManualExpenseEntry from "./pages/Expenses/ManualExpenseEntry";
 import Payments from "./pages/Payments";
 import PrintWindow from "./pages/PrintWindow";
 import ConnectToHost from "./pages/ConnectToHost";
-import { useState, useEffect, useRef, lazy, Suspense, useMemo } from "react";
+import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from "react";
 import BusinessProfile from "./pages/BusinessProfile";
 import Schemes from "./pages/Schemes";
 import SmartSchemeForm from "./pages/Schemes/SmartSchemeForm";
@@ -71,6 +83,25 @@ import { networkService } from "./services/networkService";
 import { detectDeviceChange, forceLogoutDueToDeviceChange, subscribeToLicenseDeactivation } from "./services/deviceChangeDetector";
 import { validateLicenseAndDevice } from "./services/loginService";
 import { syncHostMultiUserLanFromCloud } from "./services/hostLicenseSyncService";
+import { db } from "./firebase/firebase";
+import { doc, deleteField, onSnapshot, updateDoc } from "firebase/firestore";
+import {
+  fetchAppRelease,
+  getBundledAppVersion,
+  isOlderVersion,
+  resolveDownloadUrl,
+} from "./services/appUpdateService";
+import { openExternalUrl } from "./services/printService";
+import { isElectronRuntime } from "./utils/runtime";
+import {
+  applyCompanySwitch,
+  ensureCompaniesInitialized,
+  getActiveCompanyPayload,
+  listCompaniesEnriched,
+  switchCompany,
+} from "./services/companyRegistryService";
+import CompanySelectScreen from "./components/CompanySelectScreen";
+import { withTimeout } from "./utils/withTimeout";
 
 const isBusinessProfileSavedLocally = () => {
   try {
@@ -92,6 +123,12 @@ function App() {
   const { isAuthenticated, loading, user, logout } = useAuth();
   const [appearance, setAppearance] = useState(readAppearance);
   const [appearanceRevision, setAppearanceRevision] = useState(0);
+
+  useEffect(() => {
+    const onCompanyReady = () => setCompanyGate('ready');
+    window.addEventListener('companyGateReady', onCompanyReady);
+    return () => window.removeEventListener('companyGateReady', onCompanyReady);
+  }, []);
 
   useEffect(() => {
     const onAppearance = () => {
@@ -122,7 +159,11 @@ function App() {
     checking: false,
     ok: true,
   });
+  const [adminUpdateNotice, setAdminUpdateNotice] = useState<any | null>(null);
+  const [adminPopupBusy, setAdminPopupBusy] = useState(false);
+  const [adminPopupReleaseNotes, setAdminPopupReleaseNotes] = useState('');
   const licenseCheckGeneration = useRef(0);
+  const [companyGate, setCompanyGate] = useState<'loading' | 'select' | 'ready'>('loading');
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -130,7 +171,61 @@ function App() {
       setLicenseValid(false);
       setLicenseCheckReason('');
       setProfileCompletedLocal(isBusinessProfileSavedLocally());
+      setCompanyGate('loading');
     }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !licenseValid || !licenseCheckDone) {
+      setCompanyGate('loading');
+      return;
+    }
+    if (!isElectronRuntime()) {
+      setCompanyGate('ready');
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        await ensureCompaniesInitialized();
+        const res = await listCompaniesEnriched();
+        const def = res.defaultCompany;
+        const target = def ? res.companies.find((c) => c.id === def) : undefined;
+        if (def && target?.folderOk) {
+          if (res.activeId !== def) {
+            const active = await switchCompany(def);
+            await applyCompanySwitch(active);
+          }
+          if (!cancelled) setCompanyGate('ready');
+          return;
+        }
+        if (!cancelled) setCompanyGate('select');
+      } catch (e) {
+        console.warn('[companies] gate failed', e);
+        if (!cancelled) setCompanyGate('select');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, licenseValid, licenseCheckDone]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !isElectronRuntime()) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await ensureCompaniesInitialized();
+        const active = await getActiveCompanyPayload();
+        if (cancelled || !active) return;
+        await applyCompanySwitch(active);
+      } catch (e) {
+        console.warn('[companies] bootstrap failed', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [isAuthenticated]);
 
   useEffect(() => {
@@ -186,6 +281,76 @@ function App() {
     protocol,
   });
 
+  // Admin-sent update popup (Firestore: users/{email}.adminUpdateNotice)
+  useEffect(() => {
+    if (!db) return;
+    const email = String((user as any)?.email ?? "").trim().toLowerCase();
+    if (!isAuthenticated || !email) {
+      setAdminUpdateNotice(null);
+      return;
+    }
+
+    const unsub = onSnapshot(
+      doc(db, "users", email),
+      (snap) => {
+        const d = snap.exists() ? (snap.data() as any) : null;
+        const notice = d?.adminUpdateNotice ?? null;
+        setAdminUpdateNotice(notice || null);
+      },
+      () => {
+        // ignore
+      }
+    );
+    return () => unsub();
+  }, [isAuthenticated, user]);
+
+  const userEmailLower = String((user as any)?.email ?? '').trim().toLowerCase();
+
+  const dismissAdminUpdateNotice = useCallback(async () => {
+    const rv = String(adminUpdateNotice?.requiredVersion ?? '').trim();
+    if (userEmailLower && rv) {
+      try {
+        localStorage.setItem(`pve_admin_update_dismissed_${userEmailLower}_${rv}`, '1');
+      } catch {
+        // ignore
+      }
+    }
+    setAdminUpdateNotice(null);
+    if (db && userEmailLower) {
+      try {
+        await updateDoc(doc(db, 'users', userEmailLower), { adminUpdateNotice: deleteField() });
+      } catch (e) {
+        console.warn('[update-notice] clear failed', e);
+      }
+    }
+  }, [adminUpdateNotice, userEmailLower]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !adminUpdateNotice) {
+      setAdminPopupReleaseNotes('');
+      return;
+    }
+    const cur = getBundledAppVersion();
+    const rv = String(adminUpdateNotice?.requiredVersion ?? '').trim();
+    const dismissed =
+      Boolean(userEmailLower && rv) &&
+      localStorage.getItem(`pve_admin_update_dismissed_${userEmailLower}_${rv}`) === '1';
+    const shouldShow =
+      !dismissed && (!rv || isOlderVersion(cur, rv));
+    if (!shouldShow) {
+      setAdminPopupReleaseNotes('');
+      return;
+    }
+    const fromNotice = String(adminUpdateNotice?.releaseNotes ?? '').trim();
+    if (fromNotice) {
+      setAdminPopupReleaseNotes(fromNotice);
+      return;
+    }
+    void fetchAppRelease().then((info) => {
+      setAdminPopupReleaseNotes(String(info?.releaseNotes ?? '').trim());
+    });
+  }, [isAuthenticated, adminUpdateNotice, userEmailLower]);
+
   // License validation on app startup
   useEffect(() => {
     let cancelled = false;
@@ -197,7 +362,11 @@ function App() {
       console.log('🔍 Starting license validation check...');
       
       try {
-        const result = await validateLicenseAndDevice();
+        const result = await withTimeout(validateLicenseAndDevice(), 20000, {
+          isValid: false,
+          needsActivation: true,
+          reason: 'License check timed out. Sign in again or check your internet connection.',
+        });
 
         if (cancelled || gen !== licenseCheckGeneration.current) return;
 
@@ -220,7 +389,10 @@ function App() {
               // ignore
             }
           }
-          await syncHostMultiUserLanFromCloud(Boolean(result.multiUserLan));
+          void syncHostMultiUserLanFromCloud(Boolean(result.multiUserLan));
+          void import('./services/userActivityService').then(({ startUsageTracking }) =>
+            startUsageTracking()
+          );
         } else {
           console.log('❌ License validation failed:', result.reason);
           setLicenseValid(false);
@@ -230,7 +402,7 @@ function App() {
           } catch {
             // ignore
           }
-          await syncHostMultiUserLanFromCloud(false);
+          void syncHostMultiUserLanFromCloud(false);
 
           // Do not send users to #/activate while still "signed in" — they get stuck and Back to Login breaks
           // (HashRouter desync when hash is set via window.location). Sign out and open Login; user uses "Activate licence" from there.
@@ -486,9 +658,130 @@ function App() {
     );
   }
 
+  const currentVersion = getBundledAppVersion();
+  const requiredVersion = String(adminUpdateNotice?.requiredVersion ?? "").trim();
+  const adminDownloadUrl = String(adminUpdateNotice?.downloadUrl ?? "").trim();
+  const adminNoticeDismissedLocally =
+    Boolean(userEmailLower && requiredVersion) &&
+    localStorage.getItem(`pve_admin_update_dismissed_${userEmailLower}_${requiredVersion}`) === '1';
+  const showAdminUpdatePopup = Boolean(
+    adminUpdateNotice &&
+    !adminNoticeDismissedLocally &&
+    (!requiredVersion || isOlderVersion(currentVersion, requiredVersion))
+  );
+
+  const openAdminUpdateDownload = async () => {
+    const url = adminDownloadUrl || resolveDownloadUrl(null);
+    await dismissAdminUpdateNotice();
+    await openExternalUrl(url);
+  };
+
+  const handleAdminCheckForUpdate = async () => {
+    setAdminPopupBusy(true);
+    try {
+      const notes =
+        adminPopupReleaseNotes || String(adminUpdateNotice?.releaseNotes ?? '').trim();
+      if (notes) {
+        try {
+          localStorage.setItem('pve_pending_release_notes', notes);
+        } catch {
+          // ignore
+        }
+      }
+      if (requiredVersion) {
+        try {
+          localStorage.setItem('pve_pending_update_version', requiredVersion);
+        } catch {
+          // ignore
+        }
+      }
+      try {
+        localStorage.setItem('auto_check_updates_once', '1');
+      } catch {
+        // ignore
+      }
+      await dismissAdminUpdateNotice();
+      navigateInApp('/settings', 'tab=about');
+    } finally {
+      setAdminPopupBusy(false);
+    }
+  };
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      {showAdminUpdatePopup && (
+        <Dialog
+          open
+          onClose={() => {
+            void dismissAdminUpdateNotice();
+          }}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>{String(adminUpdateNotice?.title ?? "Update available")}</DialogTitle>
+          <DialogContent>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              {String(
+                adminUpdateNotice?.message ??
+                  "A newer version is available. Please update the software."
+              )}
+            </Alert>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: adminPopupReleaseNotes ? 2 : 0 }}>
+              Current version: <strong>v{currentVersion}</strong>
+              {requiredVersion ? (
+                <>
+                  {" "}
+                  | Required: <strong>v{requiredVersion}</strong>
+                </>
+              ) : null}
+            </Typography>
+            {adminPopupReleaseNotes ? (
+              <Box sx={{ mt: 1 }}>
+                <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                  What&apos;s new
+                </Typography>
+                <Typography
+                  variant="body2"
+                  component="div"
+                  sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}
+                >
+                  {adminPopupReleaseNotes}
+                </Typography>
+              </Box>
+            ) : null}
+          </DialogContent>
+          <DialogActions sx={{ flexWrap: 'wrap', gap: 1, px: 2, pb: 2 }}>
+            <Button
+              color="inherit"
+              disabled={adminPopupBusy}
+              onClick={() => {
+                void dismissAdminUpdateNotice();
+              }}
+            >
+              Dismiss
+            </Button>
+            <Button
+              variant="contained"
+              disabled={adminPopupBusy}
+              onClick={() => {
+                void openAdminUpdateDownload();
+              }}
+            >
+              Download update
+            </Button>
+            <Button
+              variant="outlined"
+              disabled={adminPopupBusy}
+              onClick={() => {
+                void handleAdminCheckForUpdate();
+              }}
+            >
+              {adminPopupBusy ? "Opening…" : "Check for update"}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
       {/* Dev-only overlay: off by default. Set VITE_SHOW_DEV_STATE=true in .env.local to enable. */}
       {import.meta.env.DEV && import.meta.env.VITE_SHOW_DEV_STATE === 'true' && (
         <Box
@@ -566,7 +859,36 @@ function App() {
           <Route
             path="/login"
             element={
-              isAuthenticated ? <Navigate to={(profileCompleted ? "/dashboard" : "/business-profile")} replace /> : <Login />
+              isAuthenticated ? (
+                companyGate === 'select' ? (
+                  <Navigate to="/select-company" replace />
+                ) : (
+                  <Navigate to={(profileCompleted ? "/dashboard" : "/business-profile")} replace />
+                )
+              ) : (
+                <Login />
+              )
+            }
+          />
+
+          <Route
+            path="/select-company"
+            element={
+              !isAuthenticated ? (
+                <Navigate to="/login" replace />
+              ) : !licenseValid || !licenseCheckDone ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
+                  <CircularProgress />
+                </Box>
+              ) : companyGate === 'ready' ? (
+                <Navigate to={(profileCompleted ? "/dashboard" : "/business-profile")} replace />
+              ) : companyGate === 'loading' ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
+                  <CircularProgress />
+                </Box>
+              ) : (
+                <CompanySelectScreen mode="startup" />
+              )
             }
           />
 
@@ -606,7 +928,13 @@ function App() {
             element={
               isAuthenticated ? (
                 licenseValid ? (
-                  profileCompleted ? (
+                  companyGate === 'select' ? (
+                    <Navigate to="/select-company" replace />
+                  ) : companyGate === 'loading' ? (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
+                      <CircularProgress />
+                    </Box>
+                  ) : profileCompleted ? (
                     setupCompleted ? (
                       <Navigate to="/dashboard" replace />
                     ) : (
@@ -649,7 +977,7 @@ function App() {
           />
 
           {/* PROTECTED ROUTES – only when logged in, business profile completed, setup complete, AND LICENSE VALID */}
-          {isAuthenticated && profileCompleted && setupCompleted && licenseValid && licenseCheckDone && (
+          {isAuthenticated && profileCompleted && setupCompleted && licenseValid && licenseCheckDone && companyGate === 'ready' && (
             <>
               {hostCheck.ok ? (
                 <>
@@ -918,6 +1246,8 @@ function App() {
                       }
                     />
                     <Route path="reports" element={<Reports />} />
+                    <Route path="reports/outstanding-aging" element={<OutstandingAgingReport />} />
+                    <Route path="reports/low-stock" element={<LowStockReport />} />
                     <Route path="gst" element={<GSTReports />} />
                     <Route path="gst/gstr1" element={<GSTR1Report />} />
                     <Route path="gst/gstr2" element={<GSTR2Report />} />

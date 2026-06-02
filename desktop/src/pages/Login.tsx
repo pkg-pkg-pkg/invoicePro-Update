@@ -8,10 +8,11 @@ import {
   Typography,
   Alert,
   CircularProgress,
-  Avatar,
   Grid,
   Divider,
   Link,
+  FormControlLabel,
+  Checkbox,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -19,7 +20,6 @@ import {
   DialogActions,
 } from "@mui/material";
 import {
-  Business as BusinessIcon,
   Email as EmailIcon,
   Lock as LockIcon,
   DevicesOther as DevicesIcon,
@@ -35,21 +35,28 @@ import {
   validateOnLoginOrStart,
 } from "../services/licenseService";
 import { bindCurrentDevice } from "../services/deviceChangeDetector";
+import Logo from "../components/Logo";
 import { setEncryptedItem } from "../services/secureStorage";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth } from "../firebase/firebase";
 import { resetUserPassword, sendPasswordResetEmail } from "../services/passwordResetService";
 import { APP_DISPLAY_NAME, APP_TAGLINE } from "../constants/appBranding";
+import { loginDesktopSession, registerDesktopSession } from "../services/sessionManager";
+import { isElectronRuntime } from "../utils/runtime";
+import { listCompaniesEnriched, switchCompany } from "../services/companyRegistryService";
+import { validateLicenseAndDevice } from "../services/loginService";
+import { getBundledAppVersion } from "../services/appUpdateService";
 
 const LOCAL_LICENSE_CACHE_KEY = "enc_license_cache_v1";
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, logout } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(() => localStorage.getItem("remember_me") === "1");
 
   // Password reset state
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
@@ -86,6 +93,59 @@ const Login: React.FC = () => {
       localStorage.removeItem("license_gate_message");
     }
   }, []);
+
+  const navigateAfterAuth = async () => {
+    if (isElectronRuntime()) {
+      const res = await listCompaniesEnriched();
+      const def = res.defaultCompany;
+      const target = def ? res.companies.find((c) => c.id === def) : undefined;
+      if (target?.folderOk) {
+        if (res.activeId !== def) await switchCompany(def);
+        navigate("/dashboard", { replace: true });
+        return;
+      }
+      navigate("/select-company", { replace: true });
+      return;
+    }
+    navigate("/dashboard", { replace: true });
+  };
+
+  const finishAuthAndNavigate = async (
+    userPayload: {
+      id: string;
+      username: string;
+      email: string;
+      fullName: string;
+      role: string;
+      companyId: string;
+      company: null;
+      completedBusinessProfile?: boolean;
+    },
+    plainPassword: string
+  ) => {
+    let sessionToken = "local";
+    if (isElectronRuntime()) {
+      try {
+        const sess = await registerDesktopSession({
+          userId: userPayload.id,
+          username: userPayload.username,
+          email: userPayload.email,
+          fullName: userPayload.fullName,
+          password: plainPassword,
+          rememberMe,
+        });
+        if (sess.sessionToken) sessionToken = sess.sessionToken;
+        else if (!sess.success && sess.reason?.includes('No handler registered')) {
+          console.warn('[login] Session IPC not ready — using local token. Fully quit and restart Electron.');
+        }
+      } catch (sessErr) {
+        console.warn('[login] Session save skipped:', sessErr);
+      }
+    }
+    localStorage.setItem("remember_me", rememberMe ? "1" : "0");
+    await login(sessionToken, userPayload);
+    await navigateAfterAuth();
+  };
 
   const handleOpenResetDialog = () => {
     setResetDialogOpen(true);
@@ -155,7 +215,58 @@ const Login: React.FC = () => {
 
       const normalizedEmail = email.trim().toLowerCase();
 
-      // Step 1: Firebase Auth first — Firestore rules do not allow listing `licenses` without admin;
+      // Desktop: try offline local DB first (no internet required if previously activated on this PC)
+      if (isElectronRuntime()) {
+        const local = await loginDesktopSession({
+          username: normalizedEmail,
+          password,
+          rememberMe,
+        });
+        if (local.success && local.user && local.sessionToken) {
+          await login(local.sessionToken, {
+            id: local.user.id,
+            username: local.user.username,
+            email: local.user.email,
+            fullName: local.user.fullName,
+            role: local.user.role,
+            companyId: "",
+            company: null,
+          });
+          localStorage.setItem("remember_me", rememberMe ? "1" : "0");
+          const license = await validateLicenseAndDevice();
+          if (license.isValid) {
+            await navigateAfterAuth();
+            setLoading(false);
+            return;
+          }
+          logout();
+          if (!navigator.onLine) {
+            setError(
+              license.reason ||
+                "Offline sign-in needs a valid licence on this PC. Connect online once and sign in with Firebase."
+            );
+            setLoading(false);
+            return;
+          }
+          // Online but licence stale — continue to Firebase sign-in below
+        } else if (!navigator.onLine) {
+          setError(
+            local.reason?.includes("Invalid")
+              ? "Invalid email or password."
+              : "No offline account on this PC. Connect to the internet for first-time sign-in."
+          );
+          setLoading(false);
+          return;
+        }
+      }
+
+      if (!navigator.onLine) {
+        setError("Internet is required for first sign-in on this device.");
+        setLoading(false);
+        return;
+      }
+
+      // Step 1: Firebase Auth — Firestore rules do not allow listing `licenses` without admin;
       // license key must be read from `users/{email}` after the user is signed in.
       console.log('🔐 Step 1: Signing in with Firebase...');
       let userCredential;
@@ -259,19 +370,21 @@ const Login: React.FC = () => {
       }
       await bindCurrentDevice(normalizedEmail);
 
-      await login('local', {
-        id: userCredential.user.uid,
-        username: normalizedEmail,
-        email: normalizedEmail,
-        fullName: resolvedName,
-        role: 'admin',
-        companyId: '',
-        company: null,
-        completedBusinessProfile: Boolean(fromProfile.profile?.completedBusinessProfile),
-      });
+      await finishAuthAndNavigate(
+        {
+          id: userCredential.user.uid,
+          username: normalizedEmail,
+          email: normalizedEmail,
+          fullName: resolvedName,
+          role: 'admin',
+          companyId: '',
+          company: null,
+          completedBusinessProfile: Boolean(fromProfile.profile?.completedBusinessProfile),
+        },
+        password
+      );
 
-      console.log('✅ Login successful - redirecting to dashboard');
-      navigate("/dashboard", { replace: true });
+      console.log('✅ Login successful');
 
     } catch (err: any) {
       console.error('❌ Login error:', err);
@@ -341,19 +454,21 @@ const Login: React.FC = () => {
       const tPretty =
         tLocal.length > 0 ? tLocal.charAt(0).toUpperCase() + tLocal.slice(1) : "";
 
-      await login('local', {
-        id: userCredential.user.uid,
-        username: tEmail,
-        email: tEmail,
-        fullName: tFb || tPretty || tEmail,
-        role: 'admin',
-        companyId: '',
-        company: null,
-        completedBusinessProfile: false
-      } as any);
+      await finishAuthAndNavigate(
+        {
+          id: userCredential.user.uid,
+          username: tEmail,
+          email: tEmail,
+          fullName: tFb || tPretty || tEmail,
+          role: 'admin',
+          companyId: '',
+          company: null,
+          completedBusinessProfile: false,
+        },
+        transferData.password
+      );
 
-      console.log('✅ Login successful after transfer - redirecting to dashboard');
-      navigate("/dashboard", { replace: true });
+      console.log('✅ Login successful after transfer');
     } catch (err: any) {
       console.error('❌ Device transfer error:', err);
       setError(err?.message || "Device transfer failed");
@@ -371,36 +486,40 @@ const Login: React.FC = () => {
   return (
     <Box
       sx={{
-        height: "100%",
-        minHeight: "100%",
+        height: "100vh",
+        minHeight: "100vh",
         overflowY: "auto",
         scrollbarWidth: "none",
         msOverflowStyle: "none",
         "&::-webkit-scrollbar": { display: "none", width: 0, height: 0 },
         background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
         display: "flex",
-        alignItems: "center",
+        alignItems: { xs: "flex-start", md: "center" },
         justifyContent: "center",
-        p: 2,
+        py: { xs: 1.5, md: 2 },
+        px: 2,
       }}
     >
       <Container maxWidth="sm">
         <Paper
           elevation={10}
           sx={{
-            p: 4,
+            p: { xs: 2.25, sm: 3, md: 4 },
             borderRadius: 3,
             background: "rgba(255, 255, 255, 0.98)",
             backdropFilter: "blur(10px)",
             color: "#1f2937",
+            maxHeight: { xs: "calc(100vh - 24px)", md: "calc(100vh - 32px)" },
+            overflowY: "auto",
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
+            "&::-webkit-scrollbar": { display: "none", width: 0, height: 0 },
           }}
         >
           <Box textAlign="center" mb={3}>
-            <Avatar
-              sx={{ width: 80, height: 80, bgcolor: "primary.main", mx: "auto", mb: 2 }}
-            >
-              <BusinessIcon sx={{ fontSize: 40 }} />
-            </Avatar>
+            <Box sx={{ display: "flex", justifyContent: "center", mb: 2 }}>
+              <Logo size="auth" />
+            </Box>
             <Typography variant="h4" fontWeight="bold" color="primary">
               {APP_DISPLAY_NAME}
             </Typography>
@@ -417,8 +536,8 @@ const Login: React.FC = () => {
               <Grid item xs={12}>
                 <TextField
                   fullWidth
-                  label="Email"
-                  type="email"
+                  label="Email / Username"
+                  type="text"
                   autoComplete="username"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -467,7 +586,17 @@ const Login: React.FC = () => {
               </Grid>
             </Grid>
 
-            <Box mt={1.5}>
+            <Box mt={1.5} display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    color="primary"
+                  />
+                }
+                label="Remember me (30 days)"
+              />
               <Link
                 component="button"
                 type="button"
@@ -517,6 +646,17 @@ const Login: React.FC = () => {
               >
                 Activate licence
               </Button>
+              <Button
+                component="a"
+                href="https://www.prityvanya.com/invoice-pro"
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="text"
+                fullWidth
+                sx={{ mt: 1, fontWeight: 700 }}
+              >
+                Buy Now
+              </Button>
             </Box>
           </Box>
 
@@ -526,6 +666,15 @@ const Login: React.FC = () => {
             <Typography variant="body2" color="text.secondary" mb={1}>
               Need help?
             </Typography>
+            <Link
+              href="https://www.prityvanya.com/invoice-pro"
+              target="_blank"
+              rel="noopener noreferrer"
+              variant="body2"
+              sx={{ color: "#1d4ed8", fontWeight: 600, display: "block", mb: 0.5 }}
+            >
+              www.prityvanya.com/invoice-pro
+            </Link>
             <Link href="mailto:pve.2020@hotmail.com" variant="body2" sx={{ color: "#1d4ed8", fontWeight: 600 }}>
               Contact Support
             </Link>
@@ -533,6 +682,9 @@ const Login: React.FC = () => {
               For updates and customizations: pve.2020@hotmail.com
               <br />
               Minimum customization charge: ₹6,000.00
+            </Typography>
+            <Typography variant="caption" display="block" sx={{ mt: 2, color: "text.disabled" }}>
+              v{getBundledAppVersion()}
             </Typography>
           </Box>
         </Paper>

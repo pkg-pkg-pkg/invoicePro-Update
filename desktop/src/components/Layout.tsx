@@ -1,5 +1,5 @@
 // D:\PVEB\desktop\src\components\Layout.tsx
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import {
   Box,
@@ -33,8 +33,11 @@ import { useAuth } from "../pages/contexts/auth";
 import { usePermissions } from "../hooks/usePermissions";
 import { getAppSettings } from '../services/appSettingsService';
 import FeedbackDialog from "./FeedbackDialog";
-import { checkForAppUpdate, type AppReleaseInfo } from "../services/appUpdateService";
+import { checkForAppUpdate, resolveDownloadUrl, type AppReleaseInfo } from "../services/appUpdateService";
+import { openExternalUrl } from "../services/printService";
 import { isElectronRuntime } from "../utils/runtime";
+import { isBlockingOverlayForEscape } from "../utils/isBlockingOverlayForEscape";
+import { getSemanticEscapeTarget } from "../utils/escapeBackNavigation";
 import { dueReminderService, type DueReminder } from "../services/reminders/dueReminderService";
 import ElectronTitleBar, {
   ELECTRON_TITLEBAR_HEIGHT_PX,
@@ -65,6 +68,8 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
     '/parties/new': { title: 'New Party', showBackButton: true },
     '/parties/edit': { title: 'Edit Party', showBackButton: true },
     '/parties/ledger-report': { title: 'Ledger Report', showBackButton: true },
+    '/reports/outstanding-aging': { title: 'Outstanding Aging', showBackButton: true },
+    '/reports/low-stock': { title: 'Low Stock Products', showBackButton: true },
     '/invoices': { title: 'Invoices', showBackButton: false },
     '/purchase-invoices': { title: 'Purchase Bills', showBackButton: false },
     '/credit-notes': { title: 'Credit Notes (Sales Return)', showBackButton: false },
@@ -399,39 +404,38 @@ const Layout: React.FC = () => {
     }
   }, [applyUpdateCheckResult]);
 
+  const openReleaseDownload = useCallback(async () => {
+    const url = resolveDownloadUrl(updateCheck?.info ?? appUpdate?.info ?? null);
+    setUpdateMenuAnchor(null);
+    await openExternalUrl(url);
+  }, [updateCheck?.info, appUpdate?.info]);
+
   const handleBackNavigation = useCallback(() => {
-    // Strict history-wise back behavior:
-    // - If previous history entry exists -> go back one screen
-    // - If this is the first screen in app session -> go to dashboard
     const idx = Number((window.history.state as any)?.idx ?? -1);
     const canGoBack = Number.isFinite(idx) ? idx > 0 : window.history.length > 1;
     if (canGoBack) {
       navigate(-1);
       return;
     }
+    const semantic = getSemanticEscapeTarget(location.pathname, location.search);
+    if (semantic) {
+      navigate(semantic);
+      return;
+    }
     navigate('/dashboard');
-  }, [navigate]);
+  }, [navigate, location.pathname, location.search]);
 
   /** Escape = same as header back (when no modal/menu is eating the key). */
   useEffect(() => {
-    const isOpenBlockingDialog = () => {
-      for (const node of document.querySelectorAll('[role="dialog"]')) {
-        const el = node as HTMLElement;
-        if (el.getAttribute('aria-hidden') === 'true') continue;
-        const modal = el.closest('.MuiModal-root');
-        if (modal?.classList.contains('MuiModal-open')) return true;
-      }
-      return false;
-    };
-
     const onEscape = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
 
       const el = e.target as HTMLElement | null;
-      if (el?.closest?.('[role="dialog"]')) return;
+      if (el?.closest?.('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return;
       if (el?.closest?.('[data-tally-picker-modal]')) return;
       if (el?.closest?.('.MuiPopover-root, .MuiMenu-root, .MuiAutocomplete-popper, [role="listbox"]')) return;
-      if (isOpenBlockingDialog()) return;
+      // Capture runs before dialog handlers; detect open MUI layers even if focus is not on the paper yet.
+      if (isBlockingOverlayForEscape()) return;
 
       e.preventDefault();
       handleBackNavigation();
@@ -445,11 +449,17 @@ const Layout: React.FC = () => {
     const isShortcutBlockedByTarget = (target: EventTarget | null) => {
       const el = target as HTMLElement | null;
       if (!el?.isConnected) return false;
-      if (el.closest('[role="dialog"], [data-tally-picker-modal], .MuiPopover-root, .MuiMenu-root')) return true;
+      if (
+        el.closest(
+          '[role="dialog"], [role="alertdialog"], [aria-modal="true"], [data-tally-picker-modal], .MuiPopover-root, .MuiMenu-root'
+        )
+      )
+        return true;
       return false;
     };
 
     const onFunctionKey = (e: KeyboardEvent) => {
+      if (isBlockingOverlayForEscape()) return;
       if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
         if (isShortcutBlockedByTarget(e.target)) return;
         const altKey = String(e.key || '').toUpperCase();
@@ -607,6 +617,18 @@ const Layout: React.FC = () => {
   }, [unlockPin]);
 
   const [headerSearch, setHeaderSearch] = useState('');
+  const headerSearchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        headerSearchRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const handleLogout = () => {
     // AuthContext se logout
@@ -760,6 +782,7 @@ const Layout: React.FC = () => {
             }}
           >
           <AppTopBar
+            wideSearch={shouldShowHeaderSearch}
             left={
               <>
             <IconButton
@@ -806,7 +829,8 @@ const Layout: React.FC = () => {
               shouldShowHeaderSearch ? (
           <TextField
             size="small"
-                  placeholder="Search items, invoices, purchases, customers…"
+            inputRef={headerSearchRef}
+                  placeholder="Search invoices, customers, items, reports..."
             value={headerSearch}
             onChange={(e) => setHeaderSearch(e.target.value)}
             onKeyDown={(e) => {
@@ -816,43 +840,72 @@ const Layout: React.FC = () => {
               }
             }}
             inputProps={{
-              'aria-label': 'Search inventory by name, SKU, or barcode',
-              title: 'Search by name, SKU, or barcode. Press Enter.',
+              'aria-label': 'Global search',
+              title: 'Search invoices, customers, items, reports. Ctrl+K to focus.',
             }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
-                        <SearchIcon sx={{ color: '#64748b', fontSize: 20 }} />
+                        <SearchIcon sx={{ color: '#64748B', fontSize: 20 }} />
+                </InputAdornment>
+              ),
+              endAdornment: (
+                <InputAdornment position="end">
+                  <Box
+                    component="kbd"
+                    sx={{
+                      display: { xs: 'none', md: 'inline-flex' },
+                      alignItems: 'center',
+                      px: 0.75,
+                      py: 0.25,
+                      fontSize: '0.6875rem',
+                      fontWeight: 700,
+                      fontFamily: 'ui-monospace, monospace',
+                      color: '#64748B',
+                      bgcolor: '#F1F5F9',
+                      border: '1px solid #E2E8F0',
+                      borderRadius: '6px',
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    Ctrl+K
+                  </Box>
                 </InputAdornment>
               ),
             }}
             sx={{
                     width: '100%',
-                    maxWidth: { xs: '100%', sm: 480, md: 560 },
               '& .MuiOutlinedInput-root': {
-                      height: 34,
+                      height: 40,
                       bgcolor: '#fff',
-                      borderRadius: 0,
+                      borderRadius: '16px',
                       color: ERP_TEXT,
-                fontSize: '0.8125rem',
+                fontSize: '0.875rem',
+                fontFamily: '"Inter", system-ui, sans-serif',
+                transition: 'box-shadow 300ms ease, border-color 300ms ease',
+                boxShadow: '0 1px 3px rgba(15, 23, 42, 0.06)',
                 '& fieldset': {
-                        borderColor: '#94a3b8',
+                        borderColor: 'rgba(15, 23, 42, 0.08)',
                 },
                 '&:hover fieldset': {
-                        borderColor: ERP_TEXT,
+                        borderColor: 'rgba(37, 99, 235, 0.35)',
+                },
+                '&.Mui-focused': {
+                  boxShadow: '0 0 0 3px rgba(37, 99, 235, 0.12), 0 8px 24px rgba(0, 0, 0, 0.08)',
                 },
                 '&.Mui-focused fieldset': {
-                        borderColor: ERP_TEXT,
+                        borderColor: '#2563EB',
+                        borderWidth: '1px',
                 },
               },
               '& .MuiInputBase-input::placeholder': {
-                      color: '#64748b',
+                      color: '#94A3B8',
                 opacity: 1,
               },
             }}
           />
               ) : (
-                <Box sx={{ width: '100%', maxWidth: { xs: '100%', sm: 460, md: 520 }, height: 34 }} />
+                <Box sx={{ width: '100%', height: 40 }} />
               )
             }
             right={<Box sx={{ width: 8 }} />}
@@ -930,6 +983,12 @@ const Layout: React.FC = () => {
                 </Stack>
               )}
             </Box>
+            {updateCheck?.info?.releaseNotes ? (
+              <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1, whiteSpace: 'pre-wrap' }}>
+                {updateCheck.info.releaseNotes}
+              </Typography>
+            ) : null}
+            <Divider />
             <MenuItem
               disabled={updateChecking}
               onClick={() => {
@@ -938,6 +997,15 @@ const Layout: React.FC = () => {
             >
               Check for updates
             </MenuItem>
+            {updateCheck?.updateAvailable && updateCheck.info ? (
+              <MenuItem
+                onClick={() => {
+                  void openReleaseDownload();
+                }}
+              >
+                Download v{updateCheck.info.latestVersion}
+              </MenuItem>
+            ) : null}
             {canAccessFeature('manage-settings') ? (
               <MenuItem
                 onClick={() => {
@@ -946,17 +1014,6 @@ const Layout: React.FC = () => {
                 }}
               >
                 Open About &amp; Updates
-              </MenuItem>
-            ) : null}
-            {updateCheck?.info?.downloadUrl ? (
-              <MenuItem
-                component="a"
-                href={updateCheck.info.downloadUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setUpdateMenuAnchor(null)}
-              >
-                Open download page
               </MenuItem>
             ) : null}
           </Menu>
@@ -1095,10 +1152,10 @@ const Layout: React.FC = () => {
                 <Button
                   color="inherit"
                   size="small"
-                  href={appUpdate.info.downloadUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
                   variant="outlined"
+                  onClick={() => {
+                    void openExternalUrl(resolveDownloadUrl(appUpdate.info));
+                  }}
                 >
                   Download
                 </Button>

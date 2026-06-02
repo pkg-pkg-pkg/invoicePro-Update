@@ -14,6 +14,7 @@ interface ActionFooterProps {
   onEdit?: () => void;
   onShareWhatsApp?: () => void;
   onDownloadPDF?: () => void;
+  onChangeTemplate?: () => void;
 }
 
 const ActionFooter: FC<ActionFooterProps> = ({
@@ -27,6 +28,7 @@ const ActionFooter: FC<ActionFooterProps> = ({
   onEdit,
   onShareWhatsApp,
   onDownloadPDF,
+  onChangeTemplate,
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -53,7 +55,12 @@ const ActionFooter: FC<ActionFooterProps> = ({
           )}
         </Stack>
       ) : (
-        <Stack direction={isMobile ? 'column' : 'row'} spacing={0.75} justifyContent="flex-end" flexWrap="wrap">
+        <Stack direction={isMobile ? 'column' : 'row'} spacing={0.75} justifyContent="flex-end" alignItems="center" flexWrap="wrap">
+          {onChangeTemplate && (
+            <Button variant="text" size="small" onClick={onChangeTemplate} disabled={saving} sx={{ mr: 'auto' }}>
+              Change Template
+            </Button>
+          )}
           <Button variant="outlined" onClick={onSaveDraft} disabled={saving}>
             {saving ? 'Saving…' : 'Save as Draft'}
           </Button>

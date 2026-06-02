@@ -12,6 +12,8 @@ import { computeLicenseDeviceKey, getDeviceId } from './deviceService';
 import { getEncryptedItem, setEncryptedItem } from './secureStorage';
 import { bindCurrentDevice, clearDeviceBinding } from './deviceChangeDetector';
 import { syncPasswordToFirestore } from './userProfileService';
+import { getBundledAppVersion } from './appUpdateService';
+import { withTimeout } from '../utils/withTimeout';
 
 export type LicenseValidationResult = {
   ok: boolean;
@@ -291,9 +293,32 @@ export async function activateAccountWithLicense(params: {
   try {
     const deviceId = await getDeviceId();
     const now = serverTimestamp();
+    const normalizedKey = licenseKey.trim().toUpperCase();
+    try {
+      const licSnap = await getDoc(doc(db, 'licenses', normalizedKey));
+      if (!licSnap.exists()) {
+        await rollbackNewUser();
+        return {
+          ok: false,
+          reason: `License key not found in database (${normalizedKey}). Check the key from Admin or generate a new one.`,
+          type: 'NO_LICENSE',
+        };
+      }
+    } catch (e: any) {
+      const code = String(e?.code ?? '');
+      if (code.includes('permission-denied')) {
+        await rollbackNewUser();
+        return {
+          ok: false,
+          reason: 'Cannot read license (Firestore rules). Publish desktop/firestore.rules (unassigned license read) and retry.',
+          type: 'OTHER',
+        };
+      }
+    }
+
     let activation: any;
     try {
-      activation = await callActivateLicense({ licenseKey, deviceId });
+      activation = await callActivateLicense({ licenseKey: normalizedKey, deviceId });
       if (!activation?.ok) {
         await rollbackNewUser();
         
@@ -430,22 +455,30 @@ export async function verifyActivationKey(activationKey: string, emailId: string
     
     console.log('🔍 License data found:', licenseData);
 
-    // Check if license is assigned to the provided email
     const assignedEmail = normalizeEmail(String(licenseData.assignedToEmail || ''));
     const normalizedProvidedEmail = normalizeEmail(emailId);
 
-    if (assignedEmail !== normalizedProvidedEmail) {
+    if (assignedEmail && assignedEmail !== normalizedProvidedEmail) {
       console.log('❌ License assigned to different email:', assignedEmail, 'vs', normalizedProvidedEmail);
-      return { 
-        status: 'not_activated', 
-        allowLogin: false, 
-        reason: `License assigned to different email: ${assignedEmail}` 
+      return {
+        status: 'not_activated',
+        allowLogin: false,
+        reason: `License assigned to different email: ${assignedEmail}`,
       };
     }
 
-    // Check if license is active
+    // Pending key (no email yet) — not an error; caller should run activateLicense.
+    if (!assignedEmail) {
+      return {
+        status: 'not_activated',
+        allowLogin: false,
+        reason: 'License not activated yet. Use Activate License.',
+        licenseData,
+      };
+    }
+
     const isActive = Boolean(licenseData.isActive);
-    
+
     if (!isActive) {
       console.log('❌ License is not active');
       return { status: 'not_activated', allowLogin: false, reason: 'License is not active' };
@@ -470,10 +503,18 @@ export async function verifyActivationKey(activationKey: string, emailId: string
 
   } catch (error: any) {
     console.error('❌ Error verifying activation key:', error);
-    return { 
-      status: 'error', 
-      allowLogin: false, 
-      reason: `Error verifying license: ${error.message}` 
+    const code = String(error?.code ?? '');
+    if (code.includes('permission-denied')) {
+      return {
+        status: 'error',
+        allowLogin: false,
+        reason: 'Cannot read license (Firestore rules). Deploy updated firestore.rules and retry.',
+      };
+    }
+    return {
+      status: 'error',
+      allowLogin: false,
+      reason: `Error verifying license: ${error.message}`,
     };
   }
 }
@@ -782,7 +823,10 @@ export async function validateOnLoginOrStart(): Promise<LicenseGateResult> {
   if (!user) return { ok: false, reason: 'Not logged in' };
 
   try {
-    await user.getIdToken(true);
+    const token = await withTimeout(user.getIdToken(true), 8000, null);
+    if (!token) {
+      return { ok: false, reason: 'Login session timed out. Sign in again.' };
+    }
   } catch (e: any) {
     return { ok: false, reason: e?.message ?? 'Login required' };
   }
@@ -853,7 +897,12 @@ export async function validateOnLoginOrStart(): Promise<LicenseGateResult> {
   try {
     await updateDoc(doc(db, 'users', userDocIdForEmail(email)), {
       lastLogin: now,
+      lastActiveAt: now,
       deviceId,
+      appVersion: getBundledAppVersion(),
+      gatewayValidUntilMs:
+        validated?.gatewayValidUntilMs != null ? Number(validated.gatewayValidUntilMs) : null,
+      gatewayUpdatesEntitled: Boolean(validated?.gatewayUpdatesEntitled),
     });
   } catch (e: any) {
     const code = String(e?.code ?? '');

@@ -27,7 +27,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { voucherService } from '../../../services/vouchers/voucherService';
 import { ledgerAccountService } from '../../../services/masters/ledgerAccountService';
@@ -38,6 +38,11 @@ import { usePermission } from '../../../hooks/usePermission';
 import { usePermissions } from '../../../hooks/usePermissions';
 import { inventoryItemService } from '../../../services/masters/inventoryItemService';
 import { approvalService } from '../../../services/approvals/approvalService';
+import {
+  currentCalendarMonthRange,
+  isDateWithinInclusive,
+  toLocalYmd,
+} from '../../../utils/dateRange';
 
 interface FilterState {
   fromDate: string;
@@ -46,23 +51,43 @@ interface FilterState {
   status: 'ALL' | 'ACTIVE' | 'CANCELLED';
 }
 
-const initialFilters: FilterState = {
-  fromDate: '',
-  toDate: '',
-  supplierId: '',
-  status: 'ALL',
+const createDefaultFilters = (): FilterState => {
+  const { from, to } = currentCalendarMonthRange();
+  return {
+    fromDate: from,
+    toDate: to,
+    supplierId: '',
+    status: 'ALL',
+  };
 };
 
 const PurchaseVoucherList = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { can } = usePermission();
   const { isAdmin } = usePermissions();
   const canCreate = can('create-vouchers');
 
-  const [filters, setFilters] = useState<FilterState>(initialFilters);
+  const [filters, setFilters] = useState<FilterState>(() => createDefaultFilters());
   const [ledgers, setLedgers] = useState<LedgerAccount[]>([]);
   const [itemNameMap, setItemNameMap] = useState<Map<string, string>>(new Map());
   const [selectedVoucher, setSelectedVoucher] = useState<Voucher | null>(null);
+
+  useEffect(() => {
+    const requestedPeriod = (searchParams.get('viewPeriod') || '').toLowerCase();
+    const fyStartRaw = searchParams.get('fyStart');
+    if (requestedPeriod !== 'month' && requestedPeriod !== 'year') return;
+    if (requestedPeriod === 'month') {
+      const { from, to } = currentCalendarMonthRange();
+      setFilters((prev) => ({ ...prev, fromDate: from, toDate: to }));
+      return;
+    }
+    const fyStart = Number.parseInt(fyStartRaw || '', 10);
+    if (!Number.isFinite(fyStart)) return;
+    const from = `${fyStart}-04-01`;
+    const to = `${fyStart + 1}-03-31`;
+    setFilters((prev) => ({ ...prev, fromDate: from, toDate: to }));
+  }, [searchParams]);
 
   useEffect(() => {
     ledgerAccountService
@@ -91,15 +116,19 @@ const PurchaseVoucherList = () => {
     return map;
   }, [ledgers]);
 
+  const effectiveDateRange = useMemo(() => {
+    if (filters.fromDate && filters.toDate) {
+      return { from: filters.fromDate, to: filters.toDate };
+    }
+    return currentCalendarMonthRange();
+  }, [filters.fromDate, filters.toDate]);
+
   const filteredVouchers = useMemo(() => {
     return vouchers.filter((voucher) => {
       if (filters.status !== 'ALL' && voucher.status !== filters.status) {
         return false;
       }
-      if (filters.fromDate && new Date(voucher.date) < new Date(filters.fromDate)) {
-        return false;
-      }
-      if (filters.toDate && new Date(voucher.date) > new Date(filters.toDate)) {
+      if (!isDateWithinInclusive(voucher.date, effectiveDateRange.from, effectiveDateRange.to)) {
         return false;
       }
       if (filters.supplierId) {
@@ -110,7 +139,7 @@ const PurchaseVoucherList = () => {
       }
       return true;
     });
-  }, [filters, vouchers]);
+  }, [effectiveDateRange.from, effectiveDateRange.to, filters, vouchers]);
 
   const supplierName = (voucher: Voucher) => {
     const line = voucher.lines.find((l) => (l.credit ?? 0) > 0);
@@ -215,8 +244,8 @@ const PurchaseVoucherList = () => {
               </Select>
             </Stack>
             <Stack direction="row" justifyContent="flex-end">
-              <Button variant="text" onClick={() => setFilters(initialFilters)}>
-                Clear filters
+              <Button variant="text" onClick={() => setFilters(createDefaultFilters())}>
+                Reset to this month
               </Button>
             </Stack>
           </Stack>

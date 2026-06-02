@@ -46,6 +46,9 @@ import { decideGSTType } from '../../../services/vouchers/gstDecisionEngine';
 import { bifurcateTax } from '../../../services/vouchers/gstBifurcationEngine';
 import { normalizeStateToCode } from '../../../utils/stateMapping';
 import { rateMemory } from '../../../services/reports/rateMemory';
+import { usePincodeAutofill } from '../../../hooks/usePincodeAutofill';
+import PincodeTextField from '../../../components/PincodeTextField';
+import { erpContainedButtonSx } from '../../../theme/erpButtonStyles';
 
 interface ItemLineState {
   lineId: string;
@@ -89,6 +92,16 @@ const PurchaseVoucherForm = () => {
   const [pendingScannedBarcode, setPendingScannedBarcode] = useState('');
   const [supplierConfirmOpen, setSupplierConfirmOpen] = useState(false);
   const [pendingSupplierDetails, setPendingSupplierDetails] = useState<Partial<Party> | null>(null);
+  const supplierPinAutofill = usePincodeAutofill({
+    onFilled: useCallback((addr) => {
+      setPendingSupplierDetails((prev) => ({
+        ...(prev || {}),
+        city: addr.city,
+        district: addr.district,
+        state: addr.state,
+      }));
+    }, []),
+  });
   const [companyState, setCompanyState] = useState<string>('');
   const [supplierState, setSupplierState] = useState<string>('');
   const [enableRoundOff, setEnableRoundOff] = useState(true);
@@ -789,7 +802,8 @@ const PurchaseVoucherForm = () => {
           pincode: String(selected.pincode || ''),
           email: String(selected.email || ''),
           city: String(selected.city || ''),
-        } as any);
+          district: String(selected.district || ''),
+        });
         setParties((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
       } catch (e) {
         setError((e as Error).message || 'Failed to save supplier details.');
@@ -1344,36 +1358,54 @@ const PurchaseVoucherForm = () => {
                     fullWidth
                   />
                 </Grid>
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={12} sm={3}>
+                  <PincodeTextField
+                    label="Pincode"
+                    size="small"
+                    value={pendingSupplierDetails?.pincode || ''}
+                    onPinChange={(pincode) =>
+                      setPendingSupplierDetails((prev) => ({ ...(prev || {}), pincode }))
+                    }
+                    autofill={supplierPinAutofill}
+                    fullWidth
+                  />
+                </Grid>
+                <Grid item xs={12} sm={3}>
                   <TextField
                     label="City"
                     size="small"
                     value={pendingSupplierDetails?.city || ''}
-                    onChange={(e) =>
-                      setPendingSupplierDetails((prev) => ({ ...(prev || {}), city: e.target.value }))
-                    }
+                    onChange={(e) => {
+                      supplierPinAutofill.clearHighlight('city');
+                      setPendingSupplierDetails((prev) => ({ ...(prev || {}), city: e.target.value }));
+                    }}
+                    sx={supplierPinAutofill.fieldSx('city')}
                     fullWidth
                   />
                 </Grid>
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={12} sm={3}>
+                  <TextField
+                    label="District"
+                    size="small"
+                    value={pendingSupplierDetails?.district || ''}
+                    onChange={(e) => {
+                      supplierPinAutofill.clearHighlight('district');
+                      setPendingSupplierDetails((prev) => ({ ...(prev || {}), district: e.target.value }));
+                    }}
+                    sx={supplierPinAutofill.fieldSx('district')}
+                    fullWidth
+                  />
+                </Grid>
+                <Grid item xs={12} sm={3}>
                   <TextField
                     label="State"
                     size="small"
                     value={pendingSupplierDetails?.state || ''}
-                    onChange={(e) =>
-                      setPendingSupplierDetails((prev) => ({ ...(prev || {}), state: e.target.value }))
-                    }
-                    fullWidth
-                  />
-                </Grid>
-                <Grid item xs={12} sm={4}>
-                  <TextField
-                    label="Pincode"
-                    size="small"
-                    value={pendingSupplierDetails?.pincode || ''}
-                    onChange={(e) =>
-                      setPendingSupplierDetails((prev) => ({ ...(prev || {}), pincode: e.target.value }))
-                    }
+                    onChange={(e) => {
+                      supplierPinAutofill.clearHighlight('state');
+                      setPendingSupplierDetails((prev) => ({ ...(prev || {}), state: e.target.value }));
+                    }}
+                    sx={supplierPinAutofill.fieldSx('state')}
                     fullWidth
                   />
                 </Grid>
@@ -1393,6 +1425,7 @@ const PurchaseVoucherForm = () => {
               variant="contained"
               onClick={applyConfirmedSupplier}
               disabled={!String(pendingSupplierDetails?.address || '').trim()}
+              sx={erpContainedButtonSx}
             >
               Accept & Continue (Ctrl+A)
             </Button>

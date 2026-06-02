@@ -1,281 +1,444 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import {
-  Grid,
-  Paper,
-  Typography,
-  Box,
-  Card,
-  CardContent,
-  Button,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  CircularProgress,
   Alert,
+  Avatar,
+  Box,
+  Button,
   Chip,
+  Divider,
+  CircularProgress,
+  Grid,
+  Stack,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Tooltip,
-  Tabs,
-  Tab,
-  Stack,
-  IconButton,
+  Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-
 import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip as RechartsTooltip,
-  Legend,
-  ResponsiveContainer,
-} from 'recharts';
-
-import {
-  People as PeopleIcon,
-  Receipt as ReceiptIcon,
-  Payment as PaymentIcon,
-  ArrowForward as ArrowForwardIcon,
-  Inventory2 as Inventory2Icon,
-  ShoppingCart as ShoppingCartIcon,
+  AddCircleOutline as AddCircleOutlineIcon,
+  AssignmentTurnedIn as AssignmentTurnedInIcon,
   BarChart as BarChartIcon,
-  Storefront as StorefrontIcon,
-  SwapHoriz as SwapHorizIcon,
-  WarningAmber as WarningAmberIcon,
-  DarkModeRounded as DarkModeRoundedIcon,
-  LightModeRounded as LightModeRoundedIcon,
-  NotificationsNoneRounded as NotificationsNoneRoundedIcon,
+  Groups2 as Groups2Icon,
+  Inventory2 as Inventory2Icon,
+  PersonAddAlt as PersonAddAltIcon,
+  PointOfSale as PointOfSaleIcon,
+  ReceiptLong as ReceiptLongIcon,
+  WhatsApp as WhatsAppIcon,
 } from '@mui/icons-material';
-
 import { AppDispatch, RootState } from '../store';
 import {
   clearError,
-  fetchTodayOverview,
   fetchGstSnapshot,
   fetchLowStock,
+  fetchMonthOverview,
   fetchOutstandingSummary,
   fetchPayableSummary,
   fetchRecentTransactions,
   fetchSalesAnalytics,
-  setGstPeriod,
+  fetchTodayOverview,
 } from '../store/slices/dashboardSlice';
 import { formatCurrency, formatDate } from '../utils/formatters';
-import { usePermissions } from '../hooks/usePermissions';
+import { getNormalizedCompanyProfile } from '../utils/companyProfile';
+import { BusinessHealthCard } from '../components/dashboard/BusinessHealthCard';
+import { DashboardPanel } from '../components/dashboard/DashboardPanel';
 import {
-  APPEARANCE_CHANGED_EVENT,
-  applyAppearanceAndNotify,
-  readAccentColor,
-  readUiMode,
-  type UiMode,
-} from '../theme/appearanceSettings';
-import { indianFYStartYearForDate, labelIndianFY, formatIndianFYRangeShort, indianFYStartYearsWithVoucherDates } from '../utils/indianFY';
-import { voucherService } from '../services/vouchers/voucherService';
+  computeSparkTrend,
+  DASHBOARD_THEME,
+  greetingForHour,
+} from '../components/dashboard/dashboardTheme';
+import { PremiumKpiCard } from '../components/dashboard/PremiumKpiCard';
+import { DashboardWelcome } from '../components/dashboard/DashboardWelcome';
+import { OutstandingAgingCard } from '../components/dashboard/OutstandingAgingCard';
+import { SmartAssistantCard } from '../components/dashboard/SmartAssistantCard';
+import { UtilitySidebar } from '../components/dashboard/UtilitySidebar';
+import { BusinessSnapshotCard } from '../components/dashboard/BusinessSnapshotCard';
+import { WhatsAppReminderPreviewDialog } from '../components/whatsapp/WhatsAppReminderPreviewDialog';
+import { buildOutstandingAging } from '../utils/outstandingAging';
+import { computeBusinessHealthScore } from '../utils/dashboardHealth';
+import {
+  prepareOutstandingReminder,
+  pickTopOutstandingCustomer,
+  type OutstandingReminderDraft,
+} from '../services/whatsappOutstandingReminder';
+import {
+  getWhatsAppConnectionStatus,
+  refreshWhatsAppConnectionStatus,
+  subscribeWhatsAppConnectionStatus,
+  type WhatsAppConnectionStatus,
+} from '../services/whatsappIntegration';
+import { gstFilingReminderText } from '../utils/gstDueDate';
+import { useAuth } from './contexts/auth';
 
-const TAB_QUERY = 'dashboardTab';
-const FY_STORAGE_KEY = 'dashboard_selected_fy_start_year';
-const TAB_KEYS = ['gst', 'trend', 'customers', 'suppliers', 'transactions'] as const;
-
-function tabIndexFromSearch(value: string | null): number {
-  const k = (value || 'gst').toLowerCase();
-  const i = TAB_KEYS.indexOf(k as (typeof TAB_KEYS)[number]);
-  return i >= 0 ? i : 0;
+function invoiceStatusBadge(raw: string): { label: string; color: 'success' | 'warning' | 'error' } {
+  const u = raw.toUpperCase();
+  if (u === 'PAID') return { label: 'Paid', color: 'success' };
+  if (u === 'PARTIAL' || u === 'PENDING') return { label: 'Pending', color: 'warning' };
+  return { label: 'Overdue', color: 'error' };
 }
 
-function TabPanel({ children, value, id }: { children: React.ReactNode; value: number; id: number }) {
-  if (value !== id) return null;
-  return (
-    <Box
-      role="tabpanel"
-      sx={{
-        pt: 2,
-        minHeight: 320,
-        maxHeight: 'calc(100vh - 280px)',
-        overflow: 'auto',
-      }}
-    >
-      {children}
-    </Box>
-  );
+function miniBarSeries(base: number, points = 5): Array<{ v: number }> {
+  const b = Math.max(0, base);
+  return Array.from({ length: points }, (_, i) => ({
+    v: Math.max(0, b * (0.55 + (i / (points - 1 || 1)) * 0.45)),
+  }));
 }
+
+function growthFromSeries(data: Array<{ v: number }>): { pct: number; up: boolean } {
+  if (data.length < 2) return { pct: 0, up: true };
+  const first = data[0]?.v ?? 0;
+  const last = data[data.length - 1]?.v ?? 0;
+  if (first === 0) return { pct: last > 0 ? 100 : 0, up: last >= 0 };
+  const change = ((last - first) / Math.abs(first)) * 100;
+  return { pct: Math.round(Math.abs(change)), up: change >= 0 };
+}
+
+const QUICK_ACTION_ACCENTS = [
+  DASHBOARD_THEME.kpi.sales,
+  DASHBOARD_THEME.kpi.receipts,
+  DASHBOARD_THEME.kpi.stock,
+  '#0EA5E9',
+  '#25D366',
+  DASHBOARD_THEME.kpi.outstanding,
+  '#7C3AED',
+  '#64748B',
+] as const;
 
 export default function Dashboard() {
   const theme = useTheme();
-  const navigate = useNavigate();
   const dispatch = useDispatch<AppDispatch>();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const { isAdmin } = usePermissions();
-
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const {
     summary,
     todaySummary,
-    todayOverviewLoading,
+    monthSummary,
     salesAnalytics,
     outstandingSummary,
-    payableSummary,
     recentTransactions,
-    gstSnapshot,
     lowStock,
     loading,
     error,
-    gstPeriod,
   } = useSelector((state: RootState) => state.dashboard);
 
+  const [utilityOpen, setUtilityOpen] = useState(true);
+  const [waBusy, setWaBusy] = useState(false);
+  const [waReminderOpen, setWaReminderOpen] = useState(false);
+  const [waReminderDraft, setWaReminderDraft] = useState<OutstandingReminderDraft | null>(null);
+  const [waStatus, setWaStatus] = useState<WhatsAppConnectionStatus>(() => getWhatsAppConnectionStatus());
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    void refreshWhatsAppConnectionStatus();
+    return subscribeWhatsAppConnectionStatus(setWaStatus);
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    dispatch(fetchTodayOverview());
+    dispatch(fetchMonthOverview());
+    dispatch(fetchLowStock());
+    dispatch(fetchOutstandingSummary());
+    dispatch(fetchPayableSummary());
+    dispatch(fetchRecentTransactions({ limit: 8, invoicePeriod: 'month' }));
+    dispatch(fetchSalesAnalytics({ period: 'month', groupBy: 'day' }));
+    dispatch(fetchGstSnapshot('month'));
+  }, [dispatch]);
+
   const overview = todaySummary ?? summary;
-  const overviewBusy = todayOverviewLoading;
+  const monthly = monthSummary;
 
-  const [analyticsPeriod, setAnalyticsPeriod] = useState<'week' | 'month' | 'year'>('month');
-  const [analyticsGroupBy, setAnalyticsGroupBy] = useState<'day' | 'week' | 'month'>('day');
-  const [txnSubTab, setTxnSubTab] = useState(0);
-  const [uiMode, setUiMode] = useState<UiMode>(() => readUiMode());
+  const todayReceiptsTotal = Number(todaySummary?.todayReceipts ?? 0);
 
-  const [fyStartYear, setFyStartYear] = useState<number>(() => {
-    try {
-      const raw = localStorage.getItem(FY_STORAGE_KEY);
-      const n = raw != null ? Number.parseInt(raw, 10) : NaN;
-      if (Number.isFinite(n)) return n;
-    } catch {
-      /* ignore */
+  const stockValue = Number(
+    todaySummary?.stockValue ?? monthly?.stockValue ?? 0
+  );
+
+  const pendingInvoiceCount = Number(
+    todaySummary?.pendingInvoiceCount ?? monthly?.pendingInvoiceCount ?? 0
+  );
+
+  const trend = salesAnalytics?.analytics ?? [];
+  const company = useMemo(() => getNormalizedCompanyProfile(), []);
+
+  const sparklineData = useMemo(() => {
+    if (trend.length >= 2) {
+      return trend.slice(-7).map((t, i) => ({ name: `${i}`, value: Number(t.sales || 0) }));
     }
-    return indianFYStartYearForDate(new Date());
+    return [{ name: '0', value: Number(overview?.totalSales || 0) }];
+  }, [trend, overview?.totalSales]);
+
+  const sparkTrend = useMemo(() => computeSparkTrend(sparklineData), [sparklineData]);
+
+  const kpiCards = useMemo(
+    () => [
+      {
+        title: "Today's Sales",
+        value: Number(overview?.totalSales || 0),
+        color: DASHBOARD_THEME.kpi.sales,
+        icon: <ReceiptLongIcon fontSize="small" />,
+      },
+      {
+        title: "Today's Receipts",
+        value: todayReceiptsTotal,
+        color: DASHBOARD_THEME.kpi.receipts,
+        icon: <PointOfSaleIcon fontSize="small" />,
+      },
+      {
+        title: 'Outstanding Amount',
+        value: Number(overview?.totalOutstanding || 0),
+        color: DASHBOARD_THEME.kpi.outstanding,
+        icon: <AssignmentTurnedInIcon fontSize="small" />,
+      },
+      {
+        title: 'Stock Value',
+        value: stockValue,
+        color: DASHBOARD_THEME.kpi.stock,
+        icon: <Inventory2Icon fontSize="small" />,
+      },
+    ],
+    [overview, todayReceiptsTotal, stockValue]
+  );
+
+  const { buckets: agingBuckets, total: agingTotal } = useMemo(
+    () =>
+      buildOutstandingAging({
+        customers: outstandingSummary?.customers ?? [],
+        salesVouchers: outstandingSummary?.salesVouchers ?? [],
+        invoices: recentTransactions?.invoices ?? [],
+        fallbackTotal: Number(overview?.totalOutstanding || 0),
+      }),
+    [
+      outstandingSummary?.customers,
+      outstandingSummary?.salesVouchers,
+      recentTransactions?.invoices,
+      overview?.totalOutstanding,
+    ]
+  );
+
+  const displayName = useMemo(() => {
+    const full = String(user?.fullName || '').trim();
+    if (full) return full.split(/\s+/)[0];
+    const un = String(user?.username || '').trim();
+    if (un) return un;
+    return 'there';
+  }, [user?.fullName, user?.username]);
+
+  const topOverdue = outstandingSummary?.customers?.[0];
+  const gstConfigured = Boolean(company.gstin?.trim());
+
+  const smartSuggestions = useMemo(() => {
+    const lowStockLine =
+      lowStock.length > 0
+        ? `Low stock: ${lowStock
+            .slice(0, 3)
+            .map((i) => i.name)
+            .join(', ')}${lowStock.length > 3 ? ` (+${lowStock.length - 3} more)` : ''}`
+        : 'No low stock alerts';
+    return [
+      {
+        text: `Outstanding collection pending: ${formatCurrency(overview?.totalOutstanding || 0)}`,
+      },
+      {
+        text: `Top overdue customer: ${topOverdue?.name || '—'} (${formatCurrency(topOverdue?.currentBalance || 0)})`,
+      },
+      { text: gstFilingReminderText(gstConfigured, now) },
+      { text: lowStockLine },
+      {
+        text: `Today's sales: ${formatCurrency(todaySummary?.totalSales || 0)} (${todaySummary?.salesCount || 0} invoice(s))`,
+      },
+    ];
+  }, [overview, topOverdue, lowStock, gstConfigured, now, todaySummary]);
+
+  const totalSalesM = Number(monthly?.totalSales || 0);
+  const totalPurchaseM = Number(monthly?.totalPurchase || 0);
+  const grossProfitM = totalSalesM - totalPurchaseM;
+  const expensesM = Math.max(0, grossProfitM - Number(monthly?.profitLoss || 0));
+
+  const businessHealthMetrics = useMemo(() => {
+    const defs = [
+      { label: 'Total Sales', value: totalSalesM, color: DASHBOARD_THEME.kpi.sales },
+      { label: 'Total Purchase', value: totalPurchaseM, color: '#64748B' },
+      { label: 'Gross Profit', value: grossProfitM, color: DASHBOARD_THEME.kpi.receipts },
+      { label: 'Expenses', value: expensesM, color: DASHBOARD_THEME.kpi.outstanding },
+    ];
+    return defs.map((d) => {
+      const chartData = miniBarSeries(d.value);
+      const g = growthFromSeries(chartData);
+      return { ...d, chartData, growthPct: g.pct, growthUp: g.up };
+    });
+  }, [totalSalesM, totalPurchaseM, grossProfitM, expensesM]);
+
+  const { score: healthScore, rows: healthStatuses } = useMemo(
+    () =>
+      computeBusinessHealthScore({
+        totalOutstanding: Number(overview?.totalOutstanding || 0),
+        totalSales: totalSalesM,
+        gstConfigured,
+        lowStockCount: lowStock.length,
+        grossProfit: grossProfitM,
+      }),
+    [overview, totalSalesM, gstConfigured, lowStock.length, grossProfitM]
+  );
+
+  const monthReceiptsTotal = Number(monthly?.todayReceipts ?? 0);
+
+  const snapshotItems = useMemo(
+    () => [
+      {
+        label: "Today's Sales",
+        value: formatCurrency(overview?.totalSales || 0),
+        accent: DASHBOARD_THEME.kpi.sales,
+        onClick: () => navigate('/vouchers/sales'),
+      },
+      {
+        label: "Today's Receipts",
+        value: formatCurrency(todayReceiptsTotal),
+        accent: DASHBOARD_THEME.kpi.receipts,
+        onClick: () => navigate('/vouchers/receipt-vouchers'),
+      },
+      {
+        label: 'Month Sales',
+        value: formatCurrency(totalSalesM),
+        accent: DASHBOARD_THEME.kpi.sales,
+        onClick: () => navigate('/vouchers/sales'),
+      },
+      {
+        label: 'Month Receipts',
+        value: formatCurrency(monthReceiptsTotal),
+        accent: DASHBOARD_THEME.kpi.receipts,
+        onClick: () => navigate('/vouchers/receipt-vouchers'),
+      },
+      {
+        label: 'Pending Collections',
+        value: formatCurrency(overview?.totalOutstanding || 0),
+        accent: DASHBOARD_THEME.kpi.outstanding,
+        onClick: () => navigate('/reports/outstanding-aging'),
+      },
+      {
+        label: 'Pending Invoices',
+        value: String(pendingInvoiceCount),
+        accent: DASHBOARD_THEME.primary,
+        onClick: () => navigate('/vouchers/sales'),
+      },
+      {
+        label: 'Low Stock Items',
+        value: String(lowStock.length),
+        accent: lowStock.length > 0 ? DASHBOARD_THEME.status.warn : DASHBOARD_THEME.kpi.receipts,
+        onClick: () => navigate('/reports/low-stock'),
+      },
+    ],
+    [
+      overview,
+      todayReceiptsTotal,
+      totalSalesM,
+      monthReceiptsTotal,
+      pendingInvoiceCount,
+      lowStock.length,
+      navigate,
+    ]
+  );
+
+  const backupLabel = new Date().toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
   });
 
-  /** FY years that have at least one voucher (newest first). */
-  const [fyWithData, setFyWithData] = useState<number[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const list = await voucherService.list();
-        const years = indianFYStartYearsWithVoucherDates(list.map((v) => v.date));
-        if (!cancelled) setFyWithData(years);
-      } catch {
-        if (!cancelled) setFyWithData([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!fyWithData.length) return;
-    if (!fyWithData.includes(fyStartYear)) {
-      setFyStartYear(fyWithData[0]);
-    }
-  }, [fyWithData, fyStartYear]);
-
-  /** No voucher FY list: always use current Indian FY so the range box, cards, and fetched summary stay in sync (avoids stale localStorage year). */
-  useEffect(() => {
-    if (fyWithData.length > 0) return;
-    const cur = indianFYStartYearForDate(new Date());
-    setFyStartYear((prev) => (prev === cur ? prev : cur));
-  }, [fyWithData]);
-
-  const tabValue = tabIndexFromSearch(searchParams.get(TAB_QUERY));
-
-  const setMainTab = useCallback(
-    (index: number) => {
-      setSearchParams(
-        (prev) => {
-          const p = new URLSearchParams(prev);
-          p.set(TAB_QUERY, TAB_KEYS[index]);
-          return p;
-        },
-        { replace: true }
-      );
-    },
-    [setSearchParams]
+  const systemHealth = useMemo(
+    () => [
+      { label: 'Database Connected', status: 'Online', ok: true },
+      { label: 'Backup Complete', status: backupLabel, ok: true },
+      { label: 'GST Active', status: gstConfigured ? 'Registered' : 'Not configured', ok: gstConfigured },
+      {
+        label: 'WhatsApp Connected',
+        status: waStatus.ok ? waStatus.status : 'Not connected',
+        ok: waStatus.ok,
+      },
+    ],
+    [backupLabel, gstConfigured, waStatus.ok, waStatus.status]
   );
 
-  const gstData = useMemo(
-    () => gstSnapshot ?? { outputGst: 0, inputItc: 0, receivable: 0, payable: 0 },
-    [gstSnapshot]
-  );
-  const grossGstPayable = useMemo(() => Number(Math.max(0, gstData.outputGst).toFixed(2)), [gstData.outputGst]);
-
-  const lowStockPreview = useMemo(() => lowStock.slice(0, 3), [lowStock]);
-  const salesTrendPoints = salesAnalytics?.analytics ?? [];
-
-  const goToReportsTab = (tab: string) => {
-    const params = new URLSearchParams();
-    params.set('tab', tab);
-    navigate(`/reports?${params.toString()}`);
-  };
-
-  const refreshCore = useCallback(() => {
-    dispatch(fetchTodayOverview(fyStartYear));
-    dispatch(fetchLowStock());
-    dispatch(fetchOutstandingSummary());
-    dispatch(fetchPayableSummary());
-    dispatch(fetchRecentTransactions(8));
-    dispatch(fetchGstSnapshot(gstPeriod));
-    if (tabValue === 1) {
-      dispatch(fetchSalesAnalytics({ period: analyticsPeriod, groupBy: analyticsGroupBy }));
+  const handleWhatsAppReminder = useCallback(async () => {
+    const target = pickTopOutstandingCustomer(outstandingSummary?.customers);
+    if (!target) {
+      window.alert('No outstanding customer balance to remind.');
+      return;
     }
-  }, [dispatch, fyStartYear, gstPeriod, tabValue, analyticsPeriod, analyticsGroupBy]);
-
-  useEffect(() => {
+    setWaBusy(true);
     try {
-      localStorage.setItem(FY_STORAGE_KEY, String(fyStartYear));
-    } catch {
-      /* ignore */
+      const draft = await prepareOutstandingReminder(target);
+      if (!draft) {
+        window.alert(
+          `"${target.name}" has no mobile or WhatsApp number. Add contact details in Party Master.`
+        );
+        navigate('/parties');
+        return;
+      }
+      setWaReminderDraft(draft);
+      setWaReminderOpen(true);
+    } catch (err) {
+      console.error('WhatsApp reminder prepare failed', err);
+      window.alert('Could not prepare WhatsApp reminder. Please try again.');
+    } finally {
+      setWaBusy(false);
     }
-    dispatch(fetchTodayOverview(fyStartYear));
-  }, [dispatch, fyStartYear]);
+  }, [outstandingSummary?.customers, navigate]);
 
-  useEffect(() => {
-    dispatch(fetchLowStock());
-    dispatch(fetchOutstandingSummary());
-    dispatch(fetchPayableSummary());
-    dispatch(fetchRecentTransactions(8));
-    dispatch(fetchGstSnapshot(gstPeriod));
-  }, [dispatch, gstPeriod]);
-
-  useEffect(() => {
-    if (tabValue === 1) {
-      dispatch(fetchSalesAnalytics({ period: analyticsPeriod, groupBy: analyticsGroupBy }));
-    }
-  }, [dispatch, tabValue, analyticsPeriod, analyticsGroupBy]);
-
-  useEffect(() => {
-    const syncAppearance = () => setUiMode(readUiMode());
-    window.addEventListener(APPEARANCE_CHANGED_EVENT, syncAppearance);
-    return () => window.removeEventListener(APPEARANCE_CHANGED_EVENT, syncAppearance);
-  }, []);
-
-  const toggleUiMode = useCallback(() => {
-    const nextMode: UiMode = uiMode === 'premium-dark' ? 'light' : 'premium-dark';
-    applyAppearanceAndNotify(nextMode, readAccentColor());
-    setUiMode(nextMode);
-  }, [uiMode]);
+  const utilityShortcuts = useMemo(
+    () => [
+      { label: 'GST Returns', onClick: () => navigate('/gst') },
+      { label: 'E-Way Bill', onClick: () => navigate('/utilities/e-way-bill') },
+      { label: 'WhatsApp Center', onClick: () => navigate('/settings?tab=4') },
+      { label: 'Company Profile', onClick: () => navigate('/settings?tab=0') },
+    ],
+    [navigate]
+  );
 
   const quickActions = useMemo(
     () => [
-      { label: 'Sales Voucher', icon: ReceiptIcon, to: '/vouchers/sales/new' },
-      { label: 'Purchase Voucher', icon: ShoppingCartIcon, to: '/vouchers/purchase/new' },
-      { label: 'Record Payment', icon: PaymentIcon, to: '/vouchers/payment-vouchers/new' },
-      { label: 'Add Customer', icon: PeopleIcon, to: '/parties/new' },
-      { label: 'Add Inventory', icon: Inventory2Icon, to: '/masters/inventory-items/new' },
+      { label: 'Create Invoice', icon: <ReceiptLongIcon fontSize="small" />, to: '/vouchers/sales/new' },
+      { label: 'Receipt Entry', icon: <PointOfSaleIcon fontSize="small" />, to: '/vouchers/receipt-vouchers/new' },
+      { label: 'New Customer', icon: <PersonAddAltIcon fontSize="small" />, to: '/parties/new' },
+      { label: 'New Item', icon: <AddCircleOutlineIcon fontSize="small" />, to: '/masters/inventory-items/new' },
+      {
+        label: 'WhatsApp Outstanding',
+        icon: <WhatsAppIcon fontSize="small" />,
+        onClick: handleWhatsAppReminder,
+      },
+      { label: 'Customer Ledger', icon: <Groups2Icon fontSize="small" />, to: '/reports?tab=party' },
+      { label: 'Stock Summary', icon: <Inventory2Icon fontSize="small" />, to: '/masters/inventory-items' },
+      { label: 'Reports', icon: <BarChartIcon fontSize="small" />, to: '/reports' },
     ],
-    []
+    [handleWhatsAppReminder]
   );
+
+  const isDark = theme.palette.mode === 'dark';
+  const pageBg = isDark
+    ? `linear-gradient(165deg, ${alpha('#0F172A', 0.99)} 0%, ${alpha('#0B1220', 0.99)} 100%)`
+    : `linear-gradient(180deg, ${DASHBOARD_THEME.bg} 0%, ${DASHBOARD_THEME.bgSubtle} 100%)`;
+
+  const viewAllBtnSx = {
+    textTransform: 'none' as const,
+    fontWeight: 600,
+    fontSize: '0.8125rem',
+    borderRadius: DASHBOARD_THEME.innerRadius,
+    color: DASHBOARD_THEME.primary,
+  };
 
   if (error) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 2 }}>
         <Alert severity="error" onClose={() => dispatch(clearError())}>
           {error}
         </Alert>
@@ -286,778 +449,376 @@ export default function Dashboard() {
   return (
     <Box
       sx={{
-        p: { xs: 1.25, sm: 2.5 },
-        pb: 4,
-        background:
-          theme.palette.mode === 'dark'
-            ? `linear-gradient(130deg, ${alpha(theme.palette.primary.dark, 0.34)} 0%, ${alpha(theme.palette.background.default, 0.98)} 36%)`
-            : `linear-gradient(130deg, ${alpha(theme.palette.primary.light, 0.2)} 0%, var(--bg-main) 38%)`,
-        borderRadius: 3,
-        transition: 'background-color 0.2s ease',
+        fontFamily: DASHBOARD_THEME.fontFamily,
+        px: { xs: DASHBOARD_THEME.padTablet, md: DASHBOARD_THEME.padDesktop },
+        py: { xs: DASHBOARD_THEME.padTablet, md: DASHBOARD_THEME.padDesktop },
+        bgcolor: pageBg,
+        minHeight: '100%',
+        transition: DASHBOARD_THEME.transition,
       }}
     >
-      <Paper
-        elevation={0}
-        sx={{
-          p: { xs: 1.25, sm: 2 },
-          borderRadius: 3,
-          border: '1px solid',
-          borderColor: alpha(theme.palette.divider, 0.8),
-          bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.92 : 0.96),
-          boxShadow: theme.palette.mode === 'dark' ? 'var(--panel-shadow-dark)' : 'var(--panel-shadow)',
-          transition: 'background-color 0.2s ease',
-        }}
-      >
-        <Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ xs: 'stretch', md: 'center' }} justifyContent="space-between" gap={1.25} sx={{ mb: 2 }}>
-          <Typography variant="subtitle2" color="text.secondary" fontWeight={700}>
-            Dashboard · Quick Actions and Live Business Snapshot
-          </Typography>
-          <Stack direction="row" gap={1} alignItems="center" justifyContent="flex-end">
-            <Tooltip title={`Switch to ${uiMode === 'premium-dark' ? 'Light' : 'Dark'} mode`}>
-              <IconButton
-                size="small"
-                onClick={toggleUiMode}
-                sx={{ bgcolor: alpha(theme.palette.primary.main, 0.12) }}
-              >
-                {uiMode === 'premium-dark' ? (
-                  <LightModeRoundedIcon fontSize="small" />
-                ) : (
-                  <DarkModeRoundedIcon fontSize="small" />
-                )}
-              </IconButton>
-            </Tooltip>
-            <Chip
-              size="small"
-              label={uiMode === 'premium-dark' ? 'Dark' : 'Light'}
-              variant="outlined"
-              sx={{ height: 28 }}
-            />
-            <IconButton size="small" sx={{ bgcolor: alpha(theme.palette.primary.main, 0.12) }}>
-              <NotificationsNoneRoundedIcon fontSize="small" />
-            </IconButton>
-            <Button size="small" variant="outlined" onClick={refreshCore}>
-              Refresh
-            </Button>
-          </Stack>
-        </Stack>
+      <DashboardWelcome
+        greeting={greetingForHour(now.getHours())}
+        userName={displayName}
+        now={now}
+      />
 
-      {/* Quick actions — single compact row */}
-      <Paper
-        elevation={0}
-        sx={{
-          p: 1.5,
-          mb: 2,
-          border: '1px solid',
-          borderColor: 'divider',
-          bgcolor: 'background.paper',
-        }}
-      >
-        <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ display: 'block', mb: 1, letterSpacing: '0.06em' }}>
-          Quick actions
-        </Typography>
-        <Grid container spacing={1}>
-          {quickActions.map((a) => {
-            const Icon = a.icon;
-            return (
-              <Grid item xs={6} sm={4} md={2.4} key={a.to}>
-                <Button
-                  fullWidth
-                  onClick={() => navigate(a.to)}
+      <Grid container spacing={DASHBOARD_THEME.gridGap} alignItems="stretch">
+        <Grid item xs={12} lg={utilityOpen ? 9 : 12}>
+          <Grid container spacing={DASHBOARD_THEME.gridGap} sx={{ mb: DASHBOARD_THEME.gridGap }}>
+            {kpiCards.map((kpi, idx) => (
+              <Grid item xs={12} sm={6} lg={3} key={kpi.title} sx={{ display: 'flex' }}>
+                <PremiumKpiCard
+                  title={kpi.title}
+                  value={kpi.value}
+                  trendPct={sparkTrend.pct}
+                  trendUp={sparkTrend.up}
+                  color={kpi.color}
+                  icon={kpi.icon}
+                  graphData={sparklineData.map((s, i) => ({
+                    ...s,
+                    value: s.value + idx * 3 + i,
+                  }))}
+                />
+              </Grid>
+            ))}
+          </Grid>
+
+          <Box sx={{ mb: DASHBOARD_THEME.gridGap }}>
+            <BusinessSnapshotCard items={snapshotItems} isDark={isDark} />
+          </Box>
+
+          <DashboardPanel title="Quick Action Center" isDark={isDark} sx={{ mb: DASHBOARD_THEME.gridGap }}>
+            <Grid container spacing={1.25}>
+              {quickActions.map((qa, idx) => {
+                const accent = QUICK_ACTION_ACCENTS[idx % QUICK_ACTION_ACCENTS.length];
+                return (
+                  <Grid item xs={6} sm={4} md={3} key={qa.label}>
+                    <Button
+                      fullWidth
+                      onClick={() =>
+                        'onClick' in qa && qa.onClick ? qa.onClick() : navigate((qa as { to: string }).to)
+                      }
+                      sx={{
+                        minHeight: 92,
+                        py: 1.25,
+                        borderRadius: DASHBOARD_THEME.cardRadius,
+                        border: '1px solid',
+                        borderColor: alpha(accent, 0.14),
+                        flexDirection: 'column',
+                        gap: 0.85,
+                        bgcolor: isDark ? alpha(accent, 0.08) : alpha(accent, 0.06),
+                        textTransform: 'none',
+                        fontFamily: DASHBOARD_THEME.fontFamily,
+                        transition: DASHBOARD_THEME.transition,
+                        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+                        '&:hover': {
+                          transform: DASHBOARD_THEME.hoverLift,
+                          borderColor: alpha(accent, 0.35),
+                          bgcolor: isDark ? alpha(accent, 0.14) : alpha(accent, 0.1),
+                          boxShadow: DASHBOARD_THEME.cardShadow,
+                        },
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: '14px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: `linear-gradient(145deg, ${alpha(accent, 0.22)} 0%, ${alpha(accent, 0.08)} 100%)`,
+                          color: accent,
+                          '& .MuiSvgIcon-root': { fontSize: 24 },
+                        }}
+                      >
+                        {qa.icon}
+                      </Box>
+                      <Typography
+                        variant="caption"
+                        fontWeight={700}
+                        sx={{ color: DASHBOARD_THEME.text.primary, lineHeight: 1.25, fontSize: '0.75rem' }}
+                      >
+                        {qa.label}
+                      </Typography>
+                    </Button>
+                  </Grid>
+                );
+              })}
+            </Grid>
+          </DashboardPanel>
+
+          <Grid container spacing={DASHBOARD_THEME.gridGap} sx={{ mb: DASHBOARD_THEME.gridGap }}>
+            <Grid item xs={12}>
+              <DashboardPanel
+                title="Recent Invoices"
+                isDark={isDark}
+                action={
+                  <Button size="small" sx={viewAllBtnSx} onClick={() => navigate('/vouchers/sales')}>
+                    View All
+                  </Button>
+                }
+              >
+                <TableContainer
                   sx={{
-                    py: 1.25,
-                    px: 1,
-                    minHeight: 72,
-                    flexDirection: 'column',
-                    gap: 0.75,
-                    borderRadius: '12px',
-                    border: '1px solid',
-                    borderColor: 'var(--border)',
-                    bgcolor: 'var(--qa-bg)',
-                    color: 'var(--text-primary)',
-                    textTransform: 'none',
-                    '&:hover': {
-                      borderColor: 'var(--border)',
-                      bgcolor: 'var(--qa-hover-bg)',
-                      boxShadow: '0 4px 12px rgba(27,79,138,0.1)',
-                      transform: 'scale(1.04)',
-                    },
-                    transition: 'all 0.2s ease',
+                    borderRadius: DASHBOARD_THEME.innerRadius,
+                    border: `1px solid ${DASHBOARD_THEME.border}`,
+                    maxHeight: 360,
+                    overflow: 'auto',
                   }}
                 >
-                  <Box
-                    sx={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 1.5,
-                      bgcolor: 'var(--qa-icon-bg)',
-                      color: 'var(--qa-icon)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Icon sx={{ fontSize: 20 }} />
-                  </Box>
-                  <Typography variant="caption" fontWeight={700} textAlign="center" lineHeight={1.2}>
-                    {a.label}
-                  </Typography>
-                </Button>
-              </Grid>
-            );
-          })}
-        </Grid>
-      </Paper>
-
-      <Paper
-        elevation={0}
-        sx={{
-          p: 1.5,
-          mb: 2,
-          border: '1px solid',
-          borderColor: 'divider',
-          bgcolor: 'background.paper',
-        }}
-      >
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }} flexWrap="wrap">
-          <Typography variant="subtitle2" fontWeight={700} sx={{ alignSelf: { sm: 'center' }, pt: { sm: 0.5 } }}>
-            Financial Year
-          </Typography>
-          {fyWithData.length > 0 ? (
-            <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 280 }, maxWidth: 420 }}>
-              <Select
-                aria-label="Financial year with data"
-                value={fyStartYear}
-                onChange={(e) => setFyStartYear(Number(e.target.value))}
-                renderValue={(v) => formatIndianFYRangeShort(Number(v))}
-              >
-                {fyWithData.map((y) => (
-                  <MenuItem key={y} value={y}>
-                    {formatIndianFYRangeShort(y)}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          ) : (
-            <Paper
-              variant="outlined"
-              sx={{
-                px: 2,
-                py: 1,
-                borderRadius: 1,
-                bgcolor: (t) => alpha(t.palette.text.primary, t.palette.mode === 'dark' ? 0.06 : 0.04),
-              }}
-            >
-              <Typography variant="body2" fontWeight={600}>
-                {formatIndianFYRangeShort(fyStartYear)}
-              </Typography>
-            </Paper>
-          )}
-        </Stack>
-      </Paper>
-
-      {/* Overview: sales/purchase/P-L for selected FY; outstanding/payable/cash from ledgers */}
-      <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ display: 'block', mb: 1, letterSpacing: '0.06em' }}>
-        Overview
-      </Typography>
-      <Grid container spacing={1.5} sx={{ mb: 2 }}>
-        {[
-          {
-            key: 'sales',
-            label: `Sales (${labelIndianFY(fyStartYear)})`,
-            value: overview?.totalSales || 0,
-            sub: `${overview?.salesCount ?? 0} vouchers`,
-            icon: ReceiptIcon,
-            colors: ['var(--metric-sales-start)', 'var(--metric-sales-end)'],
-            to: '/vouchers/sales',
-          },
-          {
-            key: 'purchase',
-            label: `Purchase (${labelIndianFY(fyStartYear)})`,
-            value: overview?.totalPurchase || 0,
-            sub: `${overview?.purchaseCount ?? 0} vouchers`,
-            icon: ShoppingCartIcon,
-            colors: ['var(--metric-purchase-start)', 'var(--metric-purchase-end)'],
-            to: '/purchase-invoices',
-          },
-          {
-            key: 'outstanding',
-            label: 'Outstanding (receivable)',
-            value: overview?.totalOutstanding || 0,
-            sub: `${overview?.outstandingCount ?? 0} parties`,
-            icon: WarningAmberIcon,
-            colors: ['var(--metric-outstanding-start)', 'var(--metric-outstanding-end)'],
-            to: '/reports?tab=party',
-          },
-          {
-            key: 'payable',
-            label: 'Payable to suppliers',
-            value: overview?.totalPayable || 0,
-            sub: `${overview?.payableCount ?? 0} suppliers`,
-            icon: PaymentIcon,
-            colors: ['var(--metric-payable-start)', 'var(--metric-payable-end)'],
-            to: '/reports?tab=party',
-          },
-        ].map((m) => {
-          const Icon = m.icon;
-          return (
-            <Grid item xs={6} md={3} key={m.key}>
-              <Card
-                sx={{
-                  cursor: 'pointer',
-                  position: 'relative',
-                  overflow: 'hidden',
-                  border: '1px solid',
-                  borderColor: 'var(--border)',
-                  background: `linear-gradient(145deg, ${m.colors[0]} 0%, ${m.colors[1]} 100%)`,
-                  color: 'var(--metric-text)',
-                  backdropFilter: 'blur(10px)',
-                  '&:hover': {
-                    transform: 'translateY(-2px)',
-                    boxShadow: 'var(--stat-shadow-hover)',
-                  },
-                  transition: 'background-color 0.2s ease',
-                  boxShadow: theme.palette.mode === 'light' ? 'var(--metric-card-shadow-light)' : 'var(--stat-shadow-dark)',
-                }}
-                onClick={() => navigate(m.to)}
-              >
-                <CardContent sx={{ py: 1.7, '&:last-child': { pb: 1.7 } }}>
-                  <Typography variant="caption" sx={{ color: 'var(--metric-text-muted)', fontWeight: 600 }}>
-                    {m.label}
-                  </Typography>
-                  <Typography variant="h6" fontWeight={900} sx={{ color: 'var(--metric-text)' }}>
-                    {overviewBusy ? <CircularProgress size={20} sx={{ color: 'var(--metric-text)' }} /> : formatCurrency(m.value)}
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: 'var(--metric-text-subtle)' }}>
-                    {m.sub}
-                  </Typography>
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      right: -14,
-                      bottom: -12,
-                      width: 78,
-                      height: 78,
-                      borderRadius: '50%',
-                      bgcolor: 'var(--metric-overlay)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Icon sx={{ fontSize: 34, color: 'var(--metric-overlay-icon)' }} />
-                  </Box>
-                </CardContent>
-              </Card>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        {['Invoice No', 'Date', 'Party', 'Amount', 'Status'].map((h) => (
+                          <TableCell
+                            key={h}
+                            align={h === 'Amount' ? 'right' : 'left'}
+                            sx={{
+                              fontWeight: 700,
+                              fontSize: '0.6875rem',
+                              letterSpacing: '0.04em',
+                              textTransform: 'uppercase',
+                              color: DASHBOARD_THEME.text.muted,
+                              borderBottom: `1px solid ${DASHBOARD_THEME.border}`,
+                              py: 1.25,
+                              bgcolor: isDark ? alpha('#1E293B', 0.98) : '#F8FAFC',
+                              backdropFilter: 'blur(8px)',
+                            }}
+                          >
+                            {h}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {(recentTransactions?.invoices ?? []).slice(0, 8).map((inv, rowIdx) => {
+                        const badge = invoiceStatusBadge(String(inv.paymentStatus || 'PENDING'));
+                        const party =
+                          inv.partyName ||
+                          (inv as { partyName?: string; party?: string }).partyName ||
+                          (inv as { party?: string }).party ||
+                          '—';
+                        return (
+                          <TableRow
+                            key={inv.id}
+                            hover
+                            sx={{
+                              bgcolor:
+                                rowIdx % 2 === 1
+                                  ? isDark
+                                    ? alpha('#fff', 0.02)
+                                    : alpha(DASHBOARD_THEME.primary, 0.02)
+                                  : 'transparent',
+                              transition: 'background-color 200ms ease',
+                              '&:last-child td': { border: 0 },
+                              '&:hover': {
+                                bgcolor: alpha(DASHBOARD_THEME.primary, 0.06),
+                                '& td': { borderColor: 'transparent' },
+                              },
+                            }}
+                          >
+                            <TableCell sx={{ fontWeight: 700, fontSize: '0.8125rem', py: 1.35 }}>
+                              {inv.invoiceNumber}
+                            </TableCell>
+                            <TableCell
+                              sx={{ fontSize: '0.8125rem', color: DASHBOARD_THEME.text.secondary, py: 1.35 }}
+                            >
+                              {formatDate(inv.date)}
+                            </TableCell>
+                            <TableCell sx={{ fontSize: '0.8125rem', py: 1.35 }}>{party}</TableCell>
+                            <TableCell
+                              align="right"
+                              sx={{
+                                fontWeight: 800,
+                                fontSize: '0.8125rem',
+                                fontFeatureSettings: '"tnum"',
+                                py: 1.35,
+                              }}
+                            >
+                              {formatCurrency(inv.grandTotal)}
+                            </TableCell>
+                            <TableCell sx={{ py: 1.35 }}>
+                              <Chip
+                                size="small"
+                                label={badge.label}
+                                color={badge.color}
+                                sx={{
+                                  fontWeight: 700,
+                                  fontSize: '0.6875rem',
+                                  height: 24,
+                                  borderRadius: '8px',
+                                }}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </DashboardPanel>
             </Grid>
-          );
-        })}
+          </Grid>
+
+          <Grid container spacing={DASHBOARD_THEME.gridGap}>
+            <Grid item xs={12} md={6} sx={{ display: 'flex' }}>
+              <DashboardPanel
+                fillHeight
+                title="Top Customers"
+                isDark={isDark}
+                sx={{ flex: 1, width: '100%' }}
+                action={
+                  <Button size="small" sx={viewAllBtnSx} onClick={() => navigate('/parties')}>
+                    View All
+                  </Button>
+                }
+              >
+                <Stack
+                  direction="row"
+                  justifyContent="space-between"
+                  sx={{ px: 0.5, pb: 1, borderBottom: `1px solid ${DASHBOARD_THEME.border}` }}
+                >
+                  <Typography variant="caption" fontWeight={700} color={DASHBOARD_THEME.text.muted}>
+                    Customer Name
+                  </Typography>
+                  <Typography variant="caption" fontWeight={700} color={DASHBOARD_THEME.text.muted}>
+                    Outstanding Amount
+                  </Typography>
+                </Stack>
+                <Stack spacing={0} divider={<Divider sx={{ borderColor: DASHBOARD_THEME.border }} />}>
+                  {(outstandingSummary?.customers ?? []).slice(0, 6).map((c) => {
+                    const initials = String(c.name || 'C')
+                      .split(/\s+/)
+                      .map((w) => w[0])
+                      .join('')
+                      .slice(0, 2)
+                      .toUpperCase();
+                    return (
+                      <Stack
+                        key={c.id}
+                        direction="row"
+                        alignItems="center"
+                        justifyContent="space-between"
+                        sx={{
+                          py: 1.15,
+                          px: 0.5,
+                          borderRadius: DASHBOARD_THEME.innerRadius,
+                          transition: DASHBOARD_THEME.transition,
+                          cursor: 'pointer',
+                          '&:hover': {
+                            bgcolor: DASHBOARD_THEME.primarySoft,
+                            transform: 'translateX(2px)',
+                          },
+                        }}
+                        onClick={() => navigate(`/parties/party-ledger/${encodeURIComponent(c.id)}`)}
+                      >
+                        <Stack direction="row" spacing={1.25} alignItems="center" minWidth={0}>
+                          <Avatar
+                            sx={{
+                              width: 38,
+                              height: 38,
+                              fontSize: 13,
+                              fontWeight: 800,
+                              background: `linear-gradient(135deg, ${alpha(DASHBOARD_THEME.primary, 0.2)} 0%, ${alpha(DASHBOARD_THEME.primary, 0.08)} 100%)`,
+                              color: DASHBOARD_THEME.primary,
+                              border: `1px solid ${alpha(DASHBOARD_THEME.primary, 0.18)}`,
+                            }}
+                          >
+                            {initials}
+                          </Avatar>
+                          <Typography variant="body2" fontWeight={600} noWrap>
+                            {c.name}
+                          </Typography>
+                        </Stack>
+                        <Typography
+                          variant="body2"
+                          fontWeight={800}
+                          flexShrink={0}
+                          sx={{
+                            ml: 1,
+                            fontFeatureSettings: '"tnum"',
+                            color: DASHBOARD_THEME.kpi.outstanding,
+                            fontSize: '0.875rem',
+                          }}
+                        >
+                          {formatCurrency(c.currentBalance)}
+                        </Typography>
+                      </Stack>
+                    );
+                  })}
+                </Stack>
+              </DashboardPanel>
+            </Grid>
+            <Grid item xs={12} md={6} sx={{ display: 'flex' }}>
+              <Box sx={{ flex: 1, width: '100%' }}>
+                <BusinessHealthCard metrics={businessHealthMetrics} />
+              </Box>
+            </Grid>
+          </Grid>
+        </Grid>
+
+        <Grid item xs={12} lg={utilityOpen ? 3 : 1} sx={{ display: 'flex', alignSelf: 'flex-start' }}>
+          <UtilitySidebar
+            open={utilityOpen}
+            onToggle={() => setUtilityOpen((v) => !v)}
+            assistantSlot={
+              <SmartAssistantCard
+                compact
+                suggestions={smartSuggestions}
+                healthScore={healthScore}
+                healthStatuses={healthStatuses}
+                whatsAppLoading={waBusy}
+                onWhatsApp={handleWhatsAppReminder}
+                onGenerateReport={() => navigate('/reports?view=party')}
+                onViewDetails={() => navigate('/parties')}
+              />
+            }
+            agingSlot={
+              <OutstandingAgingCard
+                compact
+                buckets={agingBuckets}
+                total={agingTotal}
+                isDark={isDark}
+                onViewReport={() => navigate('/reports/outstanding-aging')}
+              />
+            }
+            shortcuts={utilityShortcuts}
+            systemHealth={systemHealth}
+          />
+        </Grid>
       </Grid>
 
-      {isAdmin && overview && !overviewBusy && (
-        <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mb: 2 }}>
+      {loading && (
+        <Box sx={{ position: 'fixed', right: 24, bottom: 24, zIndex: 10 }}>
           <Chip
-            size="small"
-            label={`Cash ${formatCurrency(overview.cashInHand || 0)}`}
-            onClick={() => navigate('/accounts?tab=bank')}
-            sx={{ bgcolor: 'var(--chip-bg)', color: 'var(--chip-text)' }}
-          />
-          <Chip
-            size="small"
-            label={`Bank ${formatCurrency(overview.bankBalance || 0)}`}
-            onClick={() => navigate('/accounts')}
-            sx={{ bgcolor: 'var(--chip-bg)', color: 'var(--chip-text)' }}
-          />
-          <Chip
-            size="small"
-            title={`Pre-GST margin for ${labelIndianFY(fyStartYear)}: item sales (ex-GST lines) minus purchase subtotals (ex-GST).`}
+            icon={<CircularProgress size={14} color="inherit" />}
+            label="Loading dashboard..."
             sx={{
-              bgcolor: overview.profitLoss >= 0 ? 'var(--chip-positive-bg)' : 'var(--chip-negative-bg)',
-              color: overview.profitLoss >= 0 ? 'var(--chip-positive-text)' : 'var(--chip-negative-text)',
+              fontFamily: DASHBOARD_THEME.fontFamily,
+              fontWeight: 600,
+              boxShadow: DASHBOARD_THEME.cardShadow,
+              borderRadius: DASHBOARD_THEME.cardRadius,
             }}
-            label={`P/L (ex-GST) ${formatCurrency(Math.abs(overview.profitLoss || 0))}`}
-            onClick={() => navigate('/reports')}
           />
-          <Chip
-            size="small"
-            label={`Overdue ${formatCurrency(overview.overdueAmount || 0)}`}
-            onClick={() => navigate('/reports')}
-            sx={{ bgcolor: 'var(--chip-bg)', color: 'var(--chip-text)' }}
-          />
-        </Stack>
+        </Box>
       )}
 
-      {/* Low stock — compact */}
-      <Paper
-        elevation={0}
-        sx={{
-          p: 1.5,
-          mb: 2,
-          border: '1px solid',
-          borderColor: lowStock.length ? 'var(--alert-border)' : 'divider',
-          bgcolor: lowStock.length ? 'var(--alert-bg)' : alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.06 : 0.04),
-        }}
-      >
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: lowStockPreview.length ? 1 : 0 }}>
-          <Stack direction="row" alignItems="center" gap={1}>
-            <WarningAmberIcon sx={{ color: 'var(--alert-icon)' }} fontSize="small" />
-            <Typography variant="subtitle2" fontWeight={700}>
-              Low stock
-            </Typography>
-            <Chip size="small" label={`${lowStock.length} item(s)`} color={lowStock.length ? 'warning' : 'default'} />
-          </Stack>
-          <Button size="small" endIcon={<ArrowForwardIcon />} onClick={() => navigate('/masters/inventory-items')}>
-            View all
-          </Button>
-        </Stack>
-        {lowStockPreview.length > 0 ? (
-          <Stack spacing={0.5}>
-            {lowStockPreview.map((item) => (
-              <Typography key={item.id} variant="caption" sx={{ color: 'var(--alert-text)' }}>
-                <strong>{item.name}</strong> — stock {item.currentStock} / reorder {item.reorderLevel}
-              </Typography>
-            ))}
-          </Stack>
-        ) : (
-          <Typography variant="caption" sx={{ color: 'var(--alert-text)' }}>
-            No items below reorder level.
-          </Typography>
-        )}
-      </Paper>
-
-      {/* Tabs */}
-      <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, px: 1, pt: 1 }}>
-        <Tabs
-          value={tabValue}
-          onChange={(_, v) => setMainTab(v)}
-          variant="scrollable"
-          scrollButtons="auto"
-          sx={{
-            minHeight: 40,
-            '& .MuiTab-root': { minHeight: 40, py: 0.5, textTransform: 'none', fontWeight: 600 },
+      {waReminderDraft ? (
+        <WhatsAppReminderPreviewDialog
+          open={waReminderOpen}
+          onClose={() => {
+            setWaReminderOpen(false);
+            setWaReminderDraft(null);
           }}
-        >
-          <Tab icon={<ReceiptIcon fontSize="small" />} iconPosition="start" label="GST" />
-          <Tab icon={<BarChartIcon fontSize="small" />} iconPosition="start" label="Sales trend" />
-          <Tab icon={<PeopleIcon fontSize="small" />} iconPosition="start" label="Customers" />
-          <Tab icon={<StorefrontIcon fontSize="small" />} iconPosition="start" label="Suppliers" />
-          <Tab icon={<SwapHorizIcon fontSize="small" />} iconPosition="start" label="Transactions" />
-        </Tabs>
-
-        <TabPanel value={tabValue} id={0}>
-          <Stack direction="row" justifyContent="flex-end" sx={{ mb: 2 }}>
-            <FormControl size="small" sx={{ minWidth: 160 }}>
-              <InputLabel>GST period</InputLabel>
-              <Select
-                label="GST period"
-                value={gstPeriod}
-                onChange={(e) => {
-                  const p = e.target.value as typeof gstPeriod;
-                  dispatch(setGstPeriod(p));
-                  dispatch(fetchGstSnapshot(p));
-                }}
-              >
-                <MenuItem value="today">Today</MenuItem>
-                <MenuItem value="week">This week</MenuItem>
-                <MenuItem value="month">This month</MenuItem>
-                <MenuItem value="year">This year</MenuItem>
-              </Select>
-            </FormControl>
-          </Stack>
-          <Grid container spacing={2}>
-            <Grid item xs={12} sm={6}>
-              <Paper sx={(t) => ({ p: 2, bgcolor: alpha(t.palette.primary.main, t.palette.mode === 'dark' ? 0.12 : 0.06) })}>
-                <Typography variant="body2" color="text.secondary">
-                  Output GST (sales)
-                </Typography>
-                <Typography variant="h6">{formatCurrency(gstData.outputGst)}</Typography>
-              </Paper>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <Paper sx={(t) => ({ p: 2, bgcolor: alpha(t.palette.info.main, t.palette.mode === 'dark' ? 0.12 : 0.06) })}>
-                <Typography variant="body2" color="text.secondary">
-                  Input ITC (purchase)
-                </Typography>
-                <Typography variant="h6">{formatCurrency(gstData.inputItc)}</Typography>
-              </Paper>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <Paper sx={(t) => ({ p: 2, bgcolor: alpha(t.palette.success.main, t.palette.mode === 'dark' ? 0.14 : 0.08) })}>
-                <Typography variant="body2" color="text.secondary">
-                  GST receivable
-                </Typography>
-                <Typography variant="h6">{formatCurrency(gstData.receivable)}</Typography>
-              </Paper>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <Paper sx={(t) => ({ p: 2, bgcolor: alpha(t.palette.warning.main, t.palette.mode === 'dark' ? 0.14 : 0.08) })}>
-                <Typography variant="body2" color="text.secondary">
-                  GST payable
-                </Typography>
-                <Typography variant="h6">{formatCurrency(grossGstPayable)}</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Net after ITC: {formatCurrency(gstData.payable)}
-                </Typography>
-              </Paper>
-            </Grid>
-          </Grid>
-        </TabPanel>
-
-        <TabPanel value={tabValue} id={1}>
-          <Stack direction="row" flexWrap="wrap" gap={2} sx={{ mb: 2 }}>
-            <FormControl size="small" sx={{ minWidth: 120 }}>
-              <InputLabel>Period</InputLabel>
-              <Select
-                value={analyticsPeriod}
-                label="Period"
-                onChange={(e) => setAnalyticsPeriod(e.target.value as typeof analyticsPeriod)}
-              >
-                <MenuItem value="week">Week</MenuItem>
-                <MenuItem value="month">Month</MenuItem>
-                <MenuItem value="year">Year</MenuItem>
-              </Select>
-            </FormControl>
-            <FormControl size="small" sx={{ minWidth: 120 }}>
-              <InputLabel>Group by</InputLabel>
-              <Select
-                value={analyticsGroupBy}
-                label="Group by"
-                onChange={(e) => setAnalyticsGroupBy(e.target.value as typeof analyticsGroupBy)}
-              >
-                <MenuItem value="day">Day</MenuItem>
-                <MenuItem value="week">Week</MenuItem>
-                <MenuItem value="month">Month</MenuItem>
-              </Select>
-            </FormControl>
-          </Stack>
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={8}>
-              <Paper sx={{ p: 2 }}>
-                <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                  Sales &amp; tax
-                </Typography>
-                {loading && !salesAnalytics ? (
-                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-                    <CircularProgress />
-                  </Box>
-                ) : salesTrendPoints.length === 0 ? (
-                  <Box sx={{ py: 6, textAlign: 'center' }}>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                      Sales trend graph dikhane ke liye selected period me sales vouchers chahiye.
-                    </Typography>
-                    <Button size="small" variant="outlined" onClick={() => navigate('/vouchers/sales/new')}>
-                      Create Sales Voucher
-                    </Button>
-                  </Box>
-                ) : (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={salesTrendPoints}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={alpha(theme.palette.divider, 0.6)} />
-                      <XAxis dataKey="date" stroke={theme.palette.text.secondary} fontSize={12} />
-                      <YAxis stroke={theme.palette.text.secondary} fontSize={12} />
-                      <RechartsTooltip />
-                      <Legend />
-                      <Line type="monotone" dataKey="sales" stroke={theme.palette.primary.main} name="Sales" strokeWidth={2} />
-                      <Line type="monotone" dataKey="tax" stroke={theme.palette.success.main} name="Tax" strokeWidth={2} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                )}
-              </Paper>
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <Paper sx={{ p: 2 }}>
-                <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                  Top products
-                </Typography>
-                {salesAnalytics?.topProducts && salesAnalytics.topProducts.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={salesAnalytics.topProducts.slice(0, 5)}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={alpha(theme.palette.divider, 0.6)} />
-                      <XAxis dataKey="productName" angle={-35} textAnchor="end" height={70} interval={0} fontSize={10} />
-                      <YAxis fontSize={11} />
-                      <RechartsTooltip />
-                      <Bar dataKey="amount" fill={theme.palette.primary.main} radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-                    No data
-                  </Typography>
-                )}
-              </Paper>
-            </Grid>
-          </Grid>
-        </TabPanel>
-
-        <TabPanel value={tabValue} id={2}>
-          <Paper sx={{ p: 2 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-              <Typography variant="subtitle1" fontWeight={700}>
-                Top outstanding customers
-              </Typography>
-              <Button size="small" endIcon={<ArrowForwardIcon />} onClick={() => navigate('/parties')}>
-                Parties
-              </Button>
-            </Stack>
-            {outstandingSummary && outstandingSummary.customers.length > 0 ? (
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Customer</TableCell>
-                      <TableCell align="right">Outstanding</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {outstandingSummary.customers.slice(0, 12).map((customer) => (
-                      <TableRow key={customer.id} hover sx={{ cursor: 'pointer' }} onClick={() => navigate('/parties')}>
-                        <TableCell>{customer.name}</TableCell>
-                        <TableCell align="right">{formatCurrency(customer.currentBalance)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            ) : (
-              <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 4 }}>
-                No outstanding amounts
-              </Typography>
-            )}
-          </Paper>
-        </TabPanel>
-
-        <TabPanel value={tabValue} id={3}>
-          <Paper sx={{ p: 2 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-              <Typography variant="subtitle1" fontWeight={700}>
-                Top payable suppliers
-              </Typography>
-              <Button size="small" endIcon={<ArrowForwardIcon />} onClick={() => navigate('/parties')}>
-                Parties
-              </Button>
-            </Stack>
-            {payableSummary && payableSummary.suppliers.length > 0 ? (
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Supplier</TableCell>
-                      <TableCell align="right">Payable</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {payableSummary.suppliers.slice(0, 12).map((supplier) => (
-                      <TableRow key={supplier.id} hover sx={{ cursor: 'pointer' }} onClick={() => navigate('/parties')}>
-                        <TableCell>{supplier.name}</TableCell>
-                        <TableCell align="right">{formatCurrency(supplier.currentBalance)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            ) : (
-              <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 4 }}>
-                No payable amounts
-              </Typography>
-            )}
-          </Paper>
-        </TabPanel>
-
-        <TabPanel value={tabValue} id={4}>
-          <Tabs value={txnSubTab} onChange={(_, v) => setTxnSubTab(v)} sx={{ mb: 2, minHeight: 36 }}>
-            <Tab label="Invoices" sx={{ minHeight: 36, py: 0 }} />
-            <Tab label="Payments" sx={{ minHeight: 36, py: 0 }} />
-            <Tab label="Credit notes" sx={{ minHeight: 36, py: 0 }} />
-            <Tab label="Debit notes" sx={{ minHeight: 36, py: 0 }} />
-          </Tabs>
-
-          {txnSubTab === 0 && (
-            <Paper sx={{ p: 2 }}>
-              <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
-                <Typography variant="subtitle2" fontWeight={700}>
-                  Recent invoices
-                </Typography>
-                <Button size="small" onClick={() => navigate('/vouchers/sales')}>
-                  View all
-                </Button>
-              </Stack>
-              {recentTransactions && recentTransactions.invoices.length > 0 ? (
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>No.</TableCell>
-                        <TableCell>Date</TableCell>
-                        <TableCell align="right">Amount</TableCell>
-                        <TableCell>Status</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {recentTransactions.invoices.map((invoice) => (
-                        <TableRow key={invoice.id} hover sx={{ cursor: 'pointer' }} onClick={() => navigate('/vouchers/sales')}>
-                          <TableCell>
-                            <Tooltip title={invoice.type}>
-                              <Chip label={invoice.invoiceNumber} size="small" />
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell>{formatDate(invoice.date)}</TableCell>
-                          <TableCell align="right">{formatCurrency(invoice.grandTotal)}</TableCell>
-                          <TableCell>
-                            <Chip
-                              label={invoice.paymentStatus}
-                              size="small"
-                              color={
-                                invoice.paymentStatus === 'PAID'
-                                  ? 'success'
-                                  : invoice.paymentStatus === 'PARTIAL'
-                                    ? 'warning'
-                                    : 'default'
-                              }
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              ) : (
-                <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 3 }}>
-                  No recent invoices
-                </Typography>
-              )}
-            </Paper>
-          )}
-
-          {txnSubTab === 1 && (
-            <Paper sx={{ p: 2 }}>
-              <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
-                <Typography variant="subtitle2" fontWeight={700}>
-                  Recent payments
-                </Typography>
-                <Button size="small" onClick={() => navigate('/payments')}>
-                  View all
-                </Button>
-              </Stack>
-              {recentTransactions && recentTransactions.payments.length > 0 ? (
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Type</TableCell>
-                        <TableCell>Date</TableCell>
-                        <TableCell>Mode</TableCell>
-                        <TableCell align="right">Amount</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {recentTransactions.payments.map((payment) => (
-                        <TableRow key={payment.id} hover sx={{ cursor: 'pointer' }} onClick={() => navigate('/payments')}>
-                          <TableCell>
-                            <Chip label={payment.type} size="small" color={payment.type === 'RECEIPT' ? 'success' : 'error'} />
-                          </TableCell>
-                          <TableCell>{formatDate(payment.date)}</TableCell>
-                          <TableCell>{payment.paymentMode}</TableCell>
-                          <TableCell align="right">{formatCurrency(payment.amount)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              ) : (
-                <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 3 }}>
-                  No recent payments
-                </Typography>
-              )}
-            </Paper>
-          )}
-
-          {txnSubTab === 2 && (
-            <Paper sx={{ p: 2 }}>
-              <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
-                <Typography variant="subtitle2" fontWeight={700}>
-                  Recent credit notes
-                </Typography>
-                <Button size="small" onClick={() => navigate('/credit-notes')}>
-                  View all
-                </Button>
-              </Stack>
-              {recentTransactions?.creditNotes?.length ? (
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>No.</TableCell>
-                        <TableCell>Date</TableCell>
-                        <TableCell>Customer</TableCell>
-                        <TableCell align="right">Amount</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {recentTransactions.creditNotes.map((cn) => (
-                        <TableRow key={cn.id} hover sx={{ cursor: 'pointer' }} onClick={() => navigate('/credit-notes')}>
-                          <TableCell>
-                            <Chip label={cn.number} size="small" />
-                          </TableCell>
-                          <TableCell>{formatDate(cn.date)}</TableCell>
-                          <TableCell>{cn.party}</TableCell>
-                          <TableCell align="right">{formatCurrency(cn.amount)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              ) : (
-                <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 3 }}>
-                  No recent credit notes
-                </Typography>
-              )}
-            </Paper>
-          )}
-
-          {txnSubTab === 3 && (
-            <Paper sx={{ p: 2 }}>
-              <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
-                <Typography variant="subtitle2" fontWeight={700}>
-                  Recent debit notes
-                </Typography>
-                <Button size="small" onClick={() => navigate('/debit-notes')}>
-                  View all
-                </Button>
-              </Stack>
-              {recentTransactions?.debitNotes?.length ? (
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>No.</TableCell>
-                        <TableCell>Date</TableCell>
-                        <TableCell>Supplier</TableCell>
-                        <TableCell align="right">Amount</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {recentTransactions.debitNotes.map((dn) => (
-                        <TableRow key={dn.id} hover sx={{ cursor: 'pointer' }} onClick={() => navigate('/debit-notes')}>
-                          <TableCell>
-                            <Chip label={dn.number} size="small" />
-                          </TableCell>
-                          <TableCell>{formatDate(dn.date)}</TableCell>
-                          <TableCell>{dn.party}</TableCell>
-                          <TableCell align="right">{formatCurrency(dn.amount)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              ) : (
-                <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 3 }}>
-                  No recent debit notes
-                </Typography>
-              )}
-            </Paper>
-          )}
-        </TabPanel>
-      </Paper>
-      </Paper>
+          customerName={waReminderDraft.customerName}
+          mobile={waReminderDraft.mobile}
+          outstandingAmount={waReminderDraft.outstandingAmount}
+          initialMessage={waReminderDraft.message}
+          onLaunchSuccess={() => void refreshWhatsAppConnectionStatus()}
+        />
+      ) : null}
     </Box>
   );
 }

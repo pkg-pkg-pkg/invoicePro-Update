@@ -32,6 +32,8 @@ import {
 import { enhancedVoucherService } from '../../../services/vouchers/enhancedVoucherService';
 import { usePermission } from '../../../hooks/usePermission';
 import { normalizeStateToCode } from '../../../utils/stateMapping';
+import { usePincodeAutofill } from '../../../hooks/usePincodeAutofill';
+import PincodeTextField from '../../../components/PincodeTextField';
 
 /** Matches the legacy guided sales voucher palette (no third‑party branding). */
 const VOUCHER_COLORS = {
@@ -119,10 +121,23 @@ const StagedSalesVoucherForm: React.FC = () => {
   const [partyDraft, setPartyDraft] = useState({
     gstin: '',
     address: '',
+    pin: '',
     city: '',
+    district: '',
     state: '',
     phone: '',
     email: '',
+  });
+
+  const partyPinAutofill = usePincodeAutofill({
+    onFilled: useCallback((addr) => {
+      setPartyDraft((prev) => ({
+        ...prev,
+        city: addr.city,
+        district: addr.district,
+        state: addr.state,
+      }));
+    }, []),
   });
 
   const [lines, setLines] = useState<VoucherItem[]>([]);
@@ -146,7 +161,9 @@ const StagedSalesVoucherForm: React.FC = () => {
     setPartyDraft({
       gstin: p.gstin || '',
       address: p.address || '',
+      pin: '',
       city: p.city || '',
+      district: '',
       state: p.state || '',
       phone: p.phone || '',
       email: p.email || '',
@@ -341,8 +358,43 @@ const StagedSalesVoucherForm: React.FC = () => {
           <TextField label="GSTIN" value={partyDraft.gstin} onChange={(e) => setPartyDraft((p) => ({ ...p, gstin: e.target.value }))} fullWidth />
           <TextField label="Address" value={partyDraft.address} onChange={(e) => setPartyDraft((p) => ({ ...p, address: e.target.value }))} multiline minRows={2} fullWidth />
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField label="City" value={partyDraft.city} onChange={(e) => setPartyDraft((p) => ({ ...p, city: e.target.value }))} fullWidth />
-            <TextField label="State" value={partyDraft.state} onChange={(e) => setPartyDraft((p) => ({ ...p, state: e.target.value }))} fullWidth />
+            <PincodeTextField
+              label="PIN"
+              value={partyDraft.pin}
+              onPinChange={(pin) => setPartyDraft((p) => ({ ...p, pin }))}
+              autofill={partyPinAutofill}
+              fullWidth
+            />
+            <TextField
+              label="City"
+              value={partyDraft.city}
+              onChange={(e) => {
+                partyPinAutofill.clearHighlight('city');
+                setPartyDraft((p) => ({ ...p, city: e.target.value }));
+              }}
+              sx={partyPinAutofill.fieldSx('city')}
+              fullWidth
+            />
+            <TextField
+              label="District"
+              value={partyDraft.district}
+              onChange={(e) => {
+                partyPinAutofill.clearHighlight('district');
+                setPartyDraft((p) => ({ ...p, district: e.target.value }));
+              }}
+              sx={partyPinAutofill.fieldSx('district')}
+              fullWidth
+            />
+            <TextField
+              label="State"
+              value={partyDraft.state}
+              onChange={(e) => {
+                partyPinAutofill.clearHighlight('state');
+                setPartyDraft((p) => ({ ...p, state: e.target.value }));
+              }}
+              sx={partyPinAutofill.fieldSx('state')}
+              fullWidth
+            />
           </Stack>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField label="Phone" value={partyDraft.phone} onChange={(e) => setPartyDraft((p) => ({ ...p, phone: e.target.value }))} fullWidth />

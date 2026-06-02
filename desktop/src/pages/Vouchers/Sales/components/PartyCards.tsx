@@ -18,7 +18,8 @@ import { LedgerAccount } from '../../../../types/masters';
 import { Party } from '../../../../types/party';
 import { VoucherMode } from './InvoiceHeader';
 import { extractStateFromGSTIN, validateGSTIN } from '../../../../utils/gstinUtils';
-import { lookupPincode } from '../../../../utils/pincodeUtils';
+import { usePincodeAutofill } from '../../../../hooks/usePincodeAutofill';
+import PincodeTextField from '../../../../components/PincodeTextField';
 
 export interface PartyInfo {
   ledgerId: string;
@@ -80,22 +81,25 @@ const PartyCards: FC<PartyCardsProps> = ({
     onChange({ [partyType]: patch });
   }, [onChange]);
 
-  // Handle pincode change with auto-extraction of state and district
-  const handlePincodeChange = useCallback((pincode: string, partyType: 'billing' | 'shipping') => {
-    const patch: Partial<PartyInfo> = { pin: pincode };
-    
-    // If valid pincode, auto-fill state and district
-    if (pincode && pincode.length === 6) {
-      const pincodeInfo = lookupPincode(pincode);
-      if (pincodeInfo) {
-        patch.state = pincodeInfo.state;
-        patch.district = pincodeInfo.district;
-        patch.city = pincodeInfo.district; // Use district as city for consistency
-      }
-    }
-    
-    onChange({ [partyType]: patch });
-  }, [onChange]);
+  const billingPinAutofill = usePincodeAutofill({
+    onFilled: useCallback(
+      (addr) =>
+        onChange({
+          billing: { city: addr.city, district: addr.district, state: addr.state },
+        }),
+      [onChange]
+    ),
+  });
+
+  const shippingPinAutofill = usePincodeAutofill({
+    onFilled: useCallback(
+      (addr) =>
+        onChange({
+          shipping: { city: addr.city, district: addr.district, state: addr.state },
+        }),
+      [onChange]
+    ),
+  });
 
   const renderSelect = (party: PartyInfo, key: 'billing' | 'shipping', label: string) => {
     const usePicker = key === 'billing' && billingCustomerSelector === 'picker';
@@ -151,6 +155,7 @@ const PartyCards: FC<PartyCardsProps> = ({
                     phone: selectedParty.mobile,
                     email: selectedParty.email,
                     city: selectedParty.city,
+                    district: selectedParty.district,
                     state: selectedParty.state,
                     pin: selectedParty.pincode,
                   },
@@ -194,9 +199,9 @@ const PartyCards: FC<PartyCardsProps> = ({
           {party.address}
         </Typography>
       )}
-      {(party.city || party.state) && (
+      {(party.city || party.district || party.state) && (
         <Typography variant="body2" color="text.secondary">
-          {[party.city, party.state].filter(Boolean).join(', ')}
+          {[party.city, party.district, party.state].filter(Boolean).join(', ')}
           {party.pin && ` - ${party.pin}`}
         </Typography>
       )}
@@ -222,7 +227,9 @@ const PartyCards: FC<PartyCardsProps> = ({
     </Box>
   );
 
-  const renderPartyForm = (party: PartyInfo, partyType: 'billing' | 'shipping') => (
+  const renderPartyForm = (party: PartyInfo, partyType: 'billing' | 'shipping') => {
+    const pinAutofill = partyType === 'billing' ? billingPinAutofill : shippingPinAutofill;
+    return (
     <Grid container spacing={1}>
       <Grid item xs={12}>
         <TextField
@@ -250,40 +257,55 @@ const PartyCards: FC<PartyCardsProps> = ({
           minRows={2}
         />
       </Grid>
-      <Grid item xs={12} sm={6}>
+      <Grid item xs={6} sm={3}>
+        <PincodeTextField
+          label="PIN"
+          size="small"
+          value={party.pin || ''}
+          onPinChange={(pin) => onChange({ [partyType]: { pin } })}
+          autofill={pinAutofill}
+          fullWidth
+          helperText="Auto-fills city, district & state"
+        />
+      </Grid>
+      <Grid item xs={6} sm={3}>
         <TextField
           label="City"
+          size="small"
           value={party.city || ''}
-          onChange={(e) => onChange({ [partyType]: { city: e.target.value } })}
+          onChange={(e) => {
+            pinAutofill.clearHighlight('city');
+            onChange({ [partyType]: { city: e.target.value } });
+          }}
+          sx={pinAutofill.fieldSx('city')}
           fullWidth
         />
       </Grid>
       <Grid item xs={6} sm={3}>
         <TextField
-          label="PIN"
-          value={party.pin || ''}
-          onChange={(e) => handlePincodeChange(e.target.value, partyType)}
+          label="District"
+          size="small"
+          value={party.district || ''}
+          onChange={(e) => {
+            pinAutofill.clearHighlight('district');
+            onChange({ [partyType]: { district: e.target.value } });
+          }}
+          sx={pinAutofill.fieldSx('district')}
           fullWidth
-          inputProps={{ maxLength: 6 }}
-          error={party.pin ? party.pin.length !== 6 : false}
-          helperText={
-            party.pin
-              ? party.pin.length === 6
-                ? party.district
-                  ? `${party.district} auto-filled`
-                  : 'Pincode not in master'
-                : `Enter 6 digits`
-              : 'Auto-fills state & district'
-          }
         />
       </Grid>
       <Grid item xs={6} sm={3}>
         <TextField
           label="State"
+          size="small"
           value={party.state || ''}
-          onChange={(e) => onChange({ [partyType]: { state: e.target.value } })}
+          onChange={(e) => {
+            pinAutofill.clearHighlight('state');
+            onChange({ [partyType]: { state: e.target.value } });
+          }}
+          sx={pinAutofill.fieldSx('state')}
           fullWidth
-          helperText="Auto-filled by GSTIN or Pincode"
+          helperText="Auto-filled by GSTIN or PIN"
         />
       </Grid>
       <Grid item xs={12} sm={6}>
@@ -304,7 +326,8 @@ const PartyCards: FC<PartyCardsProps> = ({
         />
       </Grid>
     </Grid>
-  );
+    );
+  };
 
   const hasShippingOverride = useMemo(
     () =>
