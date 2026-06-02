@@ -316,6 +316,12 @@ function App() {
       }
     }
     setAdminUpdateNotice(null);
+    try {
+      sessionStorage.removeItem('pve_has_admin_update_notice');
+      window.dispatchEvent(new Event('pve-update-notice-changed'));
+    } catch {
+      // ignore
+    }
     if (db && userEmailLower) {
       try {
         await updateDoc(doc(db, 'users', userEmailLower), { adminUpdateNotice: deleteField() });
@@ -349,6 +355,36 @@ function App() {
     void fetchAppRelease().then((info) => {
       setAdminPopupReleaseNotes(String(info?.releaseNotes ?? '').trim());
     });
+  }, [isAuthenticated, adminUpdateNotice, userEmailLower]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      try {
+        sessionStorage.removeItem('pve_has_admin_update_notice');
+        window.dispatchEvent(new Event('pve-update-notice-changed'));
+      } catch {
+        // ignore
+      }
+      return;
+    }
+    const cur = getBundledAppVersion();
+    const rv = String(adminUpdateNotice?.requiredVersion ?? '').trim();
+    const dismissed =
+      Boolean(userEmailLower && rv) &&
+      localStorage.getItem(`pve_admin_update_dismissed_${userEmailLower}_${rv}`) === '1';
+    const bellActive = Boolean(
+      adminUpdateNotice && !dismissed && (!rv || isOlderVersion(cur, rv))
+    );
+    try {
+      if (bellActive) {
+        sessionStorage.setItem('pve_has_admin_update_notice', '1');
+      } else {
+        sessionStorage.removeItem('pve_has_admin_update_notice');
+      }
+      window.dispatchEvent(new Event('pve-update-notice-changed'));
+    } catch {
+      // ignore
+    }
   }, [isAuthenticated, adminUpdateNotice, userEmailLower]);
 
   // License validation on app startup

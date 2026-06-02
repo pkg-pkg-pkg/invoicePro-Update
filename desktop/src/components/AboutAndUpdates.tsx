@@ -505,7 +505,7 @@ const AboutAndUpdates: React.FC = () => {
           </Paper>
         </Grid>
 
-        {updateInfo?.changelog && updateInfo.changelog.length > 0 && (
+        {updateInfo?.updateAvailable && updateInfo?.changelog && updateInfo.changelog.length > 0 && (
           <Grid item xs={12}>
             <Paper sx={{ p: 3 }}>
               <Typography variant="h6" gutterBottom>

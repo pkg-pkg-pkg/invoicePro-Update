@@ -248,6 +248,7 @@ const Layout: React.FC = () => {
   } | null>(null);
   const [updateMenuAnchor, setUpdateMenuAnchor] = useState<null | HTMLElement>(null);
   const [updateChecking, setUpdateChecking] = useState(false);
+  const [adminUpdateBell, setAdminUpdateBell] = useState(false);
   const [dueReminders, setDueReminders] = useState<DueReminder[]>([]);
   const [dueToastOpen, setDueToastOpen] = useState(false);
   const [dueToastItem, setDueToastItem] = useState<DueReminder | null>(null);
@@ -347,6 +348,28 @@ const Layout: React.FC = () => {
       cancelled = true;
     };
   }, [applyUpdateCheckResult]);
+
+  const pendingAppUpdate = Boolean(updateCheck?.updateAvailable || updateCheck?.belowMinimum);
+
+  useEffect(() => {
+    const syncAdminBell = () => {
+      try {
+        setAdminUpdateBell(sessionStorage.getItem('pve_has_admin_update_notice') === '1');
+      } catch {
+        setAdminUpdateBell(false);
+      }
+    };
+    syncAdminBell();
+    window.addEventListener('pve-update-notice-changed', syncAdminBell);
+    return () => window.removeEventListener('pve-update-notice-changed', syncAdminBell);
+  }, []);
+
+  const showNotificationBellDot =
+    pendingAppUpdate || adminUpdateBell || dueReminders.length > 0;
+
+  const closeUpdateMenu = useCallback(() => {
+    setUpdateMenuAnchor(null);
+  }, []);
 
   useEffect(() => {
     const runDueReminderCheck = () => {
@@ -733,9 +756,9 @@ const Layout: React.FC = () => {
                   sx={{ color: '#fff', p: 0.5 }}
                 >
                   <Badge
-                    color="warning"
+                    color="error"
                     variant="dot"
-                    invisible={!updateCheck?.updateAvailable && !updateCheck?.belowMinimum && dueReminders.length === 0}
+                    invisible={!showNotificationBellDot}
                     overlap="circular"
                     anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
                   >
@@ -913,7 +936,7 @@ const Layout: React.FC = () => {
           <Menu
             anchorEl={updateMenuAnchor}
             open={Boolean(updateMenuAnchor)}
-            onClose={() => setUpdateMenuAnchor(null)}
+            onClose={closeUpdateMenu}
             anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
             transformOrigin={{ vertical: 'top', horizontal: 'right' }}
             slotProps={{ paper: { sx: { minWidth: 288, mt: 1 } } }}
@@ -983,10 +1006,18 @@ const Layout: React.FC = () => {
                 </Stack>
               )}
             </Box>
-            {updateCheck?.info?.releaseNotes ? (
-              <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1, whiteSpace: 'pre-wrap' }}>
-                {updateCheck.info.releaseNotes}
-              </Typography>
+            {pendingAppUpdate && updateCheck?.info?.releaseNotes ? (
+              <>
+                <Divider />
+                <Box sx={{ px: 2, py: 1.25 }}>
+                  <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                    What&apos;s new
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap' }}>
+                    {updateCheck.info.releaseNotes}
+                  </Typography>
+                </Box>
+              </>
             ) : null}
             <Divider />
             <MenuItem
