@@ -2,10 +2,6 @@
 // AuthContext-based routing (no Redux auth here)
 
 import { BrowserRouter, HashRouter, Routes, Route, Navigate } from "react-router-dom";
-import { ThemeProvider } from "@mui/material/styles";
-import { APPEARANCE_CHANGED_EVENT, readAppearance } from "./theme/appearanceSettings";
-import { createAppTheme } from "./theme/createAppTheme";
-import CssBaseline from "@mui/material/CssBaseline";
 import {
   Alert,
   Box,
@@ -23,7 +19,6 @@ import Layout from "./components/Layout";
 import RequirePermission from "./components/RequirePermission";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
-import PartyList from "./pages/Parties/PartyList";
 import PartyForm from "./pages/Parties/PartyForm";
 import PartyLedgerReport from "./pages/PartyLedgerReport";
 import OutstandingAgingReport from "./pages/Reports/OutstandingAgingReport";
@@ -58,6 +53,23 @@ import ImportFromErp from "./pages/ImportFromErp";
 import ApprovalPendingPage from "./pages/Approvals/ApprovalPendingPage";
 import GodownForm from "./pages/Masters/Godowns/GodownForm";
 import BankLedgerList from "./pages/Masters/LedgerAccounts/BankLedgerList";
+import { ItemsModuleShell } from "./components/items/ItemsModuleShell";
+import ItemsWorkspace from "./pages/items/ItemsWorkspace";
+import { CustomersModuleShell } from "./components/customers/CustomersModuleShell";
+import CustomersListPage from "./pages/customers/CustomersListPage";
+import CustomerDetailPage from "./pages/customers/CustomerDetailPage";
+import BankingHub from "./pages/hubs/BankingHub";
+import { SalesManagementShell } from "./components/sales/SalesManagementShell";
+import SalesDocumentPage from "./pages/sales/SalesDocumentPage";
+import CollectionFormPage from "./pages/sales/CollectionFormPage";
+import SalesPipelineForm from "./pages/sales/SalesPipelineForm";
+import { PurchaseManagementShell } from "./components/purchase/PurchaseManagementShell";
+import PurchaseDocumentPage from "./pages/purchase/PurchaseDocumentPage";
+import InventoryItemDetail from "./pages/Masters/InventoryItems/InventoryItemDetail";
+import PriceListList from "./pages/Masters/PriceLists/PriceListList";
+import PriceListForm from "./pages/Masters/PriceLists/PriceListForm";
+import StockAdjustmentList from "./pages/Masters/StockAdjustments/StockAdjustmentList";
+import StockAdjustmentForm from "./pages/Masters/StockAdjustments/StockAdjustmentForm";
 import SalesVoucherList from "./pages/Vouchers/Sales/SalesVoucherList";
 import SalesVoucherForm from "./pages/Vouchers/Sales/SalesVoucherForm";
 import SalesReturnVoucherList from "./pages/Vouchers/SalesReturn/SalesReturnVoucherList";
@@ -121,32 +133,12 @@ function App() {
   console.log("📱 App (AuthContext version) rendering...");
 
   const { isAuthenticated, loading, user, logout } = useAuth();
-  const [appearance, setAppearance] = useState(readAppearance);
-  const [appearanceRevision, setAppearanceRevision] = useState(0);
 
   useEffect(() => {
     const onCompanyReady = () => setCompanyGate('ready');
     window.addEventListener('companyGateReady', onCompanyReady);
     return () => window.removeEventListener('companyGateReady', onCompanyReady);
   }, []);
-
-  useEffect(() => {
-    const onAppearance = () => {
-      setAppearance(readAppearance());
-      setAppearanceRevision((n) => n + 1);
-    };
-    window.addEventListener(APPEARANCE_CHANGED_EVENT, onAppearance);
-    return () => window.removeEventListener(APPEARANCE_CHANGED_EVENT, onAppearance);
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-ui-theme', appearance.mode);
-  }, [appearance.mode]);
-
-  const theme = useMemo(
-    () => createAppTheme({ mode: appearance.mode, accentMain: appearance.accent }),
-    [appearance.mode, appearance.accent, appearanceRevision]
-  );
   const [showSetupWizard, setShowSetupWizard] = useState(false);
   const [setupCompleted, setSetupCompleted] = useState(false);
   const [deviceCheckDone, setDeviceCheckDone] = useState(false);
@@ -674,9 +666,7 @@ function App() {
   // AuthProvider jab localStorage se state load kar raha// Show loading while checking authentication and license
   if (loading || (!licenseCheckDone && isAuthenticated)) {
     return (
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <Box sx={{ 
+        <Box sx={{
           display: 'flex', 
           justifyContent: 'center', 
           alignItems: 'center', 
@@ -690,7 +680,6 @@ function App() {
             {loading ? 'Checking authentication...' : 'Validating license...'}
           </Typography>
         </Box>
-      </ThemeProvider>
     );
   }
 
@@ -744,8 +733,7 @@ function App() {
   };
 
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
+    <>
       {showAdminUpdatePopup && (
         <Dialog
           open
@@ -1021,12 +1009,78 @@ function App() {
                   <Route path="/" element={<Layout />}>
                     <Route index element={<Navigate to="/dashboard" replace />} />
                     <Route path="dashboard" element={<Dashboard />} />
-                    {/* Legacy product routes kept as redirects to unified Inventory Items module */}
-                    <Route path="products" element={<Navigate to="/masters/inventory-items" replace />} />
+                    <Route path="items" element={<ItemsModuleShell />}>
+                      <Route index element={<ItemsWorkspace />} />
+                      <Route
+                        path="price-lists"
+                        element={
+                          <RequirePermission permission="view-inventory">
+                            <PriceListList />
+                          </RequirePermission>
+                        }
+                      />
+                      <Route
+                        path="adjustments/new"
+                        element={
+                          <RequirePermission permission="manage-inventory">
+                            <StockAdjustmentForm />
+                          </RequirePermission>
+                        }
+                      />
+                      <Route
+                        path="adjustments"
+                        element={
+                          <RequirePermission permission="view-inventory">
+                            <StockAdjustmentList />
+                          </RequirePermission>
+                        }
+                      />
+                    </Route>
+                    <Route path="banking" element={<BankingHub />} />
+                    <Route path="sales" element={<SalesManagementShell />}>
+                      <Route index element={<Navigate to="/sales/tax-invoices" replace />} />
+                      <Route
+                        path="invoices/:id"
+                        element={
+                          <RequirePermission permission="create-vouchers">
+                            <SalesVoucherForm />
+                          </RequirePermission>
+                        }
+                      />
+                      <Route
+                        path="collections/new"
+                        element={
+                          <RequirePermission permission="create-vouchers">
+                            <CollectionFormPage />
+                          </RequirePermission>
+                        }
+                      />
+                      <Route
+                        path="collections/:id/edit"
+                        element={
+                          <RequirePermission permission="create-vouchers">
+                            <CollectionFormPage />
+                          </RequirePermission>
+                        }
+                      />
+                      <Route path=":docKind/new" element={<SalesPipelineForm />} />
+                      <Route path=":docKind/:id/edit" element={<SalesPipelineForm />} />
+                      <Route path=":docKind" element={<SalesDocumentPage />} />
+                    </Route>
+                    <Route path="purchase" element={<PurchaseManagementShell />}>
+                      <Route index element={<Navigate to="/purchase/purchase-bills" replace />} />
+                      <Route path=":docKind" element={<PurchaseDocumentPage />} />
+                    </Route>
+                    <Route path="products" element={<Navigate to="/items" replace />} />
                     <Route path="products/new" element={<Navigate to="/masters/inventory-items/new" replace />} />
                     <Route path="products/edit/:id" element={<Navigate to="/masters/inventory-items" replace />} />
-                    <Route path="parties" element={<PartyList />} />
-                    <Route path="parties/new" element={<PartyForm />} />
+                    <Route path="customers" element={<CustomersModuleShell />}>
+                      <Route index element={<CustomersListPage />} />
+                      <Route path="ledger-report" element={<PartyLedgerReport />} />
+                      <Route path=":id" element={<CustomerDetailPage />} />
+                    </Route>
+                    <Route path="parties" element={<Navigate to="/customers" replace />} />
+                    <Route path="parties/new" element={<Navigate to="/customers?new=1" replace />} />
                     <Route path="parties/:id" element={<PartyForm />} />
                     <Route path="parties/ledger-report" element={<PartyLedgerReport />} />
                     <Route path="parties/party-ledger/:ledgerId" element={<LedgerStatementByLedgerId />} />
@@ -1114,11 +1168,7 @@ function App() {
                     />
                     <Route
                       path="masters/inventory-items"
-                      element={
-                        <RequirePermission permission="view-inventory">
-                          <InventoryItemList />
-                        </RequirePermission>
-                      }
+                      element={<Navigate to="/items" replace />}
                     />
                     <Route
                       path="masters/inventory-items/new"
@@ -1133,6 +1183,50 @@ function App() {
                       element={
                         <RequirePermission permission="manage-inventory">
                           <InventoryItemForm />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="masters/inventory-items/:id"
+                      element={<Navigate to="/items" replace />}
+                    />
+                    <Route
+                      path="masters/price-lists"
+                      element={
+                        <RequirePermission permission="view-inventory">
+                          <PriceListList />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="masters/price-lists/new"
+                      element={
+                        <RequirePermission permission="manage-inventory">
+                          <PriceListForm />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="masters/price-lists/:id/edit"
+                      element={
+                        <RequirePermission permission="manage-inventory">
+                          <PriceListForm />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="masters/stock-adjustments"
+                      element={
+                        <RequirePermission permission="view-inventory">
+                          <StockAdjustmentList />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="masters/stock-adjustments/new"
+                      element={
+                        <RequirePermission permission="manage-inventory">
+                          <StockAdjustmentForm />
                         </RequirePermission>
                       }
                     />
@@ -1352,7 +1446,7 @@ function App() {
         </Box>
       </FocusProvider>
       </Box>
-    </ThemeProvider>
+    </>
   );
 }
 

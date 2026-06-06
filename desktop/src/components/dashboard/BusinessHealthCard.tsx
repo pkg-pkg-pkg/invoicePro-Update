@@ -1,10 +1,10 @@
 import { Box, Card, CardContent, Grid, Stack, Typography } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
+import { alpha } from '@mui/material/styles';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import { Bar, BarChart, ResponsiveContainer } from 'recharts';
 import { formatCurrency } from '../../utils/formatters';
-import { DASHBOARD_THEME, sectionEyebrowSx, sectionTitleSx } from './dashboardTheme';
+import { sectionEyebrowSx, sectionTitleSx, useDashboardTheme } from './dashboardTheme';
 
 export interface BusinessHealthMetric {
   label: string;
@@ -20,52 +20,54 @@ export interface BusinessHealthCardProps {
 }
 
 export function BusinessHealthCard({ metrics }: BusinessHealthCardProps) {
-  const theme = useTheme();
-  const isDark = theme.palette.mode === 'dark';
+  const dt = useDashboardTheme();
 
   return (
     <Card
       elevation={0}
       sx={{
         height: '100%',
-        borderRadius: DASHBOARD_THEME.cardRadius,
-        border: '1px solid',
-        borderColor: isDark ? alpha('#fff', 0.08) : DASHBOARD_THEME.border,
-        boxShadow: DASHBOARD_THEME.cardShadow,
-        fontFamily: DASHBOARD_THEME.fontFamily,
-        bgcolor: isDark ? alpha('#1E293B', 0.65) : '#FFFFFF',
-        transition: DASHBOARD_THEME.transition,
-        '&:hover': { boxShadow: DASHBOARD_THEME.cardShadowHover },
+        borderRadius: dt.cardRadius,
+        border: `1px solid ${dt.border}`,
+        boxShadow: dt.cardShadow,
+        fontFamily: dt.fontFamily,
+        bgcolor: dt.surface,
+        transition: dt.transition,
+        '&:hover': { boxShadow: dt.cardShadowHover },
       }}
     >
       <CardContent sx={{ p: 2.25 }}>
-        <Typography sx={{ ...sectionTitleSx, mb: 0.25 }}>Business Health</Typography>
-        <Typography sx={{ ...sectionEyebrowSx, mb: 2 }}>This month · quick financial overview</Typography>
+        <Typography sx={{ ...sectionTitleSx(dt), mb: 0.25 }}>Business Health</Typography>
+        <Typography sx={{ ...sectionEyebrowSx(dt), mb: 2 }}>This month · quick financial overview</Typography>
         <Grid container spacing={1.5}>
           {metrics.map((m) => {
             const growth = m.growthPct ?? 0;
             const up = m.growthUp ?? growth >= 0;
-            const trendColor = up ? DASHBOARD_THEME.status.ok : DASHBOARD_THEME.status.error;
+            const trendColor = up ? dt.status.ok : dt.status.error;
             return (
               <Grid item xs={12} sm={6} key={m.label}>
                 <Stack
                   spacing={0.75}
                   sx={{
                     p: 1.5,
-                    borderRadius: DASHBOARD_THEME.innerRadius,
+                    borderRadius: dt.innerRadius,
                     bgcolor: alpha(m.color, 0.05),
                     border: '1px solid',
                     borderColor: alpha(m.color, 0.12),
-                    transition: DASHBOARD_THEME.transition,
+                    transition: dt.transition,
                     height: '100%',
-                    '&:hover': {
-                      bgcolor: alpha(m.color, 0.09),
-                      transform: DASHBOARD_THEME.hoverLift,
-                      boxShadow: DASHBOARD_THEME.cardShadow,
-                    },
+                    ...(dt.enterprise
+                      ? { '&:hover': { bgcolor: alpha(m.color, 0.07) } }
+                      : {
+                          '&:hover': {
+                            bgcolor: alpha(m.color, 0.09),
+                            transform: dt.hoverLift,
+                            boxShadow: dt.cardShadow,
+                          },
+                        }),
                   }}
                 >
-                  <Typography sx={{ ...sectionEyebrowSx, color: DASHBOARD_THEME.text.secondary }}>
+                  <Typography sx={{ ...sectionEyebrowSx(dt), color: dt.text.secondary }}>
                     {m.label}
                   </Typography>
                   <Typography

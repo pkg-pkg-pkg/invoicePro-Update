@@ -15,7 +15,7 @@ import {
   TableRow,
   Typography,
 } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
+import { useTheme } from '@mui/material/styles';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import { AppDispatch, RootState } from '../../store';
@@ -26,7 +26,7 @@ import {
   fetchRecentTransactions,
   fetchTodayOverview,
 } from '../../store/slices/dashboardSlice';
-import { DASHBOARD_THEME, dashboardCardSx } from '../../components/dashboard/dashboardTheme';
+import { getDashboardTheme, dashboardCardSx } from '../../components/dashboard/dashboardTheme';
 import { buildOutstandingAging, type AgingLineItem } from '../../utils/outstandingAging';
 import { formatCurrency } from '../../utils/formatters';
 import { getNormalizedCompanyProfile } from '../../utils/companyProfile';
@@ -37,6 +37,7 @@ import {
 
 export default function OutstandingAgingReport() {
   const theme = useTheme();
+  const dt = getDashboardTheme(theme.palette.mode);
   const navigate = useNavigate();
   const dispatch = useDispatch<AppDispatch>();
   const [searchParams] = useSearchParams();
@@ -46,7 +47,6 @@ export default function OutstandingAgingReport() {
     (s: RootState) => s.dashboard
   );
 
-  const isDark = theme.palette.mode === 'dark';
   const [waOpen, setWaOpen] = useState(false);
   const [waBusyId, setWaBusyId] = useState<string | null>(null);
   const [waDraft, setWaDraft] = useState<{
@@ -113,14 +113,12 @@ export default function OutstandingAgingReport() {
     }
   }, []);
 
-  const pageBg = isDark
-    ? `linear-gradient(165deg, ${alpha('#0F172A', 0.99)} 0%, ${alpha('#0B1220', 0.99)} 100%)`
-    : `linear-gradient(180deg, ${DASHBOARD_THEME.bg} 0%, ${DASHBOARD_THEME.bgSubtle} 100%)`;
+  const pageBg = `linear-gradient(180deg, ${dt.bg} 0%, ${dt.bgSubtle} 100%)`;
 
   return (
     <Box
       sx={{
-        fontFamily: DASHBOARD_THEME.fontFamily,
+        fontFamily: dt.fontFamily,
         minHeight: '100%',
         bgcolor: pageBg,
         px: { xs: 2, md: 3 },
@@ -149,14 +147,13 @@ export default function OutstandingAgingReport() {
         <OutstandingAgingCard
           buckets={buckets}
           total={total}
-          isDark={isDark}
           onViewBucketReport={(b) =>
             navigate(`/reports/outstanding-aging?bucket=${encodeURIComponent(b.label)}`)
           }
         />
       </Box>
 
-      <Paper elevation={0} sx={{ ...dashboardCardSx(isDark), p: 2.25 }}>
+      <Paper elevation={0} sx={{ ...dashboardCardSx(dt), p: 2.25 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
           <Typography fontWeight={800}>All outstanding lines</Typography>
           {highlightBucket ? (
@@ -172,7 +169,7 @@ export default function OutstandingAgingReport() {
         <TableContainer>
           <Table size="small">
             <TableHead>
-              <TableRow sx={{ bgcolor: isDark ? alpha('#fff', 0.04) : DASHBOARD_THEME.bgSubtle }}>
+              <TableRow sx={{ bgcolor: dt.bgSubtle }}>
                 <TableCell sx={{ fontWeight: 700 }}>Age slab</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>Party / Ledger</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>Invoice / detail</TableCell>

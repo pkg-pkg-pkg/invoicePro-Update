@@ -1,6 +1,6 @@
 {
   "name": "@gst-billing/desktop",
-  "version": "3.4.8",
+  "version": "3.5.0",
   "description": "PVE InvoicePro 360 - desktop GST billing",
   "author": "PVE",
   "repository": {
@@ -43,6 +43,7 @@
     "electron-updater": "^6.8.3",
     "exceljs": "^4.4.0",
     "firebase": "^12.8.0",
+    "jszip": "^3.10.1",
     "localtunnel": "^2.0.2",
     "nodemailer": "7.0.13",
     "papaparse": "^5.5.3",

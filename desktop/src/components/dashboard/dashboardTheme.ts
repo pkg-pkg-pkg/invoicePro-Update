@@ -1,94 +1,199 @@
-import { alpha, type SxProps, type Theme } from '@mui/material/styles';
+import { useMemo } from 'react';
+import { alpha, useTheme, type SxProps, type Theme } from '@mui/material/styles';
+import { LIGHT_THEME } from '../../theme/lightTheme';
+import { DARK_THEME } from '../../theme/darkTheme';
 
-/** Shared tokens for enterprise dashboard (light + dark-ready). */
-export const DASHBOARD_THEME = {
+export interface DashboardThemeTokens {
+  fontFamily: string;
+  bg: string;
+  bgSubtle: string;
+  surface: string;
+  headerNavy: string;
+  primary: string;
+  secondary: string;
+  primarySoft: string;
+  primaryMuted: string;
+  accent: string;
+  accentSoft: string;
+  success: string;
+  warning: string;
+  danger: string;
+  cardRadius: string;
+  innerRadius: string;
+  cardShadow: string;
+  cardShadowHover: string;
+  hoverLift: string;
+  transition: string;
+  padDesktop: number;
+  padTablet: number;
+  gridGap: number;
+  text: { primary: string; secondary: string; muted: string };
+  border: string;
+  borderLight: string;
+  kpi: { sales: string; receipts: string; outstanding: string; stock: string };
+  status: { ok: string; warn: string; error: string };
+  aging: readonly string[];
+  assistantGradient: string;
+  assistantHeaderBg?: string;
+  /** Enterprise dark: flat cards, no lift/glow */
+  enterprise?: boolean;
+  kpiMinHeight?: number;
+}
+
+const SHARED_LAYOUT = {
   fontFamily: '"Inter", "Segoe UI", system-ui, sans-serif',
-  bg: '#F8FAFC',
-  bgSubtle: '#F1F5F9',
-  primary: '#2563EB',
-  primarySoft: '#EFF6FF',
   cardRadius: '16px',
   innerRadius: '12px',
-  /** Layered soft shadow — premium desktop ERP */
-  cardShadow: '0 8px 24px rgba(0, 0, 0, 0.08)',
-  cardShadowHover: '0 12px 32px rgba(15, 23, 42, 0.12)',
-  glassShadow: '0 1px 3px rgba(37, 99, 235, 0.08), 0 8px 24px rgba(15, 23, 42, 0.08)',
-  hoverLift: 'translateY(-4px)',
-  transition: 'all 300ms cubic-bezier(0.4, 0, 0.2, 1)',
+  hoverLift: 'translateY(-3px)',
+  transition: 'background-color 300ms ease, color 300ms ease, border-color 300ms ease, box-shadow 300ms ease, transform 280ms cubic-bezier(0.4, 0, 0.2, 1)',
   padDesktop: 3,
   padTablet: 2,
   gridGap: 2,
-  text: {
-    primary: '#0F172A',
-    secondary: '#64748B',
-    muted: '#94A3B8',
+  aging: ['#16A34A', '#F59E0B', '#EA580C', '#DC2626'] as const,
+  assistantGradient: 'linear-gradient(135deg, #1E40AF 0%, #2563EB 100%)',
+};
+
+export const LIGHT_DASHBOARD: DashboardThemeTokens = {
+  ...SHARED_LAYOUT,
+  bg: LIGHT_THEME.background.content,
+  bgSubtle: LIGHT_THEME.background.elevated,
+  surface: LIGHT_THEME.background.paper,
+  headerNavy: LIGHT_THEME.background.sidebar,
+  primary: '#1E40AF',
+  secondary: LIGHT_THEME.primary,
+  primarySoft: LIGHT_THEME.primarySoft,
+  primaryMuted: '#DBEAFE',
+  accent: LIGHT_THEME.gold,
+  accentSoft: LIGHT_THEME.goldSoft,
+  success: LIGHT_THEME.success,
+  warning: LIGHT_THEME.warning,
+  danger: LIGHT_THEME.error,
+  cardShadow: LIGHT_THEME.cardShadow,
+  cardShadowHover: LIGHT_THEME.cardShadowHover,
+  text: LIGHT_THEME.text,
+  border: LIGHT_THEME.border,
+  borderLight: 'rgba(226, 232, 240, 0.9)',
+  kpi: {
+    sales: '#1E40AF',
+    receipts: LIGHT_THEME.success,
+    outstanding: LIGHT_THEME.gold,
+    stock: LIGHT_THEME.primary,
   },
-  border: 'rgba(15, 23, 42, 0.06)',
-  borderMedium: 'rgba(15, 23, 42, 0.08)',
+  status: { ok: LIGHT_THEME.success, warn: LIGHT_THEME.warning, error: LIGHT_THEME.error },
+};
+
+export const DARK_DASHBOARD: DashboardThemeTokens = {
+  ...SHARED_LAYOUT,
+  enterprise: true,
+  cardRadius: '12px',
+  innerRadius: '8px',
+  hoverLift: 'none',
+  gridGap: 1.75,
+  bg: DARK_THEME.background.default,
+  bgSubtle: DARK_THEME.background.paper,
+  surface: DARK_THEME.background.card,
+  headerNavy: DARK_THEME.background.sidebar,
+  primary: DARK_THEME.primary,
+  secondary: DARK_THEME.primary,
+  primarySoft: DARK_THEME.primarySoft,
+  primaryMuted: 'rgba(37, 99, 235, 0.12)',
+  accent: DARK_THEME.gold,
+  accentSoft: DARK_THEME.goldSoft,
+  success: DARK_THEME.success,
+  warning: DARK_THEME.warning,
+  danger: DARK_THEME.error,
+  cardShadow: DARK_THEME.cardShadow,
+  cardShadowHover: DARK_THEME.cardShadowHover,
+  text: DARK_THEME.text,
+  border: DARK_THEME.border,
+  borderLight: DARK_THEME.border,
   kpi: {
     sales: '#2563EB',
     receipts: '#16A34A',
-    outstanding: '#F59E0B',
-    stock: '#7C3AED',
+    outstanding: '#D4A017',
+    stock: '#64748B',
   },
-  status: {
-    ok: '#22C55E',
-    warn: '#F59E0B',
-    error: '#EF4444',
-  },
-  aging: ['#22C55E', '#F59E0B', '#FB923C', '#EF4444'],
-} as const;
-
-export const sectionTitleSx: SxProps<Theme> = {
-  fontFamily: DASHBOARD_THEME.fontFamily,
-  fontSize: '0.9375rem',
-  fontWeight: 700,
-  letterSpacing: '-0.02em',
-  color: DASHBOARD_THEME.text.primary,
-  lineHeight: 1.3,
+  status: { ok: DARK_THEME.success, warn: DARK_THEME.warning, error: DARK_THEME.error },
+  aging: ['#16A34A', '#D4A017', '#D97706', '#DC2626'],
+  assistantGradient: DARK_THEME.assistantHeaderBg,
+  assistantHeaderBg: DARK_THEME.assistantHeaderBg,
+  kpiMinHeight: 132,
 };
 
-export const sectionEyebrowSx: SxProps<Theme> = {
-  fontFamily: DASHBOARD_THEME.fontFamily,
-  fontSize: '0.6875rem',
-  fontWeight: 600,
-  letterSpacing: '0.06em',
-  textTransform: 'uppercase',
-  color: DASHBOARD_THEME.text.muted,
-};
+/** @deprecated Use useDashboardTheme() for theme-aware tokens */
+export const DASHBOARD_THEME = LIGHT_DASHBOARD;
 
-export function dashboardCardSx(isDark: boolean, accent?: string) {
+export function getDashboardTheme(mode: 'light' | 'dark'): DashboardThemeTokens {
+  return mode === 'dark' ? DARK_DASHBOARD : LIGHT_DASHBOARD;
+}
+
+export function useDashboardTheme(): DashboardThemeTokens {
+  const theme = useTheme();
+  return useMemo(() => getDashboardTheme(theme.palette.mode), [theme.palette.mode]);
+}
+
+export function sectionTitleSx(dt: DashboardThemeTokens): SxProps<Theme> {
   return {
-    fontFamily: DASHBOARD_THEME.fontFamily,
-    borderRadius: DASHBOARD_THEME.cardRadius,
-    border: '1px solid',
-    borderColor: accent
-      ? alpha(accent, isDark ? 0.28 : 0.12)
-      : isDark
-        ? alpha('#fff', 0.08)
-        : DASHBOARD_THEME.border,
-    bgcolor: isDark ? alpha('#1E293B', 0.65) : '#FFFFFF',
-    boxShadow: isDark ? 'none' : DASHBOARD_THEME.cardShadow,
-    transition: DASHBOARD_THEME.transition,
-    overflow: 'hidden',
+    fontFamily: dt.fontFamily,
+    fontSize: '0.9375rem',
+    fontWeight: 700,
+    letterSpacing: '-0.02em',
+    color: dt.text.primary,
+    lineHeight: 1.3,
   };
 }
 
-export function glassDateCardSx(isDark: boolean): SxProps<Theme> {
+export function sectionEyebrowSx(dt: DashboardThemeTokens): SxProps<Theme> {
   return {
-    px: 1.5,
-    py: 0.875,
-    borderRadius: DASHBOARD_THEME.cardRadius,
+    fontFamily: dt.fontFamily,
+    fontSize: '0.6875rem',
+    fontWeight: 600,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+    color: dt.text.muted,
+  };
+}
+
+export function dashboardCardSx(dt: DashboardThemeTokens, accent?: string) {
+  return {
+    fontFamily: dt.fontFamily,
+    borderRadius: dt.cardRadius,
     border: '1px solid',
-    borderColor: isDark
-      ? alpha(DASHBOARD_THEME.primary, 0.35)
-      : alpha(DASHBOARD_THEME.primary, 0.12),
-    background: isDark
-      ? `linear-gradient(135deg, ${alpha('#1E293B', 0.9)} 0%, ${alpha('#334155', 0.75)} 100%)`
-      : `linear-gradient(135deg, ${alpha('#FFFFFF', 0.95)} 0%, ${alpha(DASHBOARD_THEME.primarySoft, 0.65)} 100%)`,
-    backdropFilter: 'blur(12px)',
-    WebkitBackdropFilter: 'blur(12px)',
-    boxShadow: isDark ? 'none' : DASHBOARD_THEME.glassShadow,
+    borderColor: accent ? alpha(accent, 0.14) : dt.border,
+    bgcolor: dt.surface,
+    boxShadow: dt.cardShadow,
+    transition: dt.transition,
+    overflow: 'hidden',
+    ...(dt.enterprise
+      ? { '&:hover': { borderColor: dt.border, boxShadow: dt.cardShadowHover } }
+      : { '&:hover': { boxShadow: dt.cardShadowHover } }),
+  };
+}
+
+export function welcomeCardSx(dt: DashboardThemeTokens): SxProps<Theme> {
+  return {
+    p: { xs: 2, sm: dt.enterprise ? 2 : 2.5 },
+    mb: dt.enterprise ? 2 : 3,
+    borderRadius: dt.cardRadius,
+    border: `1px solid ${dt.border}`,
+    bgcolor: dt.surface,
+    boxShadow: dt.cardShadow,
+    ...(dt.enterprise
+      ? {}
+      : { background: `linear-gradient(180deg, ${dt.surface} 0%, ${alpha(dt.primarySoft, 0.35)} 100%)` }),
+    transition: dt.transition,
+  };
+}
+
+export function glassDateCardSx(dt: DashboardThemeTokens): SxProps<Theme> {
+  return {
+    px: 2,
+    py: 1.25,
+    borderRadius: dt.innerRadius,
+    border: `1px solid ${dt.border}`,
+    bgcolor: dt.surface,
+    boxShadow: dt.cardShadow,
+    transition: dt.transition,
   };
 }
 

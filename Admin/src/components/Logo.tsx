@@ -7,23 +7,26 @@ type LogoProps = {
   alt?: string;
 };
 
+/** InvoicePro Admin mark is wider than tall — keep aspect ratio. */
 const SIZES = {
-  small: 32,
-  auth: 88,
-  toolbar: 36,
+  small: { width: 36, height: 36 },
+  toolbar: { width: 132, height: 36 },
+  auth: { width: 280, height: 96 },
 } as const;
 
 export default function Logo({ size = 'toolbar', alt = 'InvoicePro Admin' }: LogoProps) {
-  const px = SIZES[size];
+  const dim = SIZES[size];
   return (
     <Box
       component="img"
       src={APP_LOGO_URL}
       alt={alt}
       sx={{
-        width: px,
-        height: px,
+        width: dim.width,
+        height: dim.height,
+        maxWidth: '100%',
         objectFit: 'contain',
+        objectPosition: 'left center',
         display: 'block',
         flexShrink: 0,
       }}

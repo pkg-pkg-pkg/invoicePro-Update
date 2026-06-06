@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import {
   Box,
-  Typography,
-  Tabs,
-  Tab,
   Paper,
+  Tab,
+  Tabs,
+  Typography,
   Alert,
+  Stack,
+  Chip,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import {
   Receipt as ReceiptIcon,
   ShoppingCart as ShoppingCartIcon,
@@ -15,6 +18,7 @@ import {
   People as PeopleIcon,
   Payment as PaymentIcon,
   TrendingUp as TrendingUpIcon,
+  AssessmentOutlined as AssessmentOutlinedIcon,
 } from '@mui/icons-material';
 import SalesReports from './Reports/SalesReports';
 import PurchaseReports from './Reports/PurchaseReports';
@@ -25,6 +29,7 @@ import PaymentReports from './Reports/PaymentReports';
 import PreGstProfitReports from './Reports/PreGstProfitReports';
 import { usePermissions } from '../hooks/usePermissions';
 import { useLocation } from 'react-router-dom';
+import { PREMIUM_ERP } from '../theme/premiumErpTheme';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -34,16 +39,9 @@ interface TabPanelProps {
 
 function TabPanel(props: TabPanelProps) {
   const { children, value, index, ...other } = props;
-
   return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`reports-tabpanel-${index}`}
-      aria-labelledby={`reports-tab-${index}`}
-      {...other}
-    >
-      {value === index && <Box sx={{ p: 3, bgcolor: 'var(--bg-section)', borderRadius: '16px', transition: 'all 0.2s ease' }}>{children}</Box>}
+    <div role="tabpanel" hidden={value !== index} id={`reports-tabpanel-${index}`} {...other}>
+      {value === index && <Box sx={{ pt: 3 }}>{children}</Box>}
     </div>
   );
 }
@@ -51,52 +49,51 @@ function TabPanel(props: TabPanelProps) {
 const reportCategories = [
   {
     id: 'sales',
-    label: 'Sales Reports',
-    icon: <ReceiptIcon />,
-    description: 'Sales invoices, summaries, customer and product analysis',
+    label: 'Sales',
+    icon: <ReceiptIcon fontSize="small" />,
+    color: PREMIUM_ERP.categoryColors.sales,
   },
   {
     id: 'purchase',
-    label: 'Purchase Reports',
-    icon: <ShoppingCartIcon />,
-    description: 'Purchase bills, supplier analysis, purchase returns',
+    label: 'Purchase',
+    icon: <ShoppingCartIcon fontSize="small" />,
+    color: PREMIUM_ERP.categoryColors.purchase,
   },
   {
     id: 'stock',
-    label: 'Stock Reports',
-    icon: <InventoryIcon />,
-    description: 'Current stock, movements, low stock, valuation',
+    label: 'Stock',
+    icon: <InventoryIcon fontSize="small" />,
+    color: PREMIUM_ERP.categoryColors.stock,
   },
   {
     id: 'financial',
-    label: 'Financial Reports',
-    icon: <AccountBalanceIcon />,
-    description: 'Day book, profit & loss, balance sheet, trial balance',
+    label: 'Financial',
+    icon: <AccountBalanceIcon fontSize="small" />,
+    color: PREMIUM_ERP.categoryColors.financial,
   },
   {
     id: 'party',
-    label: 'Party Reports',
-    icon: <PeopleIcon />,
-    description: 'Customer outstanding, supplier payable, aging reports',
+    label: 'Party',
+    icon: <PeopleIcon fontSize="small" />,
+    color: PREMIUM_ERP.categoryColors.party,
   },
   {
     id: 'payment',
-    label: 'Payment Reports',
-    icon: <PaymentIcon />,
-    description: 'Payment received, payment made, pending cheques',
+    label: 'Payment',
+    icon: <PaymentIcon fontSize="small" />,
+    color: PREMIUM_ERP.categoryColors.payment,
   },
   {
     id: 'pre-gst-profit',
-    label: 'Profit (pre-GST)',
-    icon: <TrendingUpIcon />,
-    description: 'Item, bill, and customer-wise gross profit excluding GST',
+    label: 'Profit',
+    icon: <TrendingUpIcon fontSize="small" />,
+    color: PREMIUM_ERP.categoryColors.profit,
   },
 ];
 
 export default function Reports() {
   const [activeTab, setActiveTab] = useState(0);
   const location = useLocation();
-
   const { canAccessFeature } = usePermissions();
   const canView = canAccessFeature('view-reports');
   const canExport = canAccessFeature('export-reports');
@@ -108,10 +105,6 @@ export default function Reports() {
       </Box>
     );
   }
-
-  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
-    setActiveTab(newValue);
-  };
 
   useEffect(() => {
     const view = new URLSearchParams(location.search).get('view') || '';
@@ -126,60 +119,142 @@ export default function Reports() {
       pnl: 6,
     };
     const next = map[String(view).toLowerCase()];
-    if (next !== undefined) {
-      setActiveTab(next);
-    }
+    if (next !== undefined) setActiveTab(next);
   }, [location.search]);
 
-  return (
-    <Box sx={{ p: 3, bgcolor: 'var(--bg-section)', borderRadius: '16px', transition: 'all 0.2s ease' }}>
-      <Typography variant="h4" gutterBottom>
-        Reports
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Comprehensive business reports with filters, export options, and detailed analytics
-      </Typography>
+  const activeCategory = reportCategories[activeTab];
 
-      <Paper sx={{ mb: 3, bgcolor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', transition: 'all 0.2s ease' }}>
+  return (
+    <Box
+      sx={{
+        fontFamily: PREMIUM_ERP.fontFamily,
+        px: { xs: 2, md: 3 },
+        py: { xs: 2, md: 3 },
+        minHeight: '100%',
+        bgcolor: PREMIUM_ERP.bg,
+      }}
+    >
+      <Paper
+        elevation={0}
+        sx={{
+          p: { xs: 2, md: 3 },
+          mb: 3,
+          borderRadius: `${PREMIUM_ERP.radius.lg}px`,
+          background: PREMIUM_ERP.gradient,
+          color: '#fff',
+          boxShadow: '0 12px 40px rgba(15, 23, 42, 0.18)',
+        }}
+      >
+        <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1 }}>
+          <AssessmentOutlinedIcon />
+          <Typography variant="h4" fontWeight={800} letterSpacing="-0.03em">
+            Reports & Analytics
+          </Typography>
+        </Stack>
+        <Typography variant="body1" sx={{ opacity: 0.9, maxWidth: 640 }}>
+          Premium business intelligence — filters, exports, favorites, and detailed analytics across
+          sales, purchase, stock, and finance.
+        </Typography>
+        <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap' }}>
+          <Chip
+            size="small"
+            label="Export PDF / Excel"
+            sx={{ bgcolor: alpha('#fff', 0.14), color: '#fff', fontWeight: 600 }}
+          />
+          <Chip
+            size="small"
+            label="Sticky tables"
+            sx={{ bgcolor: alpha('#fff', 0.14), color: '#fff', fontWeight: 600 }}
+          />
+          <Chip
+            size="small"
+            label="Favorites"
+            sx={{ bgcolor: alpha('#fff', 0.14), color: '#fff', fontWeight: 600 }}
+          />
+        </Stack>
+      </Paper>
+
+      <Paper
+        elevation={0}
+        sx={{
+          borderRadius: `${PREMIUM_ERP.radius.lg}px`,
+          border: `1px solid ${PREMIUM_ERP.border}`,
+          boxShadow: PREMIUM_ERP.shadow,
+          overflow: 'hidden',
+          bgcolor: PREMIUM_ERP.card,
+        }}
+      >
         <Tabs
           value={activeTab}
-          onChange={handleTabChange}
+          onChange={(_e, v) => setActiveTab(v)}
           variant="scrollable"
           scrollButtons="auto"
-          sx={{ borderBottom: '1px solid var(--border)' }}
+          sx={{
+            px: 1,
+            borderBottom: `1px solid ${PREMIUM_ERP.border}`,
+            '& .MuiTab-root': {
+              minHeight: 56,
+              textTransform: 'none',
+              fontWeight: 700,
+              fontSize: '0.875rem',
+              borderRadius: `${PREMIUM_ERP.radius.sm}px`,
+              mx: 0.25,
+              my: 0.75,
+              transition: PREMIUM_ERP.transition,
+            },
+            '& .Mui-selected': {
+              bgcolor: alpha(activeCategory?.color || PREMIUM_ERP.blue, 0.08),
+            },
+          }}
         >
-          {reportCategories.map((category) => (
+          {reportCategories.map((cat) => (
             <Tab
-              key={category.id}
-              label={category.label}
-              icon={category.icon}
+              key={cat.id}
+              label={cat.label}
+              icon={
+                <Box
+                  sx={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    bgcolor: alpha(cat.color, 0.12),
+                    color: cat.color,
+                  }}
+                >
+                  {cat.icon}
+                </Box>
+              }
               iconPosition="start"
-              sx={{ minHeight: 72 }}
             />
           ))}
         </Tabs>
 
-        <TabPanel value={activeTab} index={0}>
-          <SalesReports canExport={canExport} />
-        </TabPanel>
-        <TabPanel value={activeTab} index={1}>
-          <PurchaseReports canExport={canExport} />
-        </TabPanel>
-        <TabPanel value={activeTab} index={2}>
-          <StockReports canExport={canExport} />
-        </TabPanel>
-        <TabPanel value={activeTab} index={3}>
-          <FinancialReports canExport={canExport} />
-        </TabPanel>
-        <TabPanel value={activeTab} index={4}>
-          <PartyReports canExport={canExport} />
-        </TabPanel>
-        <TabPanel value={activeTab} index={5}>
-          <PaymentReports canExport={canExport} />
-        </TabPanel>
-        <TabPanel value={activeTab} index={6}>
-          <PreGstProfitReports canExport={canExport} />
-        </TabPanel>
+        <Box sx={{ px: { xs: 2, md: 3 }, pb: 3 }}>
+          <TabPanel value={activeTab} index={0}>
+            <SalesReports canExport={canExport} />
+          </TabPanel>
+          <TabPanel value={activeTab} index={1}>
+            <PurchaseReports canExport={canExport} />
+          </TabPanel>
+          <TabPanel value={activeTab} index={2}>
+            <StockReports canExport={canExport} />
+          </TabPanel>
+          <TabPanel value={activeTab} index={3}>
+            <FinancialReports canExport={canExport} />
+          </TabPanel>
+          <TabPanel value={activeTab} index={4}>
+            <PartyReports canExport={canExport} />
+          </TabPanel>
+          <TabPanel value={activeTab} index={5}>
+            <PaymentReports canExport={canExport} />
+          </TabPanel>
+          <TabPanel value={activeTab} index={6}>
+            <PreGstProfitReports canExport={canExport} />
+          </TabPanel>
+        </Box>
       </Paper>
     </Box>
   );

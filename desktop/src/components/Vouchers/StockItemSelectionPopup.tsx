@@ -22,7 +22,29 @@ import {
   Warning as WarningIcon,
 } from '@mui/icons-material';
 import { StockItem } from '../../services/vouchers/enhancedVoucherService';
-import { enhancedVoucherService } from '../../services/vouchers/enhancedVoucherService';
+import {
+  inventoryItemService,
+  INVENTORY_ITEMS_CHANGED_EVENT,
+} from '../../services/masters/inventoryItemService';
+import type { InventoryItem } from '../../types/masters';
+import { unitOfMeasureService } from '../../services/masters/unitOfMeasureService';
+
+function mapInventoryToStockItem(item: InventoryItem, unitLabel: string): StockItem {
+  return {
+    item_code: item.sku,
+    item_name: item.name,
+    hsn_code: item.hsnCode ?? undefined,
+    gst_rate: Number(item.gstRate ?? 0),
+    purchase_rate: Number(item.pricing?.purchase ?? 0),
+    sale_rate: Number(item.pricing?.sale ?? item.pricing?.mrp ?? 0),
+    mrp: Number(item.pricing?.mrp ?? item.pricing?.sale ?? 0),
+    unit: unitLabel,
+    current_stock: Number(item.currentStock ?? 0),
+    min_stock_level: Number(item.reorderLevel ?? 0),
+    is_taxable: Number(item.gstRate ?? 0) > 0,
+    is_active: item.status === 'ACTIVE',
+  };
+}
 
 interface StockItemSelectionPopupProps {
   open: boolean;
@@ -53,16 +75,37 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
   const [loading, setLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  // Load stock items on mount
-  useEffect(() => {
-    if (open) {
-      setLoading(true);
-      enhancedVoucherService.getStockItems()
-        .then(setStockItems)
-        .catch(console.error)
-        .finally(() => setLoading(false));
+  const loadItems = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [items, units] = await Promise.all([
+        inventoryItemService.list({ includeInactive: false, status: 'ACTIVE' }),
+        unitOfMeasureService.list(),
+      ]);
+      const unitMap = new Map(units.map((u) => [u.id, u.symbol || u.name]));
+      setStockItems(
+        items.map((item) => mapInventoryToStockItem(item, unitMap.get(item.unitId) ?? '—'))
+      );
+    } catch (err) {
+      console.error(err);
+      setStockItems([]);
+    } finally {
+      setLoading(false);
     }
-  }, [open]);
+  }, []);
+
+  // Load stock items when opened — same source as Items desk & sales voucher picker
+  useEffect(() => {
+    if (!open) return;
+    void loadItems();
+  }, [open, loadItems]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onChange = () => void loadItems();
+    window.addEventListener(INVENTORY_ITEMS_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(INVENTORY_ITEMS_CHANGED_EVENT, onChange);
+  }, [open, loadItems]);
 
   // Filter items based on search term
   const filteredItems = useMemo(() => {
@@ -80,6 +123,11 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
   useEffect(() => {
     setSelectedIndex(0);
   }, [searchTerm]);
+
+  const handleClose = useCallback(() => {
+    setSearchTerm('');
+    onClose();
+  }, [onClose]);
 
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
     if (!open) return;
@@ -103,20 +151,22 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
         break;
       case 'Escape':
         event.preventDefault();
-        onClose();
+        event.stopPropagation();
+        handleClose();
         break;
     }
-  }, [open, filteredItems, selectedIndex, onSelect, onClose]);
+  }, [open, filteredItems, selectedIndex, onSelect, handleClose]);
 
   useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => handleKeyDown(event);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [open, handleKeyDown]);
 
   const handleItemSelect = (item: StockItem) => {
     onSelect(item);
-    setSearchTerm('');
-    onClose();
+    handleClose();
   };
 
   const formatStock = (quantity: number, unit: string) => {
@@ -171,10 +221,12 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
   return (
     <Dialog 
       open={open} 
-      onClose={onClose}
+      onClose={handleClose}
+      disableRestoreFocus
       maxWidth="lg"
       fullWidth
       PaperProps={{
+        'data-tally-picker-modal': '',
         sx: {
           bgcolor: TALLY_COLORS.formBg,
         }
@@ -187,8 +239,8 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
         justifyContent: 'space-between',
         alignItems: 'center'
       }}>
-        <Typography variant="h6">List of Stock Items</Typography>
-        <IconButton onClick={onClose} sx={{ color: 'white' }}>
+        <Typography variant="h6">List of Inventory Items</Typography>
+        <IconButton type="button" onClick={handleClose} sx={{ color: 'white' }} aria-label="Close">
           <CloseIcon />
         </IconButton>
       </DialogTitle>

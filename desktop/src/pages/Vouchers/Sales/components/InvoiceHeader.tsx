@@ -32,6 +32,7 @@ export interface CompanyInfo {
 interface InvoiceHeaderProps {
   mode: VoucherMode;
   status?: 'ACTIVE' | 'CANCELLED' | 'DRAFT';
+  documentTitle?: string;
   formState: {
     number: string;
     date: string;
@@ -53,6 +54,7 @@ const statusColorMap: Record<string, 'default' | 'success' | 'warning' | 'error'
 export const InvoiceHeader: FC<InvoiceHeaderProps> = ({
   mode,
   status = 'ACTIVE',
+  documentTitle,
   formState,
   onChange,
   company,
@@ -73,6 +75,11 @@ export const InvoiceHeader: FC<InvoiceHeaderProps> = ({
         <Stack spacing={1.25}>
           <Stack direction="row" justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }}>
             <Box>
+              {documentTitle ? (
+                <Typography variant="subtitle2" color="primary" fontWeight={800} sx={{ mb: 0.5 }}>
+                  {documentTitle}
+                </Typography>
+              ) : null}
               <Typography variant="h6" fontWeight={700} lineHeight={1.1}>
                 {companyName}
               </Typography>

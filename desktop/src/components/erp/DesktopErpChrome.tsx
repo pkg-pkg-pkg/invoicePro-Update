@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Menu, MenuItem, Typography } from '@mui/material';
+import { useTheme, alpha } from '@mui/material/styles';
 import { useLocation, type NavigateFunction } from 'react-router-dom';
 import { getNormalizedCompanyProfile } from '../../utils/companyProfile';
 import { financialYearLabel } from '../dashboard/dashboardTheme';
@@ -35,14 +36,8 @@ export const ERP_TITLE_ROW_PX = 27;
 export const ERP_MENU_ROW_PX = 26;
 
 import {
-  ERP_HEADER_BG,
-  ERP_MENU_BG,
-  ERP_SELECT,
-  ERP_WORKSPACE_BG,
-  ERP_TEXT,
+  getErpChromeColors,
 } from '../../theme/erpColors';
-
-export { ERP_HEADER_BG, ERP_MENU_BG, ERP_SELECT, ERP_WORKSPACE_BG, ERP_TEXT };
 const SUPPORT_WEBSITE = 'https://www.prityvanya.com';
 
 type MenuEntry = { label: string; path: string; perm?: string; section?: string };
@@ -80,20 +75,24 @@ const ERP_MENUS: ErpMenu[] = [
     id: 'masters',
     label: 'Masters',
     items: [
+      { label: 'Items Desk', path: '/items' },
       { label: 'Ledger Accounts', path: '/masters/ledger-accounts' },
       { label: 'Bank Accounts', path: '/masters/bank-accounts' },
       { label: 'Godowns', path: '/masters/godowns' },
       { label: 'Inventory Items', path: '/masters/inventory-items' },
-      { label: 'Party Master', path: '/parties' },
-      { label: 'Party Ledger', path: '/parties/ledger-report' },
+      { label: 'Price Lists', path: '/masters/price-lists' },
+      { label: 'Stock Adjustments', path: '/masters/stock-adjustments' },
+      { label: 'Customers', path: '/customers' },
+      { label: 'Customer Ledger', path: '/customers/ledger-report' },
     ],
   },
   {
     id: 'transactions',
     label: 'Transactions',
     items: [
-      { label: 'Sales Voucher', path: '/vouchers/sales', section: 'Sales & Purchase' },
-      { label: 'Purchase Voucher', path: '/vouchers/purchase', section: 'Sales & Purchase' },
+      { label: 'Sales Desk', path: '/sales', section: 'Sales & Purchase' },
+      { label: 'Purchase Desk', path: '/purchase', section: 'Sales & Purchase' },
+      { label: 'Banking Desk', path: '/banking', section: 'Money Vouchers' },
       { label: 'Sales Return', path: '/vouchers/sales-return', section: 'Sales & Purchase' },
       { label: 'Purchase Return', path: '/vouchers/purchase-return', section: 'Sales & Purchase' },
       { label: 'Payment Voucher', path: '/vouchers/payment', section: 'Money Vouchers' },
@@ -183,7 +182,7 @@ function useCompanyProfileVersion() {
   return v;
 }
 
-function useHeaderCompanyName() {
+export function useHeaderCompanyName() {
   const cv = useCompanyProfileVersion();
   const [name, setName] = useState(() => resolveActiveCompanyDisplayNameSync());
   useEffect(() => {
@@ -198,7 +197,20 @@ function useHeaderCompanyName() {
   return name;
 }
 
-export function DesktopErpTitleBar({ rightSlot }: { rightSlot?: React.ReactNode } = {}) {
+export function DesktopErpTitleBar({
+  leadingSlot,
+  centerSlot,
+  rightSlot,
+}: {
+  leadingSlot?: React.ReactNode;
+  centerSlot?: React.ReactNode;
+  rightSlot?: React.ReactNode;
+} = {}) {
+  const theme = useTheme();
+  const chrome = useMemo(
+    () => getErpChromeColors(theme.palette.mode === 'dark' ? 'premium-dark' : 'light'),
+    [theme.palette.mode]
+  );
   const headerCompanyName = useHeaderCompanyName();
   const { display: headerName, full: fullCompanyName } = useMemo(
     () => headerCompanyLabel(headerCompanyName),
@@ -220,45 +232,64 @@ export function DesktopErpTitleBar({ rightSlot }: { rightSlot?: React.ReactNode 
   return (
     <Box
       sx={{
-        bgcolor: ERP_HEADER_BG,
-        color: '#fff',
+        bgcolor: chrome.headerBg,
+        color: chrome.headerText,
         px: 1.25,
         py: 0.5,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: 2,
-        minHeight: ERP_TITLE_ROW_PX,
-        borderBottom: '1px solid rgba(255,255,255,0.12)',
+        minHeight: centerSlot ? 44 : ERP_TITLE_ROW_PX,
+        borderBottom: `1px solid ${chrome.headerBorder}`,
+        transition: 'background-color 300ms ease, color 300ms ease, border-color 300ms ease',
       }}
     >
-      <Typography
-        variant="body2"
-        component="button"
-        type="button"
-        onClick={() => setSwitchOpen(true)}
-        title={fullCompanyName === headerName ? 'Switch company' : `${fullCompanyName} — click to switch company`}
-        sx={{
-          fontWeight: 700,
-          fontSize: '0.78rem',
-          letterSpacing: 0.15,
-          border: 'none',
-          background: 'transparent',
-          color: 'inherit',
-          cursor: 'pointer',
-          textAlign: 'left',
-          p: 0,
-          maxWidth: { xs: 'min(72vw, 420px)', sm: 'min(48vw, 520px)' },
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          '&:hover': { textDecoration: 'underline' },
-        }}
-      >
-        {headerName}
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, flexShrink: 0, maxWidth: { xs: '38%', sm: '28%' } }}>
+        {leadingSlot ?? null}
+        <Typography
+          variant="body2"
+          component="button"
+          type="button"
+          onClick={() => setSwitchOpen(true)}
+          title={fullCompanyName === headerName ? 'Switch company' : `${fullCompanyName} — click to switch company`}
+          sx={{
+            fontWeight: 700,
+            fontSize: '0.78rem',
+            letterSpacing: 0.15,
+            border: 'none',
+            background: 'transparent',
+            color: 'inherit',
+            cursor: 'pointer',
+            textAlign: 'left',
+            p: 0,
+            maxWidth: '100%',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            '&:hover': { textDecoration: 'underline' },
+          }}
+        >
+          {headerName}
+        </Typography>
+      </Box>
       <CompanySelectScreen mode="switch" open={switchOpen} onClose={() => setSwitchOpen(false)} />
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+      {centerSlot ? (
+        <Box
+          sx={{
+            flex: 1,
+            minWidth: 0,
+            display: 'flex',
+            justifyContent: 'center',
+            px: { xs: 0.5, sm: 1.5 },
+          }}
+        >
+          <Box sx={{ width: '100%', maxWidth: { xs: '100%', md: 560 } }}>{centerSlot}</Box>
+        </Box>
+      ) : (
+        <Box sx={{ flex: 1 }} />
+      )}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0, flexShrink: 0 }}>
         {rightSlot ?? null}
       </Box>
     </Box>
@@ -274,6 +305,11 @@ export function DesktopErpMenuBar({
   canAccessFeature: CanAccess;
   gstEnabled: boolean;
 }) {
+  const theme = useTheme();
+  const chrome = useMemo(
+    () => getErpChromeColors(theme.palette.mode === 'dark' ? 'premium-dark' : 'light'),
+    [theme.palette.mode]
+  );
   const location = useLocation();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -362,16 +398,17 @@ export function DesktopErpMenuBar({
   return (
     <Box
       sx={{
-        bgcolor: ERP_MENU_BG,
-        color: '#fff',
+        bgcolor: chrome.menuBg,
+        color: chrome.menuText,
         display: 'flex',
         alignItems: 'stretch',
         minHeight: ERP_MENU_ROW_PX,
-        borderBottom: '1px solid rgba(0,0,0,0.15)',
+        borderBottom: `1px solid ${chrome.headerBorder}`,
         userSelect: 'none',
         position: 'relative',
         overflow: 'visible',
         zIndex: 1,
+        transition: 'background-color 300ms ease, color 300ms ease, border-color 300ms ease',
       }}
       onMouseEnter={() => {
         menuBarHoverRef.current = true;
@@ -414,11 +451,11 @@ export function DesktopErpMenuBar({
               letterSpacing: '0.01em',
               bgcolor:
                 openId === m.id && !singleItem ? 'rgba(255,255,255,0.06)' : 'transparent',
-              color: '#fff',
+              color: chrome.menuText,
               fontFamily: '"Inter", system-ui, sans-serif',
-              borderRight: '1px solid rgba(255,255,255,0.1)',
+              borderRight: `1px solid ${chrome.headerBorder}`,
               transition: 'background-color 200ms ease, color 200ms ease',
-              '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' },
+              '&:hover': { bgcolor: chrome.menuHover },
               ...(isActive
                 ? {
                     '&::after': {
@@ -429,8 +466,7 @@ export function DesktopErpMenuBar({
                       bottom: 0,
                       height: 2,
                       borderRadius: '2px 2px 0 0',
-                      bgcolor: '#60A5FA',
-                      boxShadow: '0 0 8px rgba(96, 165, 250, 0.45)',
+                      bgcolor: chrome.menuActive,
                     },
                   }
                 : {}),
@@ -456,16 +492,16 @@ export function DesktopErpMenuBar({
           sx: {
             py: 0,
             minWidth: 200,
-            bgcolor: '#f8fafc',
-            border: '1px solid #cbd5e1',
+            bgcolor: chrome.menuDropdownBg,
+            border: `1px solid ${chrome.toolbarBorder}`,
             '& .MuiMenuItem-root': {
               fontSize: '0.8125rem',
               minHeight: 32,
-              color: ERP_TEXT,
-              borderBottom: '1px solid #e2e8f0',
-              '&:hover': { bgcolor: ERP_SELECT },
-              '&.Mui-selected': { bgcolor: ERP_SELECT, color: ERP_TEXT, fontWeight: 700 },
-              '&.Mui-selected:hover': { bgcolor: ERP_SELECT },
+              color: chrome.text,
+              borderBottom: `1px solid ${chrome.toolbarBorder}`,
+              '&:hover': { bgcolor: chrome.menuDropdownHover },
+              '&.Mui-selected': { bgcolor: alpha(chrome.select, 0.25), color: chrome.text, fontWeight: 700 },
+              '&.Mui-selected:hover': { bgcolor: alpha(chrome.select, 0.35) },
               '&:last-of-type': { borderBottom: 0 },
             },
           },
@@ -569,6 +605,11 @@ export function DesktopErpStatusBar({
   userLabel: string;
   canAccessFeature: CanAccess;
 }) {
+  const theme = useTheme();
+  const chrome = useMemo(
+    () => getErpChromeColors(theme.palette.mode === 'dark' ? 'premium-dark' : 'light'),
+    [theme.palette.mode]
+  );
   const now = useNowTick(60_000);
   const cv = useCompanyProfileVersion();
   const company = useMemo(() => getNormalizedCompanyProfile(), [cv]);
@@ -624,7 +665,7 @@ export function DesktopErpStatusBar({
         mr: 1.5,
         fontSize: '0.6875rem',
         fontWeight: 600,
-        color: ERP_TEXT,
+        color: chrome.text,
         fontFamily: '"Inter", system-ui, sans-serif',
       }}
     >
@@ -642,13 +683,14 @@ export function DesktopErpStatusBar({
         alignItems: 'center',
         flexWrap: 'wrap',
         gap: 0.5,
-        bgcolor: '#EEF2F7',
-        borderTop: '1px solid #CBD5E1',
+        bgcolor: chrome.statusBarBg,
+        borderTop: `1px solid ${chrome.toolbarBorder}`,
         minHeight: 28,
         flexShrink: 0,
         px: 1,
         py: 0.35,
         fontFamily: '"Inter", system-ui, sans-serif',
+        transition: 'background-color 300ms ease, border-color 300ms ease, color 300ms ease',
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
@@ -664,7 +706,7 @@ export function DesktopErpStatusBar({
           gap: 1.25,
           fontSize: '0.6875rem',
           fontWeight: 600,
-          color: ERP_TEXT,
+          color: chrome.text,
         }}
       >
         <span>

@@ -7,6 +7,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import "./index.css";
 import "./styles/theme.css";
 import { AuthProvider } from "./pages/contexts/auth";
+import { PveThemeProvider } from "./theme/themeProvider";
 import { initMasters } from "./services/masters/seedMasters";
 import { syncService } from "./services/sync";
 
@@ -36,9 +37,11 @@ const appTree = (
     <React.StrictMode>
       <ErrorBoundary>
         <Provider store={store}>
-          <AuthProvider>
-            <App />
-          </AuthProvider>
+          <PveThemeProvider>
+            <AuthProvider>
+              <App />
+            </AuthProvider>
+          </PveThemeProvider>
         </Provider>
       </ErrorBoundary>
     </React.StrictMode>

@@ -1,3 +1,3 @@
-import invoiceproLogo from '../assets/invoicepro-logo.png';
+import adminLogo from '../assets/INV.png';
 
-export const APP_LOGO_URL = invoiceproLogo;
+export const APP_LOGO_URL = adminLogo;

@@ -34,6 +34,8 @@ import {
 } from '@mui/icons-material';
 import { reportService } from '../../services/reportService';
 import { formatCurrency, formatDate } from '../../utils/formatters';
+import { ReportHubShell } from '../../components/reports/ReportHubShell';
+import { PREMIUM_ERP } from '../../theme/premiumErpTheme';
 
 const salesReports = [
   {
@@ -41,24 +43,28 @@ const salesReports = [
     title: 'Sales Register',
     description: 'Complete list of all sales invoices with details',
     icon: <DescriptionIcon />,
+    accent: PREMIUM_ERP.categoryColors.sales,
   },
   {
     id: 'summary',
     title: 'Sales Summary',
     description: 'Consolidated sales data by period',
     icon: <AssessmentIcon />,
+    accent: '#3B82F6',
   },
   {
     id: 'by-customer',
     title: 'Sales by Customer',
     description: 'Customer-wise sales analysis',
     icon: <PeopleIcon />,
+    accent: '#6366F1',
   },
   {
     id: 'by-product',
     title: 'Sales by Product',
     description: 'Product-wise sales performance',
     icon: <InventoryIcon />,
+    accent: '#0EA5E9',
   },
 ];
 
@@ -164,32 +170,18 @@ export default function SalesReports({ canExport }: SalesReportsProps) {
 
   if (!selectedReport) {
     return (
-      <Box>
-        <Typography variant="h6" gutterBottom>
-          Select a Sales Report
-        </Typography>
-        <Grid container spacing={2}>
-          {salesReports.map((report) => (
-            <Grid item xs={12} sm={6} md={3} key={report.id}>
-              <Card>
-                <CardActionArea onClick={() => handleReportSelect(report.id)}>
-                  <CardContent>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                      {report.icon}
-                      <Typography variant="h6" sx={{ ml: 1 }}>
-                        {report.title}
-                      </Typography>
-                    </Box>
-                    <Typography variant="body2" color="text.secondary">
-                      {report.description}
-                    </Typography>
-                  </CardContent>
-                </CardActionArea>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
-      </Box>
+      <ReportHubShell
+        categoryLabel="Select a Sales Report"
+        categoryAccent={PREMIUM_ERP.categoryColors.sales}
+        reports={salesReports}
+        kpis={[
+          { label: 'Sales reports', value: String(salesReports.length), accent: PREMIUM_ERP.blue },
+          { label: 'Export', value: canExport ? 'Enabled' : 'View only', accent: '#16A34A' },
+        ]}
+        canExport={canExport}
+        onSelect={handleReportSelect}
+        onExport={(format) => void handleExport(format === 'print' ? 'pdf' : format)}
+      />
     );
   }
 

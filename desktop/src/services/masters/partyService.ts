@@ -2,7 +2,12 @@ import { Party, PartyInput, PartyFilters, PartyType } from '../../types/party';
 import { generateId } from '../../utils/id';
 import { ledgerAccountService } from './ledgerAccountService';
 import { autoLedgerService } from './autoLedgerService';
-import { sanitizeString } from './storageHelpers';
+import { readList, writeList, sanitizeString } from './storageHelpers';
+import { companyScopedKey } from '../../utils/companyStorage';
+
+export const PARTIES_CHANGED_EVENT = 'pve:parties-changed';
+
+const STORAGE_KEY = companyScopedKey('pve_parties');
 
 /** Ledger code must be unique; first-5-chars-only collides often (e.g. multiple "Pawan…" names). */
 const uniqueLedgerCode = (partyName: string): string => {
@@ -35,6 +40,33 @@ type MobileConflict =
 class PartyService {
   private parties: Party[] = [];
   private _hydrateRunning: Promise<void> | null = null;
+  private _loadedFromStorage = false;
+
+  private notifyChanged(): void {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(PARTIES_CHANGED_EVENT));
+    }
+  }
+
+  private async persistParties(): Promise<void> {
+    await writeList(
+      STORAGE_KEY,
+      this.parties.map((p) => ({
+        ...p,
+        id: p.id,
+        updatedAt: p.updatedAt ?? new Date().toISOString(),
+        createdAt: p.createdAt ?? new Date().toISOString(),
+      }))
+    );
+    this.notifyChanged();
+  }
+
+  private async loadPersistedParties(): Promise<void> {
+    if (this._loadedFromStorage) return;
+    const rows = await readList<Party>(STORAGE_KEY);
+    this.parties = rows.map((p) => ({ ...p, status: p.status ?? 'ACTIVE' }));
+    this._loadedFromStorage = true;
+  }
 
   private getDeletedLedgerIds(): Set<string> {
     try {
@@ -108,7 +140,12 @@ class PartyService {
       return;
     }
     this._hydrateRunning = (async () => {
+      await this.loadPersistedParties();
+      const before = this.parties.length;
       await this.doHydrateLedgerParties();
+      if (this.parties.length !== before) {
+        await this.persistParties();
+      }
     })();
     try {
       await this._hydrateRunning;
@@ -351,6 +388,7 @@ class PartyService {
 
     this.parties.push(party);
     console.log('✅ Party created successfully:', { id: party.id, name: party.name, ledgerId: party.ledgerId });
+    await this.persistParties();
     return party;
   }
 
@@ -367,7 +405,13 @@ class PartyService {
    */
   async list(filters?: PartyFilters): Promise<Party[]> {
     await this.ensureLedgerPartiesHydrated();
-    let filtered = this.parties.filter(p => p.status === 'ACTIVE');
+    let filtered = [...this.parties];
+
+    if (filters?.status) {
+      filtered = filtered.filter((p) => p.status === filters.status);
+    } else {
+      filtered = filtered.filter((p) => p.status !== 'INACTIVE');
+    }
 
     if (filters?.partyType) {
       const types = Array.isArray(filters.partyType) ? filters.partyType : [filters.partyType];
@@ -459,6 +503,7 @@ class PartyService {
       } as any);
     }
 
+    await this.persistParties();
     return updated;
   }
 
@@ -482,6 +527,45 @@ class PartyService {
       status: 'INACTIVE',
       updatedAt: new Date().toISOString(),
     };
+    await this.persistParties();
+  }
+
+  /**
+   * Ensure a sundry ledger exists for this party (required for ledger reports & vouchers).
+   */
+  async ensureLedgerForParty(partyId: string): Promise<string | null> {
+    await this.ensureLedgerPartiesHydrated();
+    const index = this.parties.findIndex((p) => p.id === partyId);
+    if (index < 0) return null;
+    const party = this.parties[index];
+    if (party.ledgerId) return party.ledgerId;
+
+    await autoLedgerService.ensureCore();
+    const ledgerGroup = this.getAutoLedgerGroup(party.partyType);
+    const ledger = await ledgerAccountService.create({
+      name: party.name,
+      code: uniqueLedgerCode(party.name),
+      groupId: ledgerGroup,
+      openingBalance: party.openingBalance || 0,
+      openingBalanceType: party.partyType === 'SUPPLIER' ? 'CREDIT' : 'DEBIT',
+      gstDetails: party.gstin ? { gstin: party.gstin } : null,
+      contactDetails: {
+        phone: party.mobile,
+        email: party.email || undefined,
+        address: party.address || undefined,
+      },
+      isCashBank: false,
+      isActive: true,
+    });
+
+    this.parties[index] = {
+      ...party,
+      ledgerId: ledger.id,
+      ledgerGroup,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.persistParties();
+    return ledger.id;
   }
 
   /**

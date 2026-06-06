@@ -44,6 +44,7 @@ export interface PartyInput {
   email?: string;
   whatsapp?: string;
   openingBalance?: number;
+  status?: 'ACTIVE' | 'INACTIVE';
 }
 
 export interface PartyFilters {

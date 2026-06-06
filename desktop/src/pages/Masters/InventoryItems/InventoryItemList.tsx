@@ -30,9 +30,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/DeleteOutline';
-import RestoreIcon from '@mui/icons-material/Restore';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import UploadIcon from '@mui/icons-material/Upload';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
@@ -44,12 +42,14 @@ import { unitOfMeasureService } from '../../../services/masters/unitOfMeasureSer
 import { godownService } from '../../../services/masters/godownService';
 import { InventoryItem, InventoryStatus, ItemCategory, UnitOfMeasure } from '../../../types/masters';
 import { useMasterList } from '../../../hooks/useMasterList';
+import { useInventoryItemsChanged } from '../../../hooks/useActiveInventoryItems';
 import { usePermission } from '../../../hooks/usePermission';
 import {
   exportInventoryItemsExcel,
   finalizeInventoryErpRows,
   parseInventoryExcelBuffer,
 } from './inventoryItemBulkExcel';
+import { DocumentRowActionsMenu } from '../../../components/listActions/DocumentRowActionsMenu';
 
 const statusOptions: { value: 'ALL' | InventoryStatus; label: string }[] = [
   { value: 'ALL', label: 'All statuses' },
@@ -128,6 +128,7 @@ const InventoryItemList = () => {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; item: InventoryItem } | null>(null);
 
   useEffect(() => {
     itemCategoryService
@@ -172,6 +173,8 @@ const InventoryItemList = () => {
   }, [search, selectedCategory, statusFilter, showInactive]);
 
   const { data: items, loading, error, refresh } = useMasterList<InventoryItem>(fetchItems);
+
+  useInventoryItemsChanged(refresh);
 
   useEffect(() => {
     let cancelled = false;
@@ -292,12 +295,7 @@ const InventoryItemList = () => {
   };
 
   const openBulkDialog = () => {
-    setBulkDialogOpen(true);
-    setBulkParsedRows(null);
-    setBulkParsingError(null);
-    setBulkFileName(null);
-    setBulkResultSummary(null);
-    setBulkResultErrors([]);
+    navigate('/items?import=1');
   };
 
   const closeBulkDialog = () => {
@@ -426,7 +424,7 @@ const InventoryItemList = () => {
           {canManage && (
             <>
               <Button variant="outlined" size="small" startIcon={<UploadIcon />} onClick={openBulkDialog}>
-                Bulk Upload/Edit
+                Import Items
               </Button>
               <Button
                 variant="outlined"
@@ -563,7 +561,13 @@ const InventoryItemList = () => {
                       </TableCell>
                       <TableCell>
                         <Stack spacing={0.5}>
-                          <Typography fontWeight={600}>{item.name}</Typography>
+                          <Typography
+                            fontWeight={600}
+                            sx={{ cursor: 'pointer', color: 'primary.main' }}
+                            onClick={() => navigate(`/masters/inventory-items/${item.id}`)}
+                          >
+                            {item.name}
+                          </Typography>
                           {item.barcode ? (
                             <Typography variant="caption" color="text.secondary">
                               Barcode: {item.barcode}
@@ -583,44 +587,13 @@ const InventoryItemList = () => {
                         />
                       </TableCell>
                       <TableCell align="right">
-                        <Stack direction="row" spacing={1} justifyContent="flex-end">
-                          <Tooltip title="Edit">
-                            <span>
-                              <IconButton
-                                size="small"
-                                onClick={() => navigate(`/masters/inventory-items/${item.id}/edit`)}
-                                disabled={!canManage}
-                              >
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                          {item.status === 'INACTIVE' ? (
-                            <Tooltip title="Restore">
-                              <span>
-                                <IconButton
-                                  size="small"
-                                  onClick={() => handleRestore(item.id)}
-                                  disabled={!canManage}
-                                >
-                                  <RestoreIcon fontSize="small" />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                          ) : (
-                            <Tooltip title="Deactivate">
-                              <span>
-                                <IconButton
-                                  size="small"
-                                  onClick={() => handleSoftDelete(item.id)}
-                                  disabled={!canManage}
-                                >
-                                  <DeleteIcon fontSize="small" />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                          )}
-                        </Stack>
+                        <IconButton
+                          size="small"
+                          onClick={(e) => setRowMenu({ anchor: e.currentTarget, item })}
+                          disabled={!canManage}
+                        >
+                          <MoreVertIcon fontSize="small" />
+                        </IconButton>
                       </TableCell>
                     </TableRow>
                   ))
@@ -742,6 +715,17 @@ const InventoryItemList = () => {
           </Button>
         </DialogActions>
       </Dialog>
+      <DocumentRowActionsMenu
+        anchorEl={rowMenu?.anchor ?? null}
+        open={Boolean(rowMenu)}
+        onClose={() => setRowMenu(null)}
+        onRefresh={() => void refresh()}
+        context={
+          rowMenu
+            ? { type: 'inventory', item: rowMenu.item, canManage: Boolean(canManage) }
+            : null
+        }
+      />
     </Stack>
   );
 };

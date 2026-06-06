@@ -11,10 +11,10 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
+import { alpha } from '@mui/material/styles';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import type { HealthStatusRow } from '../../utils/dashboardHealth';
-import { DASHBOARD_THEME, sectionEyebrowSx } from './dashboardTheme';
+import { sectionEyebrowSx, useDashboardTheme, type DashboardThemeTokens } from './dashboardTheme';
 
 export interface SmartSuggestion {
   text: string;
@@ -31,10 +31,10 @@ export interface SmartAssistantCardProps {
   healthStatuses?: HealthStatusRow[];
 }
 
-function statusColor(level: HealthStatusRow['level']): string {
-  if (level === 'ok') return DASHBOARD_THEME.status.ok;
-  if (level === 'error') return DASHBOARD_THEME.status.error;
-  return DASHBOARD_THEME.status.warn;
+function statusColor(dt: DashboardThemeTokens, level: HealthStatusRow['level']): string {
+  if (level === 'ok') return dt.status.ok;
+  if (level === 'error') return dt.status.error;
+  return dt.status.warn;
 }
 
 export function SmartAssistantCard({
@@ -47,62 +47,76 @@ export function SmartAssistantCard({
   healthScore = 84,
   healthStatuses = [],
 }: SmartAssistantCardProps) {
-  const theme = useTheme();
-  const isDark = theme.palette.mode === 'dark';
+  const dt = useDashboardTheme();
   const visibleSuggestions = compact ? suggestions.slice(0, 4) : suggestions;
+  const enterprise = Boolean(dt.enterprise);
 
   return (
     <Card
       elevation={0}
       sx={{
-        minHeight: compact ? 520 : undefined,
-        borderRadius: DASHBOARD_THEME.cardRadius,
-        border: '1px solid',
-        borderColor: alpha(DASHBOARD_THEME.primary, isDark ? 0.35 : 0.14),
+        minHeight: compact ? 480 : undefined,
+        borderRadius: dt.cardRadius,
+        border: `1px solid ${dt.border}`,
         overflow: 'hidden',
-        boxShadow: DASHBOARD_THEME.cardShadow,
-        transition: DASHBOARD_THEME.transition,
-        fontFamily: DASHBOARD_THEME.fontFamily,
-        bgcolor: isDark ? alpha('#1E293B', 0.9) : '#FFFFFF',
-        '&:hover': { boxShadow: DASHBOARD_THEME.cardShadowHover },
+        boxShadow: dt.cardShadow,
+        transition: dt.transition,
+        fontFamily: dt.fontFamily,
+        bgcolor: dt.surface,
+        '&:hover': { boxShadow: enterprise ? dt.cardShadowHover : dt.cardShadowHover },
       }}
     >
       <Box
         sx={{
-          px: compact ? 2 : 2.25,
-          py: compact ? 1.75 : 1.5,
-          background: isDark
-            ? `linear-gradient(125deg, ${alpha(DASHBOARD_THEME.primary, 0.45)} 0%, ${alpha('#1E293B', 0.95)} 55%)`
-            : `linear-gradient(125deg, ${DASHBOARD_THEME.primary} 0%, #3B82F6 48%, ${alpha('#6366F1', 0.9)} 100%)`,
-          color: '#fff',
+          px: compact ? 1.75 : 2.25,
+          py: compact ? 1.25 : 1.5,
+          ...(enterprise
+            ? {
+                bgcolor: dt.assistantHeaderBg ?? dt.bgSubtle,
+                color: dt.text.primary,
+                borderBottom: `1px solid ${dt.border}`,
+              }
+            : {
+                background: dt.assistantGradient,
+                color: '#fff',
+              }),
         }}
       >
         <Stack direction="row" alignItems="center" justifyContent="space-between">
           <Stack direction="row" alignItems="center" spacing={1}>
             <Box
               sx={{
-                width: compact ? 42 : 36,
-                height: compact ? 42 : 36,
-                borderRadius: '12px',
+                width: compact ? 36 : 36,
+                height: compact ? 36 : 36,
+                borderRadius: enterprise ? '8px' : '12px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                bgcolor: alpha('#fff', 0.18),
-                backdropFilter: 'blur(8px)',
+                bgcolor: enterprise ? alpha(dt.primary, 0.1) : alpha('#fff', 0.18),
+                color: enterprise ? dt.primary : 'inherit',
+                border: enterprise ? `1px solid ${dt.border}` : 'none',
               }}
             >
-              <AutoAwesomeIcon sx={{ fontSize: compact ? 22 : 20 }} />
+              <AutoAwesomeIcon sx={{ fontSize: compact ? 20 : 20 }} />
             </Box>
             <Box>
               <Typography
-                fontWeight={800}
-                fontSize={compact ? '1.0625rem' : '0.9375rem'}
-                letterSpacing="-0.02em"
+                fontWeight={700}
+                fontSize={compact ? '0.9375rem' : '0.9375rem'}
+                letterSpacing="-0.01em"
+                color={enterprise ? dt.text.primary : 'inherit'}
               >
                 PVE Smart Assistant
               </Typography>
-              <Typography variant="caption" sx={{ opacity: 0.9, fontWeight: 500 }}>
-                AI-powered business insights
+              <Typography
+                variant="caption"
+                sx={{
+                  opacity: enterprise ? 1 : 0.9,
+                  fontWeight: 500,
+                  color: enterprise ? dt.text.secondary : 'inherit',
+                }}
+              >
+                Business insights &amp; reminders
               </Typography>
             </Box>
           </Stack>
@@ -111,10 +125,19 @@ export function SmartAssistantCard({
             size="small"
             sx={{
               height: 22,
-              fontWeight: 800,
-              bgcolor: alpha('#fff', 0.2),
-              color: '#fff',
-              border: `1px solid ${alpha('#fff', 0.35)}`,
+              fontWeight: 700,
+              fontSize: '0.625rem',
+              ...(enterprise
+                ? {
+                    bgcolor: alpha(dt.accent, 0.12),
+                    color: dt.accent,
+                    border: `1px solid ${alpha(dt.accent, 0.25)}`,
+                  }
+                : {
+                    bgcolor: alpha('#fff', 0.2),
+                    color: '#fff',
+                    border: `1px solid ${alpha('#fff', 0.35)}`,
+                  }),
             }}
           />
         </Stack>
@@ -129,22 +152,18 @@ export function SmartAssistantCard({
       >
         <Box
           sx={{
-            p: compact ? 1.5 : 1.5,
+            p: 1.5,
             mb: compact ? 1.5 : 1.75,
-            borderRadius: DASHBOARD_THEME.innerRadius,
-            border: '1px solid',
-            borderColor: alpha(DASHBOARD_THEME.primary, 0.12),
-            background: isDark
-              ? alpha(DASHBOARD_THEME.primary, 0.08)
-              : `linear-gradient(180deg, ${alpha(DASHBOARD_THEME.primarySoft, 0.9)} 0%, ${alpha('#fff', 0.95)} 100%)`,
-            backdropFilter: 'blur(8px)',
+            borderRadius: dt.innerRadius,
+            border: `1px solid ${dt.border}`,
+            bgcolor: enterprise ? dt.bgSubtle : alpha(dt.primarySoft, 0.65),
           }}
         >
           <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 0.75 }}>
-            <Typography sx={{ ...sectionEyebrowSx, color: DASHBOARD_THEME.text.secondary }}>
+            <Typography sx={{ ...sectionEyebrowSx(dt), color: dt.text.secondary }}>
               Business Health Score
             </Typography>
-            <Typography fontWeight={800} fontSize={compact ? '1.75rem' : '1.5rem'} color={DASHBOARD_THEME.primary}>
+            <Typography fontWeight={700} fontSize={compact ? '1.5rem' : '1.5rem'} color={dt.text.primary}>
               {healthScore}
               <Typography component="span" fontSize="0.875rem" color="text.secondary" fontWeight={600}>
                 {' '}
@@ -156,20 +175,20 @@ export function SmartAssistantCard({
             variant="determinate"
             value={healthScore}
             sx={{
-              height: 6,
-              borderRadius: 3,
+              height: 4,
+              borderRadius: 2,
               mb: 1.25,
-              bgcolor: alpha(DASHBOARD_THEME.primary, 0.12),
+              bgcolor: alpha(dt.primary, 0.1),
               '& .MuiLinearProgress-bar': {
-                borderRadius: 3,
-                background: `linear-gradient(90deg, ${DASHBOARD_THEME.primary} 0%, #6366F1 100%)`,
+                borderRadius: 2,
+                bgcolor: dt.primary,
               },
             }}
           />
           <Stack spacing={0.65}>
             {healthStatuses.map((row) => (
               <Stack key={row.label} direction="row" justifyContent="space-between" alignItems="center">
-                <Typography variant="caption" fontWeight={600} color={DASHBOARD_THEME.text.secondary}>
+                <Typography variant="caption" fontWeight={600} color={dt.text.secondary}>
                   {row.label}
                 </Typography>
                 <Chip
@@ -179,9 +198,9 @@ export function SmartAssistantCard({
                     height: 20,
                     fontSize: '0.625rem',
                     fontWeight: 700,
-                    bgcolor: alpha(statusColor(row.level), 0.12),
-                    color: statusColor(row.level),
-                    border: `1px solid ${alpha(statusColor(row.level), 0.25)}`,
+                    bgcolor: alpha(statusColor(dt, row.level), 0.12),
+                    color: statusColor(dt, row.level),
+                    border: `1px solid ${alpha(statusColor(dt, row.level), 0.25)}`,
                   }}
                 />
               </Stack>
@@ -189,7 +208,7 @@ export function SmartAssistantCard({
           </Stack>
         </Box>
 
-        <Typography sx={{ ...sectionEyebrowSx, mb: 1 }}>Today&apos;s suggestions</Typography>
+        <Typography sx={{ ...sectionEyebrowSx(dt), mb: 1 }}>Today&apos;s suggestions</Typography>
         <List dense disablePadding>
           {visibleSuggestions.map((s, i) => (
             <ListItem
@@ -198,8 +217,7 @@ export function SmartAssistantCard({
               sx={{
                 py: compact ? 0.65 : 0.55,
                 alignItems: 'flex-start',
-                borderBottom:
-                  i < visibleSuggestions.length - 1 ? `1px solid ${DASHBOARD_THEME.border}` : 'none',
+                borderBottom: i < visibleSuggestions.length - 1 ? `1px solid ${dt.border}` : 'none',
               }}
             >
               <Chip
@@ -211,8 +229,8 @@ export function SmartAssistantCard({
                   mr: 1,
                   fontSize: '0.625rem',
                   fontWeight: 800,
-                  bgcolor: alpha(DASHBOARD_THEME.primary, 0.1),
-                  color: DASHBOARD_THEME.primary,
+                  bgcolor: alpha(dt.primary, 0.1),
+                  color: dt.primary,
                 }}
               />
               <ListItemText
@@ -221,7 +239,7 @@ export function SmartAssistantCard({
                   variant: 'body2',
                   lineHeight: 1.45,
                   fontSize: '0.8125rem',
-                  color: DASHBOARD_THEME.text.primary,
+                  color: dt.text.primary,
                   fontWeight: 500,
                 }}
               />
@@ -238,10 +256,10 @@ export function SmartAssistantCard({
             onClick={onWhatsApp}
             sx={{
               textTransform: 'none',
-              fontWeight: 700,
-              py: compact ? 1.1 : 1,
-              borderRadius: DASHBOARD_THEME.innerRadius,
-              boxShadow: `0 4px 14px ${alpha(DASHBOARD_THEME.primary, 0.35)}`,
+              fontWeight: 600,
+              py: compact ? 1 : 1,
+              borderRadius: dt.innerRadius,
+              boxShadow: enterprise ? 'none' : `0 4px 14px ${alpha(dt.primary, 0.35)}`,
             }}
           >
             {whatsAppLoading ? 'Preparing…' : 'Send Reminder'}
@@ -254,8 +272,8 @@ export function SmartAssistantCard({
             sx={{
               textTransform: 'none',
               fontWeight: 600,
-              borderRadius: DASHBOARD_THEME.innerRadius,
-              borderColor: alpha(DASHBOARD_THEME.primary, 0.35),
+              borderRadius: dt.innerRadius,
+              borderColor: alpha(dt.primary, 0.35),
             }}
           >
             Generate Report
@@ -265,7 +283,7 @@ export function SmartAssistantCard({
             size="small"
             fullWidth
             onClick={onViewDetails}
-            sx={{ textTransform: 'none', fontWeight: 600, color: DASHBOARD_THEME.text.secondary }}
+            sx={{ textTransform: 'none', fontWeight: 600, color: dt.text.secondary }}
           >
             View Details
           </Button>

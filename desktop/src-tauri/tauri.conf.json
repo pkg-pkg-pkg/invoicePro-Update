@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "PVE InvoicePro 360",
-  "version": "3.4.8",
+  "version": "3.5.0",
   "identifier": "com.pve.invoicepro",
   "build": {
     "frontendDist": "../dist",

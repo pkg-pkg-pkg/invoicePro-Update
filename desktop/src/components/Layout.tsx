@@ -25,19 +25,30 @@ import SearchIcon from "@mui/icons-material/Search";
 import NotificationsOutlinedIcon from "@mui/icons-material/NotificationsOutlined";
 import SettingsIcon from "@mui/icons-material/Settings";
 import LogoutIcon from "@mui/icons-material/Logout";
+import ExitToAppIcon from "@mui/icons-material/ExitToApp";
 import FeedbackIcon from "@mui/icons-material/Feedback";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
-
+import LightModeIcon from "@mui/icons-material/LightMode";
+import DarkModeIcon from "@mui/icons-material/DarkMode";
+import CheckIcon from "@mui/icons-material/Check";
+import { useTheme } from "@mui/material/styles";
+import { usePveThemeOptional } from "../theme/themeProvider";
+import { applyAppearanceAndNotify, readAppearance } from "../theme/appearanceSettings";
+import type { ThemeMode } from "../theme/themeProvider";
 import { useAuth } from "../pages/contexts/auth";
 import { usePermissions } from "../hooks/usePermissions";
+import { useUserDisplayName } from "../hooks/useUserDisplayName";
 import { getAppSettings } from '../services/appSettingsService';
 import FeedbackDialog from "./FeedbackDialog";
 import { checkForAppUpdate, resolveDownloadUrl, type AppReleaseInfo } from "../services/appUpdateService";
 import { openExternalUrl } from "../services/printService";
 import { isElectronRuntime } from "../utils/runtime";
 import { isBlockingOverlayForEscape } from "../utils/isBlockingOverlayForEscape";
-import { getSemanticEscapeTarget } from "../utils/escapeBackNavigation";
+import { resolveEscapeBackAction } from "../utils/escapeBackNavigation";
+import { APP_QUIT_REQUEST_EVENT, quitApplication, requestAppQuit } from "../utils/appQuit";
+import AppQuitDialog from "./AppQuitDialog";
+import AIAssistant from "./AIAssistant.jsx";
 import { dueReminderService, type DueReminder } from "../services/reminders/dueReminderService";
 import ElectronTitleBar, {
   ELECTRON_TITLEBAR_HEIGHT_PX,
@@ -50,21 +61,30 @@ import {
   DesktopErpMenuBar,
   DesktopErpStatusBar,
   ERP_MENU_ROW_PX,
-  ERP_TEXT,
   ERP_TITLE_ROW_PX,
-  ERP_WORKSPACE_BG,
   getErpFlatNavLinks,
   erpNavigateTo,
 } from "./erp/DesktopErpChrome";
+import { DesktopLeftSidebar } from "./erp/DesktopLeftSidebar";
+import { QuickAddMenu } from "./erp/QuickAddMenu";
+import { ERP_PRIMARY_MODULES } from "../config/erpModuleNav";
+import { getErpChromeColors } from "../theme/erpColors";
+import { pageHasOwnHeading } from "../utils/pageChrome";
 
 // Page title mapping
 const getPageTitle = (pathname: string): { title: string; showBackButton: boolean } => {
   const routeMap: Record<string, { title: string; showBackButton: boolean }> = {
     '/dashboard': { title: 'Dashboard', showBackButton: false },
+    '/items': { title: 'Items', showBackButton: false },
+    '/banking': { title: 'Banking', showBackButton: false },
+    '/sales': { title: 'Sales', showBackButton: false },
+    '/purchase': { title: 'Purchase', showBackButton: false },
     '/products': { title: 'Inventory Items', showBackButton: false },
     '/products/new': { title: 'Add Inventory Item', showBackButton: true },
     '/products/edit': { title: 'Edit Inventory Item', showBackButton: true },
-    '/parties': { title: 'Party Master', showBackButton: false },
+    '/customers': { title: 'Customers', showBackButton: false },
+    '/customers/ledger-report': { title: 'Ledger Report', showBackButton: true },
+    '/parties': { title: 'Customers', showBackButton: false },
     '/parties/new': { title: 'New Party', showBackButton: true },
     '/parties/edit': { title: 'Edit Party', showBackButton: true },
     '/parties/ledger-report': { title: 'Ledger Report', showBackButton: true },
@@ -112,6 +132,10 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
     '/masters/inventory-items': { title: 'Inventory Items', showBackButton: false },
     '/masters/inventory-items/new': { title: 'Add Inventory Item', showBackButton: true },
     '/masters/inventory-items/edit': { title: 'Edit Inventory Item', showBackButton: true },
+    '/masters/price-lists': { title: 'Price Lists', showBackButton: false },
+    '/masters/price-lists/new': { title: 'New Price List', showBackButton: true },
+    '/masters/stock-adjustments': { title: 'Stock Adjustments', showBackButton: false },
+    '/masters/stock-adjustments/new': { title: 'New Stock Adjustment', showBackButton: true },
     '/expenses/heads/new': { title: 'Add Expense Head', showBackButton: true },
     '/expenses/heads/edit': { title: 'Edit Expense Head', showBackButton: true },
     '/gst': { title: 'GST Reports', showBackButton: false },
@@ -155,48 +179,46 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
     return { title: 'Expenses', showBackButton: isNewOrEdit };
   }
   if (pathname.startsWith('/masters/inventory-items')) {
-    return { title: 'Inventory Items', showBackButton: isNewOrEdit };
+    if (pathname.endsWith('/new') || pathname.includes('/edit')) {
+      return { title: pathname.includes('/edit') ? 'Edit Inventory Item' : 'Add Inventory Item', showBackButton: true };
+    }
+    if (/^\/masters\/inventory-items\/[^/]+$/.test(pathname)) {
+      return { title: 'Item Details', showBackButton: true };
+    }
+    return { title: 'Inventory Items', showBackButton: false };
   }
-  if (pathname.startsWith('/vouchers/sales')) {
-    return { title: 'Sales Vouchers', showBackButton: isNewOrEdit };
+  if (pathname.startsWith('/masters/price-lists')) {
+    return { title: 'Price Lists', showBackButton: isNewOrEdit };
   }
-  if (pathname.startsWith('/vouchers/purchase')) {
-    return { title: 'Purchase Vouchers', showBackButton: isNewOrEdit };
+  if (pathname.startsWith('/masters/stock-adjustments')) {
+    return { title: 'Stock Adjustments', showBackButton: isNewOrEdit };
   }
-  if (pathname.startsWith('/vouchers/payment-vouchers')) {
-    return { title: 'Payment Vouchers', showBackButton: isNewOrEdit };
+  if (pathname.startsWith('/items')) {
+    if (pathname.includes('price-lists')) return { title: 'Price Lists', showBackButton: false };
+    if (pathname.includes('adjustments')) return { title: 'Inventory Adjustments', showBackButton: false };
+    return { title: 'Items', showBackButton: false };
   }
-  if (pathname.startsWith('/vouchers/receipt-vouchers')) {
-    return { title: 'Receipt Vouchers', showBackButton: isNewOrEdit };
+  if (pathname.startsWith('/sales')) {
+    const parts = pathname.split('/').filter(Boolean);
+    const segment = parts[1];
+    if (segment === 'invoices' && parts[2]) {
+      return { title: 'Tax Invoice', showBackButton: true };
+    }
+    if (segment === 'collections' && (parts[2] === 'new' || parts[3] === 'edit')) {
+      return { title: parts[2] === 'new' ? 'Record Collection' : 'Edit Collection', showBackButton: true };
+    }
+    const labels: Record<string, string> = {
+      quotations: 'Quotations',
+      proforma: 'Proforma Invoices',
+      'sales-orders': 'Sales Orders',
+      dispatch: 'Dispatch Notes',
+      'tax-invoices': 'Tax Invoices',
+      collections: 'Collections',
+      'credit-adjustments': 'Credit Adjustments',
+      recurring: 'Recurring Billing',
+    };
+    return { title: labels[segment ?? ''] ?? 'Sales Management', showBackButton: false };
   }
-  if (pathname.startsWith('/vouchers/money/new')) {
-    return { title: 'New Payment / Receipt Voucher', showBackButton: true };
-  }
-  if (pathname.startsWith('/vouchers/journal')) {
-    return { title: 'Journal Vouchers', showBackButton: isNewOrEdit };
-  }
-  if (pathname.startsWith('/payments')) {
-    return { title: 'Payments', showBackButton: isNewOrEdit };
-  }
-  if (pathname.startsWith('/accounts')) {
-    return { title: 'Accounts', showBackButton: isNewOrEdit };
-  }
-  if (pathname.startsWith('/parties')) {
-    return { title: 'Party Master', showBackButton: isNewOrEdit };
-  }
-  if (pathname.startsWith('/masters/godowns')) {
-    return { title: 'Godowns', showBackButton: isNewOrEdit };
-  }
-  if (pathname.startsWith('/schemes')) {
-    return { title: 'Schemes', showBackButton: isNewOrEdit };
-  }
-  if (pathname.startsWith('/masters/ledger-accounts')) {
-    return { title: 'Ledger Accounts', showBackButton: isNewOrEdit };
-  }
-  if (pathname.startsWith('/products')) {
-    return { title: 'Inventory Items', showBackButton: isNewOrEdit };
-  }
-
   return { title: APP_DISPLAY_NAME, showBackButton: false };
 };
 
@@ -255,11 +277,22 @@ const Layout: React.FC = () => {
   const [screenLocked, setScreenLocked] = useState(false);
   const [unlockPin, setUnlockPin] = useState('');
   const [lockError, setLockError] = useState<string | null>(null);
+  const [quitConfirmOpen, setQuitConfirmOpen] = useState(false);
 
   const [appSettings, setAppSettings] = useState(() => getAppSettings());
 
   const navigate = useNavigate();
   const location = useLocation();
+  const muiTheme = useTheme();
+  const pveTheme = usePveThemeOptional();
+  const isDark = pveTheme?.isDark ?? muiTheme.palette.mode === 'dark';
+  const mode: ThemeMode = pveTheme?.mode ?? (isDark ? 'dark' : 'light');
+  const setMode =
+    pveTheme?.setMode ??
+    ((next: ThemeMode) => {
+      applyAppearanceAndNotify(next === 'dark' ? 'premium-dark' : 'light', readAppearance().accent);
+    });
+  const chrome = useMemo(() => getErpChromeColors(isDark ? 'premium-dark' : 'light'), [isDark]);
   const { user, logout } = useAuth();
   const { canAccessFeature } = usePermissions();
 
@@ -281,10 +314,7 @@ const Layout: React.FC = () => {
       ''
   ).trim();
   const userHasPhoto = !!userPhotoUrl;
-  const userFullName = useMemo(
-    () => resolveHeaderDisplayName(user as unknown as Record<string, unknown> | undefined, companyOwnerName),
-    [user, companyOwnerName]
-  );
+  const userFullName = useUserDisplayName();
   const userInitials = userFullName
     .split(' ')
     .filter(Boolean)
@@ -295,9 +325,20 @@ const Layout: React.FC = () => {
   const normalizedPathname =
     String(location.pathname ?? '').replace(/\/+$/, '') || '/';
   const { title: pageTitle, showBackButton } = getPageTitle(normalizedPathname);
+  const hideToolbarTitle = pageHasOwnHeading(normalizedPathname);
+  const showSecondaryToolbar = !hideToolbarTitle || showBackButton;
   const gstEnabled = Boolean(appSettings?.features?.gstEnabled);
   const erpMobileLinks = useMemo(
     () => getErpFlatNavLinks(canAccessFeature, gstEnabled),
+    [canAccessFeature, gstEnabled]
+  );
+  const erpModuleLinks = useMemo(
+    () =>
+      ERP_PRIMARY_MODULES.filter((m) => {
+        if (m.gstOnly && !gstEnabled) return false;
+        if (m.perm && !canAccessFeature(m.perm)) return false;
+        return true;
+      }),
     [canAccessFeature, gstEnabled]
   );
 
@@ -434,19 +475,26 @@ const Layout: React.FC = () => {
   }, [updateCheck?.info, appUpdate?.info]);
 
   const handleBackNavigation = useCallback(() => {
-    const idx = Number((window.history.state as any)?.idx ?? -1);
-    const canGoBack = Number.isFinite(idx) ? idx > 0 : window.history.length > 1;
-    if (canGoBack) {
+    const idx = Number((window.history.state as { idx?: number })?.idx ?? -1);
+    const historyCanGoBack = Number.isFinite(idx) ? idx > 0 : window.history.length > 1;
+    const action = resolveEscapeBackAction(location.pathname, location.search, historyCanGoBack);
+
+    if (action.type === 'history') {
       navigate(-1);
       return;
     }
-    const semantic = getSemanticEscapeTarget(location.pathname, location.search);
-    if (semantic) {
-      navigate(semantic);
+    if (action.type === 'navigate') {
+      navigate(action.to);
       return;
     }
-    navigate('/dashboard');
+    requestAppQuit();
   }, [navigate, location.pathname, location.search]);
+
+  useEffect(() => {
+    const onQuitRequest = () => setQuitConfirmOpen(true);
+    window.addEventListener(APP_QUIT_REQUEST_EVENT, onQuitRequest);
+    return () => window.removeEventListener(APP_QUIT_REQUEST_EVENT, onQuitRequest);
+  }, []);
 
   /** Escape = same as header back (when no modal/menu is eating the key). */
   useEffect(() => {
@@ -686,7 +734,7 @@ const Layout: React.FC = () => {
       return;
     }
     if (s.includes('product') || s.includes('item') || s.includes('inventory') || s.includes('stock')) {
-      navigate(`/masters/inventory-items?q=${encodeURIComponent(q)}`);
+      navigate(`/items?q=${encodeURIComponent(q)}`);
       return;
     }
     if (s.includes('expense') || s.includes('spend')) {
@@ -701,8 +749,88 @@ const Layout: React.FC = () => {
       navigate('/reports');
       return;
     }
-    navigate(`/masters/inventory-items?q=${encodeURIComponent(q)}`);
+    navigate(`/items?q=${encodeURIComponent(q)}`);
   };
+
+  const headerSearchField = shouldShowHeaderSearch ? (
+    <TextField
+      size="small"
+      fullWidth
+      inputRef={headerSearchRef}
+      placeholder="Search invoices, customers, items, reports..."
+      value={headerSearch}
+      onChange={(e) => setHeaderSearch(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          submitHeaderSearch();
+        }
+      }}
+      inputProps={{
+        'aria-label': 'Global search',
+        title: 'Search invoices, customers, items, reports. Ctrl+K to focus.',
+      }}
+      InputProps={{
+        startAdornment: (
+          <InputAdornment position="start">
+            <SearchIcon sx={{ color: '#64748B', fontSize: 20 }} />
+          </InputAdornment>
+        ),
+        endAdornment: (
+          <InputAdornment position="end">
+            <Box
+              component="kbd"
+              sx={{
+                display: { xs: 'none', md: 'inline-flex' },
+                alignItems: 'center',
+                px: 0.75,
+                py: 0.25,
+                fontSize: '0.6875rem',
+                fontWeight: 700,
+                fontFamily: 'ui-monospace, monospace',
+                color: '#64748B',
+                bgcolor: '#F1F5F9',
+                border: '1px solid #E2E8F0',
+                borderRadius: '6px',
+                lineHeight: 1.2,
+              }}
+            >
+              Ctrl+K
+            </Box>
+          </InputAdornment>
+        ),
+      }}
+      sx={{
+        '& .MuiOutlinedInput-root': {
+          height: 36,
+          bgcolor: muiTheme.palette.background.paper,
+          borderRadius: '16px',
+          color: muiTheme.palette.text.primary,
+          fontSize: '0.8125rem',
+          fontFamily: '"Inter", system-ui, sans-serif',
+          transition: muiTheme.transitions.create(['box-shadow', 'border-color'], { duration: 300 }),
+          boxShadow: isDark ? 'none' : '0 1px 3px rgba(15, 23, 42, 0.06)',
+          '& fieldset': {
+            borderColor: muiTheme.palette.divider,
+          },
+          '&:hover fieldset': {
+            borderColor: muiTheme.palette.primary.main,
+          },
+          '&.Mui-focused': {
+            boxShadow: isDark ? 'none' : `0 0 0 3px rgba(37, 99, 235, 0.12)`,
+          },
+          '&.Mui-focused fieldset': {
+            borderColor: muiTheme.palette.primary.main,
+            borderWidth: '1px',
+          },
+        },
+        '& .MuiInputBase-input::placeholder': {
+          color: muiTheme.palette.text.secondary,
+          opacity: 1,
+        },
+      }}
+    />
+  ) : null;
 
   const titleBarOffset = electronUsesFramelessChrome() ? ELECTRON_TITLEBAR_HEIGHT_PX : 0;
   const TOOLBAR_ROW_XS = 48;
@@ -720,21 +848,43 @@ const Layout: React.FC = () => {
       }}
     >
       <ElectronTitleBar />
-      <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, width: '100%', minHeight: 0, overflow: 'hidden' }}>
+      <Box
+        sx={{
+          display: 'flex',
+          flex: 1,
+          width: '100%',
+          minHeight: 0,
+          overflow: 'hidden',
+          pt: titleBarOffset ? `${titleBarOffset}px` : 0,
+        }}
+      >
+        <DesktopLeftSidebar canAccessFeature={canAccessFeature} gstEnabled={gstEnabled} />
+        <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, width: '100%', minHeight: 0, overflow: 'hidden', minWidth: 0 }}>
         <Box
         sx={(t) => ({
-            position: 'fixed',
-          top: titleBarOffset,
-          left: 0,
-          right: 0,
+            position: 'sticky',
+          top: 0,
           zIndex: t.zIndex.drawer + 1,
             display: 'flex',
             flexDirection: 'column',
+            flexShrink: 0,
             boxShadow: '0 1px 0 rgba(15,23,42,0.12)',
             overflow: 'visible',
+            bgcolor: chrome.headerBg,
           })}
         >
           <DesktopErpTitleBar
+            leadingSlot={
+              <IconButton
+                color="inherit"
+                aria-label="Open menu"
+                onClick={(e) => setMobileNavAnchor(e.currentTarget)}
+                sx={{ display: { sm: 'none' }, color: 'inherit', p: 0.35, ml: -0.25 }}
+              >
+                <MenuIcon sx={{ fontSize: 22 }} />
+              </IconButton>
+            }
+            centerSlot={headerSearchField}
             rightSlot={
           <Box
             sx={{
@@ -744,16 +894,17 @@ const Layout: React.FC = () => {
                   px: 0.75,
                   py: 0.25,
                   borderRadius: 999,
-                  border: '1px solid rgba(255,255,255,0.28)',
-                  bgcolor: 'rgba(255,255,255,0.06)',
+                  border: `1px solid ${chrome.userGroupBorder}`,
+                  bgcolor: chrome.userGroupBg,
                 }}
               >
+                <QuickAddMenu canAccessFeature={canAccessFeature} />
                 <IconButton
                   color="inherit"
                   aria-label="Updates and notifications"
                   title="Notifications"
                   onClick={(e) => setUpdateMenuAnchor(e.currentTarget)}
-                  sx={{ color: '#fff', p: 0.5 }}
+                  sx={{ color: chrome.headerText, p: 0.5 }}
                 >
                   <Badge
                     color="error"
@@ -767,7 +918,7 @@ const Layout: React.FC = () => {
                 </IconButton>
             <Typography
                   variant="body2"
-                  sx={{ maxWidth: 170, display: { xs: 'none', md: 'block' }, color: '#fff', fontWeight: 700 }}
+                  sx={{ maxWidth: 170, display: { xs: 'none', md: 'block' }, color: chrome.headerText, fontWeight: 700 }}
               noWrap
                   title={userFullName}
                 >
@@ -785,13 +936,15 @@ const Layout: React.FC = () => {
               </Box>
             }
           />
-          <Box sx={{ display: { xs: 'none', sm: 'block' }, overflow: 'visible' }}>
+          {/* Legacy top menu — replaced by left sidebar on sm+; mobile uses hamburger */}
+          <Box sx={{ display: 'none', overflow: 'visible' }}>
             <DesktopErpMenuBar
               navigate={navigate}
               canAccessFeature={canAccessFeature}
               gstEnabled={gstEnabled}
             />
           </Box>
+        {showSecondaryToolbar ? (
         <Toolbar
           disableGutters
                 sx={{
@@ -799,24 +952,15 @@ const Layout: React.FC = () => {
               minHeight: { xs: TOOLBAR_ROW_XS, sm: TOOLBAR_ROW_SM },
               py: { xs: 0.25, sm: 0.35 },
             px: 0,
-              bgcolor: '#E8EEF4',
-              borderBottom: '1px solid #cbd5e1',
-              color: ERP_TEXT,
+              bgcolor: chrome.toolbarBg,
+              borderBottom: `1px solid ${chrome.toolbarBorder}`,
+              color: chrome.text,
             }}
           >
           <AppTopBar
-            wideSearch={shouldShowHeaderSearch}
+            wideSearch={false}
             left={
               <>
-            <IconButton
-              color="inherit"
-                  aria-label="Open menu"
-            edge="start"
-                  onClick={(e) => setMobileNavAnchor(e.currentTarget)}
-                  sx={{ display: { sm: 'none' }, color: 'inherit' }}
-          >
-            <MenuIcon />
-            </IconButton>
                 <Box sx={{ minWidth: 0, pl: { xs: 0, sm: 0.5 } }}>
             <Typography
                     variant="subtitle1"
@@ -848,89 +992,7 @@ const Layout: React.FC = () => {
           </Box>
               </>
             }
-            center={
-              shouldShowHeaderSearch ? (
-          <TextField
-            size="small"
-            inputRef={headerSearchRef}
-                  placeholder="Search invoices, customers, items, reports..."
-            value={headerSearch}
-            onChange={(e) => setHeaderSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                submitHeaderSearch();
-              }
-            }}
-            inputProps={{
-              'aria-label': 'Global search',
-              title: 'Search invoices, customers, items, reports. Ctrl+K to focus.',
-            }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                        <SearchIcon sx={{ color: '#64748B', fontSize: 20 }} />
-                </InputAdornment>
-              ),
-              endAdornment: (
-                <InputAdornment position="end">
-                  <Box
-                    component="kbd"
-                    sx={{
-                      display: { xs: 'none', md: 'inline-flex' },
-                      alignItems: 'center',
-                      px: 0.75,
-                      py: 0.25,
-                      fontSize: '0.6875rem',
-                      fontWeight: 700,
-                      fontFamily: 'ui-monospace, monospace',
-                      color: '#64748B',
-                      bgcolor: '#F1F5F9',
-                      border: '1px solid #E2E8F0',
-                      borderRadius: '6px',
-                      lineHeight: 1.2,
-                    }}
-                  >
-                    Ctrl+K
-                  </Box>
-                </InputAdornment>
-              ),
-            }}
-            sx={{
-                    width: '100%',
-              '& .MuiOutlinedInput-root': {
-                      height: 40,
-                      bgcolor: '#fff',
-                      borderRadius: '16px',
-                      color: ERP_TEXT,
-                fontSize: '0.875rem',
-                fontFamily: '"Inter", system-ui, sans-serif',
-                transition: 'box-shadow 300ms ease, border-color 300ms ease',
-                boxShadow: '0 1px 3px rgba(15, 23, 42, 0.06)',
-                '& fieldset': {
-                        borderColor: 'rgba(15, 23, 42, 0.08)',
-                },
-                '&:hover fieldset': {
-                        borderColor: 'rgba(37, 99, 235, 0.35)',
-                },
-                '&.Mui-focused': {
-                  boxShadow: '0 0 0 3px rgba(37, 99, 235, 0.12), 0 8px 24px rgba(0, 0, 0, 0.08)',
-                },
-                '&.Mui-focused fieldset': {
-                        borderColor: '#2563EB',
-                        borderWidth: '1px',
-                },
-              },
-              '& .MuiInputBase-input::placeholder': {
-                      color: '#94A3B8',
-                opacity: 1,
-              },
-            }}
-          />
-              ) : (
-                <Box sx={{ width: '100%', height: 40 }} />
-              )
-            }
+            center={<Box sx={{ width: '100%', height: 40 }} />}
             right={<Box sx={{ width: 8 }} />}
           />
           <Menu
@@ -1073,6 +1135,29 @@ const Layout: React.FC = () => {
               </Typography>
             </MenuItem>
             <Divider />
+            <MenuItem
+              selected={mode === 'light'}
+              onClick={() => {
+                setMode('light');
+                handleMenuClose();
+              }}
+            >
+              <LightModeIcon sx={{ mr: 1, fontSize: 20 }} />
+              Light Mode
+              {mode === 'light' ? <CheckIcon sx={{ ml: 'auto', fontSize: 18 }} /> : null}
+            </MenuItem>
+            <MenuItem
+              selected={mode === 'dark'}
+              onClick={() => {
+                setMode('dark');
+                handleMenuClose();
+              }}
+            >
+              <DarkModeIcon sx={{ mr: 1, fontSize: 20 }} />
+              Dark Mode
+              {mode === 'dark' ? <CheckIcon sx={{ ml: 'auto', fontSize: 18 }} /> : null}
+            </MenuItem>
+            <Divider />
             {canAccessFeature('manage-settings') ? (
               <MenuItem
                 onClick={() => {
@@ -1097,6 +1182,15 @@ const Layout: React.FC = () => {
               <LockOutlinedIcon sx={{ mr: 1 }} />
               Lock Screen
             </MenuItem>
+            <MenuItem
+              onClick={() => {
+                handleMenuClose();
+                requestAppQuit();
+              }}
+            >
+              <ExitToAppIcon sx={{ mr: 1 }} />
+              Exit Application
+            </MenuItem>
             <MenuItem onClick={handleLogout}>
               <LogoutIcon sx={{ mr: 1 }} />
               Logout
@@ -1111,6 +1205,20 @@ const Layout: React.FC = () => {
             slotProps={{ paper: { sx: { minWidth: 260, maxHeight: '70vh', mt: 0.5 } } }}
             MenuListProps={{ dense: true }}
           >
+            {erpModuleLinks.map((mod) => (
+              <MenuItem
+                key={`module-${mod.id}`}
+                onClick={() => {
+                  navigate(mod.path);
+                  setMobileNavAnchor(null);
+                }}
+              >
+                <Typography variant="body2" sx={{ fontSize: '0.875rem', fontWeight: 700 }}>
+                  {mod.label}
+                </Typography>
+              </MenuItem>
+            ))}
+            <Divider sx={{ my: 0.5 }} />
             {erpMobileLinks.map((it) => (
               <MenuItem
                 key={`${it.path}-${it.label}`}
@@ -1131,6 +1239,7 @@ const Layout: React.FC = () => {
             ))}
           </Menu>
         </Toolbar>
+        ) : null}
         </Box>
       <Box
         component="main"
@@ -1140,7 +1249,7 @@ const Layout: React.FC = () => {
           minHeight: 0,
           display: 'flex',
           flexDirection: 'column',
-          bgcolor: ERP_WORKSPACE_BG,
+          bgcolor: 'background.content',
           overflow: 'hidden',
         }}
       >
@@ -1151,11 +1260,10 @@ const Layout: React.FC = () => {
             minHeight: 0,
             overflowX: 'hidden',
             overflowY: 'auto',
-            // Keep focused inputs visible above sticky bottom action ribbons.
             scrollPaddingBottom: '96px',
             px: { xs: 1, sm: 1.5 },
             py: 0.75,
-            color: ERP_TEXT,
+            color: 'text.primary',
             scrollbarWidth: 'none',
             msOverflowStyle: 'none',
             '&::-webkit-scrollbar': {
@@ -1165,15 +1273,6 @@ const Layout: React.FC = () => {
             },
           }}
         >
-          <Box
-        sx={{
-              flexShrink: 0,
-              height: `calc(${titleBarOffset}px + ${ERP_TITLE_ROW_PX}px + ${TOOLBAR_ROW_XS}px + 8px)`,
-            '@media (min-width: 600px)': {
-                height: `calc(${titleBarOffset}px + ${ERP_TITLE_ROW_PX}px + ${ERP_MENU_ROW_PX}px + ${TOOLBAR_ROW_SM}px + 8px)`,
-            },
-          }}
-        />
         {appUpdate && (
           <Alert
             severity={appUpdate.info.mandatory ? 'warning' : 'info'}
@@ -1220,6 +1319,7 @@ const Layout: React.FC = () => {
         <DesktopErpStatusBar userLabel={userFullName.toUpperCase()} canAccessFeature={canAccessFeature} />
       </Box>
       </Box>
+      </Box>
       <FeedbackDialog
         open={feedbackOpen}
         onClose={() => setFeedbackOpen(false)}
@@ -1260,7 +1360,7 @@ const Layout: React.FC = () => {
             p: 2,
           }}
         >
-          <Box sx={{ width: '100%', maxWidth: 360, bgcolor: '#fff', borderRadius: 2, p: 2.5 }}>
+          <Box sx={{ width: '100%', maxWidth: 360, bgcolor: 'background.paper', borderRadius: 2, p: 2.5, border: 1, borderColor: 'divider' }}>
             <Typography variant="h6" fontWeight={700} gutterBottom>
               Screen Locked
             </Typography>
@@ -1284,6 +1384,15 @@ const Layout: React.FC = () => {
           </Box>
         </Box>
       ) : null}
+      <AppQuitDialog
+        open={quitConfirmOpen}
+        onClose={() => setQuitConfirmOpen(false)}
+        onConfirm={() => {
+          setQuitConfirmOpen(false);
+          quitApplication();
+        }}
+      />
+      <AIAssistant />
     </Box>
   );
 };

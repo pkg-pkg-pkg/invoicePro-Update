@@ -1,5 +1,5 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { getAuth, Auth } from 'firebase/auth';
+import { getAuth, Auth, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { getFirestore, Firestore } from 'firebase/firestore';
 import { getFunctions, Functions } from 'firebase/functions';
 
@@ -39,4 +39,8 @@ export function initFirebase(): { app: FirebaseApp; auth: Auth; db: Firestore; f
 }
 
 export const { auth, db, functions } = initFirebase();
+
+void setPersistence(auth, browserLocalPersistence).catch((err) => {
+  console.warn('[firebase] local persistence failed', err);
+});
 

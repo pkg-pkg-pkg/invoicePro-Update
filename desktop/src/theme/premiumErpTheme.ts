@@ -1,0 +1,27 @@
+/** Premium ERP tokens — Zoho / Linear / Stripe-inspired light mode. */
+export const PREMIUM_ERP = {
+  fontFamily: '"Inter", "Segoe UI", system-ui, sans-serif',
+  navy: '#0F172A',
+  blueDeep: '#1E3A8A',
+  blue: '#2563EB',
+  blueSoft: '#EFF6FF',
+  bg: '#F8FAFC',
+  card: '#FFFFFF',
+  border: 'rgba(15, 23, 42, 0.08)',
+  borderHover: 'rgba(37, 99, 235, 0.35)',
+  text: { primary: '#0F172A', secondary: '#64748B', muted: '#94A3B8' },
+  radius: { sm: 12, md: 14, lg: 16 },
+  shadow: '0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.06)',
+  shadowHover: '0 4px 12px rgba(37, 99, 235, 0.12), 0 16px 40px rgba(15, 23, 42, 0.08)',
+  gradient: 'linear-gradient(135deg, #0F172A 0%, #1E3A8A 55%, #2563EB 100%)',
+  transition: 'all 280ms cubic-bezier(0.4, 0, 0.2, 1)',
+  categoryColors: {
+    sales: '#2563EB',
+    purchase: '#7C3AED',
+    stock: '#0891B2',
+    financial: '#059669',
+    party: '#D97706',
+    payment: '#DC2626',
+    profit: '#4F46E5',
+  },
+} as const;

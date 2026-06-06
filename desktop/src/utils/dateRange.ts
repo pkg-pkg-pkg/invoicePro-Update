@@ -5,10 +5,19 @@ export const toLocalYmd = (date: Date): string => {
   return `${y}-${m}-${d}`;
 };
 
+/** Normalize ISO / date input to local calendar YYYY-MM-DD (avoids UTC slice bugs). */
+export const normalizeToYmd = (input: string): string => {
+  const trimmed = String(input ?? '').trim();
+  if (!trimmed) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const d = new Date(trimmed);
+  if (Number.isNaN(d.getTime())) return '';
+  return toLocalYmd(d);
+};
+
 export const isDateWithinInclusive = (input: string, fromYmd: string, toYmd: string): boolean => {
-  const d = new Date(input);
-  if (Number.isNaN(d.getTime())) return false;
-  const at = toLocalYmd(d);
+  const at = normalizeToYmd(input);
+  if (!at) return false;
   return at >= fromYmd && at <= toYmd;
 };
 

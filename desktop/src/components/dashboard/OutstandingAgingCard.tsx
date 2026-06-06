@@ -12,16 +12,15 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
+import { alpha } from '@mui/material/styles';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { formatCurrency } from '../../utils/formatters';
 import type { AgingBucket } from '../../utils/outstandingAging';
-import { DASHBOARD_THEME, dashboardCardSx, sectionEyebrowSx } from './dashboardTheme';
+import { dashboardCardSx, sectionEyebrowSx, useDashboardTheme } from './dashboardTheme';
 
 export interface OutstandingAgingCardProps {
   buckets: AgingBucket[];
   total: number;
-  isDark: boolean;
   /** Tighter layout for dashboard sidebar */
   compact?: boolean;
   onViewReport?: () => void;
@@ -32,26 +31,25 @@ export interface OutstandingAgingCardProps {
 export function OutstandingAgingCard({
   buckets,
   total,
-  isDark,
   compact = false,
   onViewReport,
   onViewBucketReport,
 }: OutstandingAgingCardProps) {
-  const theme = useTheme();
+  const dt = useDashboardTheme();
   const [selected, setSelected] = useState<AgingBucket | null>(null);
 
   const chartData = useMemo(
-    () => buckets.map((b, i) => ({ ...b, fill: DASHBOARD_THEME.aging[i % DASHBOARD_THEME.aging.length] })),
-    [buckets]
+    () => buckets.map((b, i) => ({ ...b, fill: dt.aging[i % dt.aging.length] })),
+    [buckets, dt.aging]
   );
 
   const hasData = total > 0;
 
   return (
     <>
-      <Paper elevation={0} sx={{ ...dashboardCardSx(isDark), p: compact ? 1.5 : 2 }}>
+      <Paper elevation={0} sx={{ ...dashboardCardSx(dt), p: compact ? 1.5 : 2, minWidth: 0, overflow: 'hidden' }}>
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-          <Typography sx={{ ...sectionEyebrowSx, fontSize: '0.75rem' }}>Outstanding aging</Typography>
+          <Typography sx={{ ...sectionEyebrowSx(dt), fontSize: '0.75rem' }}>Outstanding aging</Typography>
           {onViewReport ? (
             <Button
               size="small"
@@ -94,7 +92,7 @@ export function OutstandingAgingCard({
                   sx={{
                     width: `${(b.value / total) * 100}%`,
                     minWidth: b.value > 0 ? 4 : 0,
-                    bgcolor: DASHBOARD_THEME.aging[i % DASHBOARD_THEME.aging.length],
+                    bgcolor: dt.aging[i % dt.aging.length],
                     cursor: 'pointer',
                     transition: 'opacity 0.2s',
                     '&:hover': { opacity: 0.85 },
@@ -107,7 +105,7 @@ export function OutstandingAgingCard({
               ) : null
             )
           ) : (
-            <Box sx={{ flex: 1, bgcolor: alpha(theme.palette.divider, 0.4) }} />
+            <Box sx={{ flex: 1, bgcolor: alpha(dt.text.muted, 0.2) }} />
           )}
         </Stack>
 
@@ -168,17 +166,17 @@ export function OutstandingAgingCard({
                 sx={{
                   width: '100%',
                   textAlign: 'left',
-                  borderRadius: DASHBOARD_THEME.innerRadius,
+                  borderRadius: dt.innerRadius,
                   px: 0.75,
                   py: compact ? 0.45 : 0.75,
                   display: 'block',
                   border: '1px solid',
-                  borderColor: selected?.label === b.label ? alpha(DASHBOARD_THEME.primary, 0.35) : 'transparent',
+                  borderColor: selected?.label === b.label ? alpha(dt.primary, 0.35) : 'transparent',
                   bgcolor:
                     selected?.label === b.label
-                      ? DASHBOARD_THEME.primarySoft
+                      ? dt.primarySoft
                       : 'transparent',
-                  '&:hover': { bgcolor: DASHBOARD_THEME.primarySoft },
+                  '&:hover': { bgcolor: dt.primarySoft },
                 }}
               >
                 <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: 0.35 }}>
@@ -187,7 +185,7 @@ export function OutstandingAgingCard({
                       width: 8,
                       height: 8,
                       borderRadius: '50%',
-                      bgcolor: DASHBOARD_THEME.aging[i % DASHBOARD_THEME.aging.length],
+                      bgcolor: dt.aging[i % dt.aging.length],
                     }}
                   />
                   <Typography variant="caption" fontWeight={700} sx={{ flex: 1 }}>
@@ -207,9 +205,9 @@ export function OutstandingAgingCard({
                     sx={{
                       height: 4,
                       borderRadius: 2,
-                      bgcolor: alpha(DASHBOARD_THEME.aging[i], 0.15),
+                      bgcolor: alpha(dt.aging[i], 0.15),
                       '& .MuiLinearProgress-bar': {
-                        bgcolor: DASHBOARD_THEME.aging[i % DASHBOARD_THEME.aging.length],
+                        bgcolor: dt.aging[i % dt.aging.length],
                       },
                     }}
                   />
@@ -230,7 +228,7 @@ export function OutstandingAgingCard({
         onClose={() => setSelected(null)}
         maxWidth="xs"
         fullWidth
-        PaperProps={{ sx: { borderRadius: DASHBOARD_THEME.cardRadius } }}
+        PaperProps={{ sx: { borderRadius: dt.cardRadius } }}
       >
         {selected ? (
           <>
@@ -250,7 +248,7 @@ export function OutstandingAgingCard({
                     <Paper
                       key={item.id}
                       variant="outlined"
-                      sx={{ p: 1.25, borderRadius: DASHBOARD_THEME.innerRadius }}
+                      sx={{ p: 1.25, borderRadius: dt.innerRadius }}
                     >
                       <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
                         <Box>

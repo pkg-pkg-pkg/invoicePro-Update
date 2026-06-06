@@ -9,11 +9,14 @@ interface ActionFooterProps {
   saving?: boolean;
   onCancel?: () => void;
   onSave?: () => void;
-  onSaveDraft?: () => void;
+  onSaveAndClose?: () => void;
   onSaveAndPrint?: () => void;
+  onSaveAndSend?: () => void;
   onEdit?: () => void;
-  onShareWhatsApp?: () => void;
+  /** Legacy optional actions (SalesVoucherFormNew) */
+  onSaveDraft?: () => void;
   onDownloadPDF?: () => void;
+  onShareWhatsApp?: () => void;
   onChangeTemplate?: () => void;
 }
 
@@ -23,11 +26,13 @@ const ActionFooter: FC<ActionFooterProps> = ({
   saving,
   onCancel,
   onSave,
-  onSaveDraft,
+  onSaveAndClose,
   onSaveAndPrint,
+  onSaveAndSend,
   onEdit,
-  onShareWhatsApp,
+  onSaveDraft,
   onDownloadPDF,
+  onShareWhatsApp,
   onChangeTemplate,
 }) => {
   const theme = useTheme();
@@ -56,26 +61,55 @@ const ActionFooter: FC<ActionFooterProps> = ({
         </Stack>
       ) : (
         <Stack direction={isMobile ? 'column' : 'row'} spacing={0.75} justifyContent="flex-end" alignItems="center" flexWrap="wrap">
-          {onChangeTemplate && (
+          {onCancel ? (
+            <Button variant="text" onClick={onCancel} disabled={saving} sx={{ mr: 'auto' }}>
+              Cancel
+            </Button>
+          ) : null}
+          {onChangeTemplate ? (
             <Button variant="text" size="small" onClick={onChangeTemplate} disabled={saving} sx={{ mr: 'auto' }}>
               Change Template
             </Button>
-          )}
-          <Button variant="outlined" onClick={onSaveDraft} disabled={saving}>
-            {saving ? 'Saving…' : 'Save as Draft'}
-          </Button>
-          <Button variant="text" onClick={onSaveAndPrint} disabled={saving}>
-            {saving ? 'Saving…' : 'Save & Print'}
-          </Button>
-          <Button variant="text" onClick={onDownloadPDF} disabled={saving}>
-            {saving ? 'Saving…' : 'Download PDF'}
-          </Button>
-          <Button variant="text" onClick={onShareWhatsApp} disabled={saving}>
-            {saving ? 'Saving…' : 'Share on WhatsApp'}
-          </Button>
-          <Button variant="contained" onClick={onSave} disabled={saving}>
-            {saving ? 'Saving…' : 'Save Invoice'}
-          </Button>
+          ) : null}
+          {onSaveDraft ? (
+            <Button variant="outlined" onClick={onSaveDraft} disabled={saving}>
+              Save as Draft
+            </Button>
+          ) : null}
+          {onSaveAndClose && onSave ? (
+            <Button variant="outlined" onClick={onSave} disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+          ) : null}
+          {onSaveAndClose ? (
+            <Button variant="outlined" onClick={onSaveAndClose} disabled={saving}>
+              {saving ? 'Saving…' : 'Save & Close'}
+            </Button>
+          ) : onSave ? (
+            <Button variant="contained" onClick={onSave} disabled={saving}>
+              {saving ? 'Saving…' : 'Save Invoice'}
+            </Button>
+          ) : null}
+          {onSaveAndPrint ? (
+            <Button variant="text" onClick={onSaveAndPrint} disabled={saving}>
+              {saving ? 'Saving…' : 'Save & Print'}
+            </Button>
+          ) : null}
+          {onSaveAndSend ? (
+            <Button variant="text" onClick={onSaveAndSend} disabled={saving}>
+              {saving ? 'Saving…' : 'Save & Send'}
+            </Button>
+          ) : null}
+          {onDownloadPDF ? (
+            <Button variant="text" onClick={onDownloadPDF} disabled={saving}>
+              Download PDF
+            </Button>
+          ) : null}
+          {onShareWhatsApp ? (
+            <Button variant="text" onClick={onShareWhatsApp} disabled={saving}>
+              Share on WhatsApp
+            </Button>
+          ) : null}
         </Stack>
       )}
     </Box>

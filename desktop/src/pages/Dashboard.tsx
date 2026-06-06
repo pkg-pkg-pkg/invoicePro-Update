@@ -10,6 +10,7 @@ import {
   Divider,
   CircularProgress,
   Grid,
+  Paper,
   Stack,
   Table,
   TableBody,
@@ -19,7 +20,7 @@ import {
   TableRow,
   Typography,
 } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
+import { alpha } from '@mui/material/styles';
 import {
   AddCircleOutline as AddCircleOutlineIcon,
   AssignmentTurnedIn as AssignmentTurnedInIcon,
@@ -29,6 +30,7 @@ import {
   PersonAddAlt as PersonAddAltIcon,
   PointOfSale as PointOfSaleIcon,
   ReceiptLong as ReceiptLongIcon,
+  SwapHoriz as SwapHorizIcon,
   WhatsApp as WhatsAppIcon,
 } from '@mui/icons-material';
 import { AppDispatch, RootState } from '../store';
@@ -44,36 +46,31 @@ import {
   fetchTodayOverview,
 } from '../store/slices/dashboardSlice';
 import { formatCurrency, formatDate } from '../utils/formatters';
-import { getNormalizedCompanyProfile } from '../utils/companyProfile';
 import { BusinessHealthCard } from '../components/dashboard/BusinessHealthCard';
 import { DashboardPanel } from '../components/dashboard/DashboardPanel';
 import {
   computeSparkTrend,
-  DASHBOARD_THEME,
+  dashboardCardSx,
   greetingForHour,
+  sectionEyebrowSx,
+  useDashboardTheme,
 } from '../components/dashboard/dashboardTheme';
 import { PremiumKpiCard } from '../components/dashboard/PremiumKpiCard';
 import { DashboardWelcome } from '../components/dashboard/DashboardWelcome';
 import { OutstandingAgingCard } from '../components/dashboard/OutstandingAgingCard';
-import { SmartAssistantCard } from '../components/dashboard/SmartAssistantCard';
-import { UtilitySidebar } from '../components/dashboard/UtilitySidebar';
 import { BusinessSnapshotCard } from '../components/dashboard/BusinessSnapshotCard';
+import { DashboardModuleGrid } from '../components/dashboard/DashboardModuleGrid';
 import { WhatsAppReminderPreviewDialog } from '../components/whatsapp/WhatsAppReminderPreviewDialog';
 import { buildOutstandingAging } from '../utils/outstandingAging';
-import { computeBusinessHealthScore } from '../utils/dashboardHealth';
 import {
   prepareOutstandingReminder,
   pickTopOutstandingCustomer,
   type OutstandingReminderDraft,
 } from '../services/whatsappOutstandingReminder';
 import {
-  getWhatsAppConnectionStatus,
   refreshWhatsAppConnectionStatus,
-  subscribeWhatsAppConnectionStatus,
-  type WhatsAppConnectionStatus,
 } from '../services/whatsappIntegration';
-import { gstFilingReminderText } from '../utils/gstDueDate';
-import { useAuth } from './contexts/auth';
+import { useUserDisplayName } from '../hooks/useUserDisplayName';
 
 function invoiceStatusBadge(raw: string): { label: string; color: 'success' | 'warning' | 'error' } {
   const u = raw.toUpperCase();
@@ -98,22 +95,22 @@ function growthFromSeries(data: Array<{ v: number }>): { pct: number; up: boolea
   return { pct: Math.round(Math.abs(change)), up: change >= 0 };
 }
 
-const QUICK_ACTION_ACCENTS = [
-  DASHBOARD_THEME.kpi.sales,
-  DASHBOARD_THEME.kpi.receipts,
-  DASHBOARD_THEME.kpi.stock,
-  '#0EA5E9',
+const QUICK_ACTION_ACCENTS_BASE = [
+  '#1E40AF',
+  '#2563EB',
+  '#16A34A',
+  '#2563EB',
   '#25D366',
-  DASHBOARD_THEME.kpi.outstanding,
-  '#7C3AED',
+  '#F59E0B',
+  '#1E40AF',
   '#64748B',
 ] as const;
 
 export default function Dashboard() {
-  const theme = useTheme();
+  const dt = useDashboardTheme();
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const displayName = useUserDisplayName();
   const {
     summary,
     todaySummary,
@@ -126,16 +123,13 @@ export default function Dashboard() {
     error,
   } = useSelector((state: RootState) => state.dashboard);
 
-  const [utilityOpen, setUtilityOpen] = useState(true);
   const [waBusy, setWaBusy] = useState(false);
   const [waReminderOpen, setWaReminderOpen] = useState(false);
   const [waReminderDraft, setWaReminderDraft] = useState<OutstandingReminderDraft | null>(null);
-  const [waStatus, setWaStatus] = useState<WhatsAppConnectionStatus>(() => getWhatsAppConnectionStatus());
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
     void refreshWhatsAppConnectionStatus();
-    return subscribeWhatsAppConnectionStatus(setWaStatus);
   }, []);
 
   useEffect(() => {
@@ -168,7 +162,6 @@ export default function Dashboard() {
   );
 
   const trend = salesAnalytics?.analytics ?? [];
-  const company = useMemo(() => getNormalizedCompanyProfile(), []);
 
   const sparklineData = useMemo(() => {
     if (trend.length >= 2) {
@@ -184,25 +177,25 @@ export default function Dashboard() {
       {
         title: "Today's Sales",
         value: Number(overview?.totalSales || 0),
-        color: DASHBOARD_THEME.kpi.sales,
+        color: dt.kpi.sales,
         icon: <ReceiptLongIcon fontSize="small" />,
       },
       {
         title: "Today's Receipts",
         value: todayReceiptsTotal,
-        color: DASHBOARD_THEME.kpi.receipts,
+        color: dt.kpi.receipts,
         icon: <PointOfSaleIcon fontSize="small" />,
       },
       {
         title: 'Outstanding Amount',
         value: Number(overview?.totalOutstanding || 0),
-        color: DASHBOARD_THEME.kpi.outstanding,
+        color: dt.kpi.outstanding,
         icon: <AssignmentTurnedInIcon fontSize="small" />,
       },
       {
         title: 'Stock Value',
         value: stockValue,
-        color: DASHBOARD_THEME.kpi.stock,
+        color: dt.kpi.stock,
         icon: <Inventory2Icon fontSize="small" />,
       },
     ],
@@ -225,40 +218,6 @@ export default function Dashboard() {
     ]
   );
 
-  const displayName = useMemo(() => {
-    const full = String(user?.fullName || '').trim();
-    if (full) return full.split(/\s+/)[0];
-    const un = String(user?.username || '').trim();
-    if (un) return un;
-    return 'there';
-  }, [user?.fullName, user?.username]);
-
-  const topOverdue = outstandingSummary?.customers?.[0];
-  const gstConfigured = Boolean(company.gstin?.trim());
-
-  const smartSuggestions = useMemo(() => {
-    const lowStockLine =
-      lowStock.length > 0
-        ? `Low stock: ${lowStock
-            .slice(0, 3)
-            .map((i) => i.name)
-            .join(', ')}${lowStock.length > 3 ? ` (+${lowStock.length - 3} more)` : ''}`
-        : 'No low stock alerts';
-    return [
-      {
-        text: `Outstanding collection pending: ${formatCurrency(overview?.totalOutstanding || 0)}`,
-      },
-      {
-        text: `Top overdue customer: ${topOverdue?.name || '—'} (${formatCurrency(topOverdue?.currentBalance || 0)})`,
-      },
-      { text: gstFilingReminderText(gstConfigured, now) },
-      { text: lowStockLine },
-      {
-        text: `Today's sales: ${formatCurrency(todaySummary?.totalSales || 0)} (${todaySummary?.salesCount || 0} invoice(s))`,
-      },
-    ];
-  }, [overview, topOverdue, lowStock, gstConfigured, now, todaySummary]);
-
   const totalSalesM = Number(monthly?.totalSales || 0);
   const totalPurchaseM = Number(monthly?.totalPurchase || 0);
   const grossProfitM = totalSalesM - totalPurchaseM;
@@ -266,10 +225,10 @@ export default function Dashboard() {
 
   const businessHealthMetrics = useMemo(() => {
     const defs = [
-      { label: 'Total Sales', value: totalSalesM, color: DASHBOARD_THEME.kpi.sales },
+      { label: 'Total Sales', value: totalSalesM, color: dt.kpi.sales },
       { label: 'Total Purchase', value: totalPurchaseM, color: '#64748B' },
-      { label: 'Gross Profit', value: grossProfitM, color: DASHBOARD_THEME.kpi.receipts },
-      { label: 'Expenses', value: expensesM, color: DASHBOARD_THEME.kpi.outstanding },
+      { label: 'Gross Profit', value: grossProfitM, color: dt.kpi.receipts },
+      { label: 'Expenses', value: expensesM, color: dt.kpi.outstanding },
     ];
     return defs.map((d) => {
       const chartData = miniBarSeries(d.value);
@@ -278,18 +237,6 @@ export default function Dashboard() {
     });
   }, [totalSalesM, totalPurchaseM, grossProfitM, expensesM]);
 
-  const { score: healthScore, rows: healthStatuses } = useMemo(
-    () =>
-      computeBusinessHealthScore({
-        totalOutstanding: Number(overview?.totalOutstanding || 0),
-        totalSales: totalSalesM,
-        gstConfigured,
-        lowStockCount: lowStock.length,
-        grossProfit: grossProfitM,
-      }),
-    [overview, totalSalesM, gstConfigured, lowStock.length, grossProfitM]
-  );
-
   const monthReceiptsTotal = Number(monthly?.todayReceipts ?? 0);
 
   const snapshotItems = useMemo(
@@ -297,43 +244,43 @@ export default function Dashboard() {
       {
         label: "Today's Sales",
         value: formatCurrency(overview?.totalSales || 0),
-        accent: DASHBOARD_THEME.kpi.sales,
+        accent: dt.kpi.sales,
         onClick: () => navigate('/vouchers/sales'),
       },
       {
         label: "Today's Receipts",
         value: formatCurrency(todayReceiptsTotal),
-        accent: DASHBOARD_THEME.kpi.receipts,
+        accent: dt.kpi.receipts,
         onClick: () => navigate('/vouchers/receipt-vouchers'),
       },
       {
         label: 'Month Sales',
         value: formatCurrency(totalSalesM),
-        accent: DASHBOARD_THEME.kpi.sales,
+        accent: dt.kpi.sales,
         onClick: () => navigate('/vouchers/sales'),
       },
       {
         label: 'Month Receipts',
         value: formatCurrency(monthReceiptsTotal),
-        accent: DASHBOARD_THEME.kpi.receipts,
+        accent: dt.kpi.receipts,
         onClick: () => navigate('/vouchers/receipt-vouchers'),
       },
       {
         label: 'Pending Collections',
         value: formatCurrency(overview?.totalOutstanding || 0),
-        accent: DASHBOARD_THEME.kpi.outstanding,
+        accent: dt.kpi.outstanding,
         onClick: () => navigate('/reports/outstanding-aging'),
       },
       {
         label: 'Pending Invoices',
         value: String(pendingInvoiceCount),
-        accent: DASHBOARD_THEME.primary,
+        accent: dt.primary,
         onClick: () => navigate('/vouchers/sales'),
       },
       {
         label: 'Low Stock Items',
         value: String(lowStock.length),
-        accent: lowStock.length > 0 ? DASHBOARD_THEME.status.warn : DASHBOARD_THEME.kpi.receipts,
+        accent: lowStock.length > 0 ? dt.status.warn : dt.kpi.receipts,
         onClick: () => navigate('/reports/low-stock'),
       },
     ],
@@ -346,27 +293,6 @@ export default function Dashboard() {
       lowStock.length,
       navigate,
     ]
-  );
-
-  const backupLabel = new Date().toLocaleString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
-  const systemHealth = useMemo(
-    () => [
-      { label: 'Database Connected', status: 'Online', ok: true },
-      { label: 'Backup Complete', status: backupLabel, ok: true },
-      { label: 'GST Active', status: gstConfigured ? 'Registered' : 'Not configured', ok: gstConfigured },
-      {
-        label: 'WhatsApp Connected',
-        status: waStatus.ok ? waStatus.status : 'Not connected',
-        ok: waStatus.ok,
-      },
-    ],
-    [backupLabel, gstConfigured, waStatus.ok, waStatus.status]
   );
 
   const handleWhatsAppReminder = useCallback(async () => {
@@ -410,30 +336,29 @@ export default function Dashboard() {
       { label: 'Create Invoice', icon: <ReceiptLongIcon fontSize="small" />, to: '/vouchers/sales/new' },
       { label: 'Receipt Entry', icon: <PointOfSaleIcon fontSize="small" />, to: '/vouchers/receipt-vouchers/new' },
       { label: 'New Customer', icon: <PersonAddAltIcon fontSize="small" />, to: '/parties/new' },
-      { label: 'New Item', icon: <AddCircleOutlineIcon fontSize="small" />, to: '/masters/inventory-items/new' },
+      { label: 'New Item', icon: <AddCircleOutlineIcon fontSize="small" />, to: '/items?new=1' },
+      { label: 'Price List', icon: <Inventory2Icon fontSize="small" />, to: '/masters/price-lists/new' },
+      { label: 'Stock Adjust', icon: <Inventory2Icon fontSize="small" />, to: '/masters/stock-adjustments/new' },
       {
         label: 'WhatsApp Outstanding',
         icon: <WhatsAppIcon fontSize="small" />,
         onClick: handleWhatsAppReminder,
       },
       { label: 'Customer Ledger', icon: <Groups2Icon fontSize="small" />, to: '/reports?tab=party' },
-      { label: 'Stock Summary', icon: <Inventory2Icon fontSize="small" />, to: '/masters/inventory-items' },
+      { label: 'Stock Summary', icon: <Inventory2Icon fontSize="small" />, to: '/items' },
       { label: 'Reports', icon: <BarChartIcon fontSize="small" />, to: '/reports' },
     ],
     [handleWhatsAppReminder]
   );
 
-  const isDark = theme.palette.mode === 'dark';
-  const pageBg = isDark
-    ? `linear-gradient(165deg, ${alpha('#0F172A', 0.99)} 0%, ${alpha('#0B1220', 0.99)} 100%)`
-    : `linear-gradient(180deg, ${DASHBOARD_THEME.bg} 0%, ${DASHBOARD_THEME.bgSubtle} 100%)`;
+  const pageBg = dt.bg;
 
   const viewAllBtnSx = {
     textTransform: 'none' as const,
     fontWeight: 600,
     fontSize: '0.8125rem',
-    borderRadius: DASHBOARD_THEME.innerRadius,
-    color: DASHBOARD_THEME.primary,
+    borderRadius: dt.innerRadius,
+    color: dt.primary,
   };
 
   if (error) {
@@ -449,12 +374,12 @@ export default function Dashboard() {
   return (
     <Box
       sx={{
-        fontFamily: DASHBOARD_THEME.fontFamily,
-        px: { xs: DASHBOARD_THEME.padTablet, md: DASHBOARD_THEME.padDesktop },
-        py: { xs: DASHBOARD_THEME.padTablet, md: DASHBOARD_THEME.padDesktop },
+        fontFamily: dt.fontFamily,
+        px: { xs: dt.padTablet, md: dt.padDesktop },
+        py: { xs: dt.padTablet, md: dt.padDesktop },
         bgcolor: pageBg,
         minHeight: '100%',
-        transition: DASHBOARD_THEME.transition,
+        transition: dt.transition,
       }}
     >
       <DashboardWelcome
@@ -463,35 +388,122 @@ export default function Dashboard() {
         now={now}
       />
 
-      <Grid container spacing={DASHBOARD_THEME.gridGap} alignItems="stretch">
-        <Grid item xs={12} lg={utilityOpen ? 9 : 12}>
-          <Grid container spacing={DASHBOARD_THEME.gridGap} sx={{ mb: DASHBOARD_THEME.gridGap }}>
-            {kpiCards.map((kpi, idx) => (
-              <Grid item xs={12} sm={6} lg={3} key={kpi.title} sx={{ display: 'flex' }}>
-                <PremiumKpiCard
-                  title={kpi.title}
-                  value={kpi.value}
-                  trendPct={sparkTrend.pct}
-                  trendUp={sparkTrend.up}
-                  color={kpi.color}
-                  icon={kpi.icon}
-                  graphData={sparklineData.map((s, i) => ({
-                    ...s,
-                    value: s.value + idx * 3 + i,
-                  }))}
-                />
-              </Grid>
-            ))}
-          </Grid>
-
-          <Box sx={{ mb: DASHBOARD_THEME.gridGap }}>
-            <BusinessSnapshotCard items={snapshotItems} isDark={isDark} />
+      {/* Row 1 — equal-width KPI cards */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: {
+            xs: 'minmax(0, 1fr)',
+            sm: 'repeat(2, minmax(0, 1fr))',
+            lg: 'repeat(4, minmax(0, 1fr))',
+          },
+          gap: dt.gridGap,
+          mb: dt.gridGap,
+        }}
+      >
+        {kpiCards.map((kpi, idx) => (
+          <Box key={kpi.title} sx={{ minWidth: 0, display: 'flex' }}>
+            <PremiumKpiCard
+              title={kpi.title}
+              value={kpi.value}
+              trendPct={sparkTrend.pct}
+              trendUp={sparkTrend.up}
+              color={kpi.color}
+              icon={kpi.icon}
+              graphData={sparklineData.map((s, i) => ({
+                ...s,
+                value: s.value + idx * 3 + i,
+              }))}
+            />
           </Box>
+        ))}
+      </Box>
 
-          <DashboardPanel title="Quick Action Center" isDark={isDark} sx={{ mb: DASHBOARD_THEME.gridGap }}>
+      {/* Row 2 — outstanding aging + quick links */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: {
+            xs: 'minmax(0, 1fr)',
+            md: 'repeat(2, minmax(0, 1fr))',
+          },
+          gap: dt.gridGap,
+          mb: dt.gridGap,
+          alignItems: 'stretch',
+        }}
+      >
+        <Box sx={{ minWidth: 0 }}>
+          <OutstandingAgingCard
+            buckets={agingBuckets}
+            total={agingTotal}
+            onViewReport={() => navigate('/reports/outstanding-aging')}
+          />
+        </Box>
+
+        <Paper
+          elevation={0}
+          sx={{
+            ...dashboardCardSx(dt),
+            p: 2,
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <Typography sx={{ ...sectionEyebrowSx(dt), mb: 1 }}>Quick links</Typography>
+          <Stack spacing={0} divider={<Divider sx={{ borderColor: dt.border }} />} sx={{ flex: 1 }}>
+            {utilityShortcuts.map((s) => (
+              <Button
+                key={s.label}
+                size="small"
+                variant="text"
+                onClick={s.onClick}
+                sx={{
+                  justifyContent: 'space-between',
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  fontSize: '0.8125rem',
+                  py: 1,
+                  px: 0.75,
+                  color: dt.text.primary,
+                  borderRadius: dt.innerRadius,
+                  overflow: 'hidden',
+                  '&:hover': { bgcolor: dt.primarySoft },
+                }}
+              >
+                <Box
+                  component="span"
+                  sx={{
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    minWidth: 0,
+                    textAlign: 'left',
+                  }}
+                >
+                  {s.label}
+                </Box>
+                <SwapHorizIcon sx={{ fontSize: 14, color: dt.text.muted, flexShrink: 0, ml: 1 }} />
+              </Button>
+            ))}
+          </Stack>
+        </Paper>
+      </Box>
+
+      {/* Row 3 — business modules */}
+      <Box sx={{ mb: dt.gridGap }}>
+        <DashboardModuleGrid />
+      </Box>
+
+      {/* Row 4 — business snapshot */}
+      <Box sx={{ mb: dt.gridGap }}>
+        <BusinessSnapshotCard items={snapshotItems} />
+      </Box>
+
+      <DashboardPanel title="Quick Action Center" sx={{ mb: dt.gridGap }}>
             <Grid container spacing={1.25}>
               {quickActions.map((qa, idx) => {
-                const accent = QUICK_ACTION_ACCENTS[idx % QUICK_ACTION_ACCENTS.length];
+                const accent = QUICK_ACTION_ACCENTS_BASE[idx % QUICK_ACTION_ACCENTS_BASE.length];
                 return (
                   <Grid item xs={6} sm={4} md={3} key={qa.label}>
                     <Button
@@ -502,21 +514,21 @@ export default function Dashboard() {
                       sx={{
                         minHeight: 92,
                         py: 1.25,
-                        borderRadius: DASHBOARD_THEME.cardRadius,
+                        borderRadius: dt.cardRadius,
                         border: '1px solid',
                         borderColor: alpha(accent, 0.14),
                         flexDirection: 'column',
                         gap: 0.85,
-                        bgcolor: isDark ? alpha(accent, 0.08) : alpha(accent, 0.06),
+                        bgcolor: alpha(accent, 0.06),
                         textTransform: 'none',
-                        fontFamily: DASHBOARD_THEME.fontFamily,
-                        transition: DASHBOARD_THEME.transition,
+                        fontFamily: dt.fontFamily,
+                        transition: dt.transition,
                         boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
                         '&:hover': {
-                          transform: DASHBOARD_THEME.hoverLift,
+                          transform: dt.hoverLift,
                           borderColor: alpha(accent, 0.35),
-                          bgcolor: isDark ? alpha(accent, 0.14) : alpha(accent, 0.1),
-                          boxShadow: DASHBOARD_THEME.cardShadow,
+                          bgcolor: alpha(accent, 0.1),
+                          boxShadow: dt.cardShadow,
                         },
                       }}
                     >
@@ -538,7 +550,7 @@ export default function Dashboard() {
                       <Typography
                         variant="caption"
                         fontWeight={700}
-                        sx={{ color: DASHBOARD_THEME.text.primary, lineHeight: 1.25, fontSize: '0.75rem' }}
+                        sx={{ color: dt.text.primary, lineHeight: 1.25, fontSize: '0.75rem' }}
                       >
                         {qa.label}
                       </Typography>
@@ -549,11 +561,10 @@ export default function Dashboard() {
             </Grid>
           </DashboardPanel>
 
-          <Grid container spacing={DASHBOARD_THEME.gridGap} sx={{ mb: DASHBOARD_THEME.gridGap }}>
+      <Grid container spacing={dt.gridGap} sx={{ mb: dt.gridGap }}>
             <Grid item xs={12}>
               <DashboardPanel
                 title="Recent Invoices"
-                isDark={isDark}
                 action={
                   <Button size="small" sx={viewAllBtnSx} onClick={() => navigate('/vouchers/sales')}>
                     View All
@@ -562,8 +573,8 @@ export default function Dashboard() {
               >
                 <TableContainer
                   sx={{
-                    borderRadius: DASHBOARD_THEME.innerRadius,
-                    border: `1px solid ${DASHBOARD_THEME.border}`,
+                    borderRadius: dt.innerRadius,
+                    border: `1px solid ${dt.border}`,
                     maxHeight: 360,
                     overflow: 'auto',
                   }}
@@ -580,10 +591,10 @@ export default function Dashboard() {
                               fontSize: '0.6875rem',
                               letterSpacing: '0.04em',
                               textTransform: 'uppercase',
-                              color: DASHBOARD_THEME.text.muted,
-                              borderBottom: `1px solid ${DASHBOARD_THEME.border}`,
+                              color: dt.text.muted,
+                              borderBottom: `1px solid ${dt.border}`,
                               py: 1.25,
-                              bgcolor: isDark ? alpha('#1E293B', 0.98) : '#F8FAFC',
+                              bgcolor: dt.bgSubtle,
                               backdropFilter: 'blur(8px)',
                             }}
                           >
@@ -607,14 +618,12 @@ export default function Dashboard() {
                             sx={{
                               bgcolor:
                                 rowIdx % 2 === 1
-                                  ? isDark
-                                    ? alpha('#fff', 0.02)
-                                    : alpha(DASHBOARD_THEME.primary, 0.02)
+                                  ? alpha(dt.primary, 0.02)
                                   : 'transparent',
                               transition: 'background-color 200ms ease',
                               '&:last-child td': { border: 0 },
                               '&:hover': {
-                                bgcolor: alpha(DASHBOARD_THEME.primary, 0.06),
+                                bgcolor: alpha(dt.primary, 0.06),
                                 '& td': { borderColor: 'transparent' },
                               },
                             }}
@@ -623,7 +632,7 @@ export default function Dashboard() {
                               {inv.invoiceNumber}
                             </TableCell>
                             <TableCell
-                              sx={{ fontSize: '0.8125rem', color: DASHBOARD_THEME.text.secondary, py: 1.35 }}
+                              sx={{ fontSize: '0.8125rem', color: dt.text.secondary, py: 1.35 }}
                             >
                               {formatDate(inv.date)}
                             </TableCell>
@@ -662,12 +671,11 @@ export default function Dashboard() {
             </Grid>
           </Grid>
 
-          <Grid container spacing={DASHBOARD_THEME.gridGap}>
+      <Grid container spacing={dt.gridGap}>
             <Grid item xs={12} md={6} sx={{ display: 'flex' }}>
               <DashboardPanel
                 fillHeight
                 title="Top Customers"
-                isDark={isDark}
                 sx={{ flex: 1, width: '100%' }}
                 action={
                   <Button size="small" sx={viewAllBtnSx} onClick={() => navigate('/parties')}>
@@ -678,16 +686,16 @@ export default function Dashboard() {
                 <Stack
                   direction="row"
                   justifyContent="space-between"
-                  sx={{ px: 0.5, pb: 1, borderBottom: `1px solid ${DASHBOARD_THEME.border}` }}
+                  sx={{ px: 0.5, pb: 1, borderBottom: `1px solid ${dt.border}` }}
                 >
-                  <Typography variant="caption" fontWeight={700} color={DASHBOARD_THEME.text.muted}>
+                  <Typography variant="caption" fontWeight={700} color={dt.text.muted}>
                     Customer Name
                   </Typography>
-                  <Typography variant="caption" fontWeight={700} color={DASHBOARD_THEME.text.muted}>
+                  <Typography variant="caption" fontWeight={700} color={dt.text.muted}>
                     Outstanding Amount
                   </Typography>
                 </Stack>
-                <Stack spacing={0} divider={<Divider sx={{ borderColor: DASHBOARD_THEME.border }} />}>
+                <Stack spacing={0} divider={<Divider sx={{ borderColor: dt.border }} />}>
                   {(outstandingSummary?.customers ?? []).slice(0, 6).map((c) => {
                     const initials = String(c.name || 'C')
                       .split(/\s+/)
@@ -704,11 +712,11 @@ export default function Dashboard() {
                         sx={{
                           py: 1.15,
                           px: 0.5,
-                          borderRadius: DASHBOARD_THEME.innerRadius,
-                          transition: DASHBOARD_THEME.transition,
+                          borderRadius: dt.innerRadius,
+                          transition: dt.transition,
                           cursor: 'pointer',
                           '&:hover': {
-                            bgcolor: DASHBOARD_THEME.primarySoft,
+                            bgcolor: dt.primarySoft,
                             transform: 'translateX(2px)',
                           },
                         }}
@@ -721,9 +729,9 @@ export default function Dashboard() {
                               height: 38,
                               fontSize: 13,
                               fontWeight: 800,
-                              background: `linear-gradient(135deg, ${alpha(DASHBOARD_THEME.primary, 0.2)} 0%, ${alpha(DASHBOARD_THEME.primary, 0.08)} 100%)`,
-                              color: DASHBOARD_THEME.primary,
-                              border: `1px solid ${alpha(DASHBOARD_THEME.primary, 0.18)}`,
+                              background: `linear-gradient(135deg, ${alpha(dt.primary, 0.2)} 0%, ${alpha(dt.primary, 0.08)} 100%)`,
+                              color: dt.primary,
+                              border: `1px solid ${alpha(dt.primary, 0.18)}`,
                             }}
                           >
                             {initials}
@@ -739,7 +747,7 @@ export default function Dashboard() {
                           sx={{
                             ml: 1,
                             fontFeatureSettings: '"tnum"',
-                            color: DASHBOARD_THEME.kpi.outstanding,
+                            color: dt.kpi.outstanding,
                             fontSize: '0.875rem',
                           }}
                         >
@@ -757,38 +765,6 @@ export default function Dashboard() {
               </Box>
             </Grid>
           </Grid>
-        </Grid>
-
-        <Grid item xs={12} lg={utilityOpen ? 3 : 1} sx={{ display: 'flex', alignSelf: 'flex-start' }}>
-          <UtilitySidebar
-            open={utilityOpen}
-            onToggle={() => setUtilityOpen((v) => !v)}
-            assistantSlot={
-              <SmartAssistantCard
-                compact
-                suggestions={smartSuggestions}
-                healthScore={healthScore}
-                healthStatuses={healthStatuses}
-                whatsAppLoading={waBusy}
-                onWhatsApp={handleWhatsAppReminder}
-                onGenerateReport={() => navigate('/reports?view=party')}
-                onViewDetails={() => navigate('/parties')}
-              />
-            }
-            agingSlot={
-              <OutstandingAgingCard
-                compact
-                buckets={agingBuckets}
-                total={agingTotal}
-                isDark={isDark}
-                onViewReport={() => navigate('/reports/outstanding-aging')}
-              />
-            }
-            shortcuts={utilityShortcuts}
-            systemHealth={systemHealth}
-          />
-        </Grid>
-      </Grid>
 
       {loading && (
         <Box sx={{ position: 'fixed', right: 24, bottom: 24, zIndex: 10 }}>
@@ -796,10 +772,10 @@ export default function Dashboard() {
             icon={<CircularProgress size={14} color="inherit" />}
             label="Loading dashboard..."
             sx={{
-              fontFamily: DASHBOARD_THEME.fontFamily,
+              fontFamily: dt.fontFamily,
               fontWeight: 600,
-              boxShadow: DASHBOARD_THEME.cardShadow,
-              borderRadius: DASHBOARD_THEME.cardRadius,
+              boxShadow: dt.cardShadow,
+              borderRadius: dt.cardRadius,
             }}
           />
         </Box>

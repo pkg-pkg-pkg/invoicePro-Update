@@ -20,6 +20,10 @@ export interface MenuGroup {
 
 const DEFAULT_MENU_ITEMS: (MenuItem | MenuGroup)[] = [
   { id: 'dashboard', text: 'Dashboard', icon: 'Dashboard', path: '/dashboard', enabled: true },
+  { id: 'items-hub', text: 'Items', icon: 'Inventory', path: '/items', enabled: true },
+  { id: 'banking-hub', text: 'Banking', icon: 'AccountBalance', path: '/banking', enabled: true },
+  { id: 'sales-hub', text: 'Sales', icon: 'PointOfSale', path: '/sales', enabled: true },
+  { id: 'purchase-hub', text: 'Purchase', icon: 'ShoppingCart', path: '/purchase', enabled: true },
   {
     id: 'accounts',
     text: 'Accounts',
@@ -30,12 +34,14 @@ const DEFAULT_MENU_ITEMS: (MenuItem | MenuGroup)[] = [
       { id: 'bank-accounts', text: 'Bank Accounts', icon: 'AccountBalance', path: '/masters/bank-accounts', enabled: true },
       { id: 'godowns', text: 'Godowns', icon: 'Inventory', path: '/masters/godowns', enabled: true },
       { id: 'inventory-items', text: 'Inventory Items', icon: 'Inventory', path: '/masters/inventory-items', enabled: true },
-      { id: 'parties', text: 'Party Master', icon: 'Person', path: '/parties', enabled: true },
+      { id: 'price-lists', text: 'Price Lists', icon: 'Inventory', path: '/masters/price-lists', enabled: true },
+      { id: 'stock-adjustments', text: 'Stock Adjustments', icon: 'Inventory', path: '/masters/stock-adjustments', enabled: true },
+      { id: 'parties', text: 'Customers', icon: 'Person', path: '/customers', enabled: true },
       {
         id: 'party-ledger-report',
         text: 'Party Ledger',
         icon: 'MenuBook',
-        path: '/parties/ledger-report',
+        path: '/customers/ledger-report',
         enabled: true,
       },
       {
@@ -58,7 +64,6 @@ const DEFAULT_MENU_ITEMS: (MenuItem | MenuGroup)[] = [
     ],
   },
   { id: 'manual-expense', text: 'Expenses', icon: 'Payment', path: '/expenses', enabled: true },
-  /** Party payments / receipts: use Vouchers → Payment Vouchers. Standalone /payments route kept for bookmarks only. */
   { id: 'gst', text: 'GST', icon: 'ReceiptLong', path: '/gst', enabled: true },
   { id: 'schemes', text: 'Schemes', icon: 'Assessment', path: '/schemes', enabled: true },
   { id: 'reports', text: 'Reports', icon: 'Assessment', path: '/reports', enabled: true },
@@ -80,8 +85,6 @@ export const useNavigationCustomization = () => {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        // Only load preferences for items that are currently in DEFAULT_MENU_ITEMS
-        // This prevents old/deprecated menu items from being loaded
         const validSavedItems = parsed.filter((item: any) =>
           DEFAULT_MENU_ITEMS.some(defaultItem => defaultItem.id === item.id)
         );
@@ -91,7 +94,6 @@ export const useNavigationCustomization = () => {
             const savedItem = validSavedItems.find((item: any) => item.id === (defaultItem as any).id);
             if (!savedItem) return defaultItem;
 
-            // Deep-merge groups so new submenu items are not lost.
             if ('items' in defaultItem) {
               const defaultGroup = defaultItem as MenuGroup;
               const savedGroup = savedItem as MenuGroup;
@@ -108,28 +110,22 @@ export const useNavigationCustomization = () => {
           });
           setMenuItems(merged);
         } else {
-          // If no valid saved items, clear localStorage and use defaults
           localStorage.removeItem(STORAGE_KEY);
           setMenuItems(DEFAULT_MENU_ITEMS);
         }
       } else {
-        // If no saved preferences for this user, start with defaults
         setMenuItems(DEFAULT_MENU_ITEMS);
       }
     } catch (error) {
       console.warn('Failed to load navigation preferences:', error);
-      // Clear potentially corrupted localStorage data
       localStorage.removeItem(STORAGE_KEY);
       setMenuItems(DEFAULT_MENU_ITEMS);
     }
     setIsLoaded(true);
-  }, [userId]); // Reload when user changes
+  }, [userId]);
 
-  // Save preferences to localStorage
   const savePreferences = (items: (MenuItem | MenuGroup)[]) => {
     try {
-      // Only save preferences for items that are currently in DEFAULT_MENU_ITEMS
-      // This prevents deprecated menu items from being persisted
       const validItems = items.filter(item =>
         DEFAULT_MENU_ITEMS.some(defaultItem => defaultItem.id === item.id)
       );
@@ -140,7 +136,6 @@ export const useNavigationCustomization = () => {
     }
   };
 
-  // Reorder menu items
   const reorderMenuItems = (startIndex: number, endIndex: number) => {
     const result = Array.from(menuItems);
     const [removed] = result.splice(startIndex, 1);
@@ -148,7 +143,6 @@ export const useNavigationCustomization = () => {
     savePreferences(result);
   };
 
-  // Toggle menu item visibility
   const toggleMenuItem = (id: string) => {
     const updated = menuItems.map(item =>
       item.id === id ? { ...item, enabled: !item.enabled } : item
@@ -156,12 +150,10 @@ export const useNavigationCustomization = () => {
     savePreferences(updated);
   };
 
-  // Reset to defaults
   const resetToDefaults = () => {
     savePreferences(DEFAULT_MENU_ITEMS);
   };
 
-  // Get enabled menu items in order
   const getEnabledMenuItems = () => {
     return menuItems.filter(item => item.enabled);
   };

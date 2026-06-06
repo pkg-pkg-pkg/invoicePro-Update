@@ -1,6 +1,6 @@
 import { Box, Divider, Paper, Stack, Typography } from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
-import { DASHBOARD_THEME } from './dashboardTheme';
+import { alpha } from '@mui/material/styles';
+import { useDashboardTheme } from './dashboardTheme';
 
 export interface StatusStripItem {
   label: string;
@@ -12,16 +12,16 @@ export interface DashboardStatusStripProps {
   items: StatusStripItem[];
 }
 
-function StatusIndicator({ ok = true }: { ok?: boolean }) {
-  const color = ok ? DASHBOARD_THEME.status.ok : DASHBOARD_THEME.status.warn;
+function StatusIndicator({ ok = true, color }: { ok?: boolean; color: string }) {
+  const indicatorColor = ok ? color : color;
   return (
     <Box
       sx={{
         width: 7,
         height: 7,
         borderRadius: '50%',
-        bgcolor: color,
-        boxShadow: `0 0 0 2px ${alpha(color, 0.25)}`,
+        bgcolor: indicatorColor,
+        boxShadow: `0 0 0 2px ${alpha(indicatorColor, 0.25)}`,
         flexShrink: 0,
       }}
     />
@@ -29,8 +29,7 @@ function StatusIndicator({ ok = true }: { ok?: boolean }) {
 }
 
 export function DashboardStatusStrip({ items }: DashboardStatusStripProps) {
-  const theme = useTheme();
-  const isDark = theme.palette.mode === 'dark';
+  const dt = useDashboardTheme();
 
   return (
     <Paper
@@ -39,12 +38,13 @@ export function DashboardStatusStrip({ items }: DashboardStatusStripProps) {
         mt: 2.5,
         px: 2,
         py: 1.1,
-        borderRadius: DASHBOARD_THEME.cardRadius,
+        borderRadius: dt.cardRadius,
         border: '1px solid',
-        borderColor: isDark ? alpha('#fff', 0.08) : DASHBOARD_THEME.border,
-        bgcolor: isDark ? alpha('#1E293B', 0.55) : '#FFFFFF',
-        boxShadow: DASHBOARD_THEME.cardShadow,
-        fontFamily: DASHBOARD_THEME.fontFamily,
+        borderColor: dt.border,
+        bgcolor: dt.surface,
+        boxShadow: dt.cardShadow,
+        fontFamily: dt.fontFamily,
+        transition: dt.transition,
       }}
     >
       <Stack
@@ -55,7 +55,7 @@ export function DashboardStatusStrip({ items }: DashboardStatusStripProps) {
           <Divider
             orientation="vertical"
             flexItem
-            sx={{ borderColor: DASHBOARD_THEME.border, mx: 1.25, my: 0.35 }}
+            sx={{ borderColor: dt.border, mx: 1.25, my: 0.35 }}
           />
         }
         spacing={0}
@@ -63,16 +63,18 @@ export function DashboardStatusStrip({ items }: DashboardStatusStripProps) {
       >
         {items.map((item) => (
           <Stack key={item.label} direction="row" alignItems="center" spacing={0.75}>
-            {item.ok !== undefined ? <StatusIndicator ok={item.ok} /> : null}
+            {item.ok !== undefined ? (
+              <StatusIndicator ok={item.ok} color={item.ok ? dt.status.ok : dt.status.warn} />
+            ) : null}
             <Typography
               variant="caption"
               sx={{
                 fontSize: '0.75rem',
-                color: DASHBOARD_THEME.text.secondary,
+                color: dt.text.secondary,
                 fontWeight: 500,
               }}
             >
-              <Box component="span" sx={{ fontWeight: 700, color: DASHBOARD_THEME.text.primary }}>
+              <Box component="span" sx={{ fontWeight: 700, color: dt.text.primary }}>
                 {item.label}
               </Box>
               {' · '}

@@ -19,6 +19,8 @@ import {
 } from '@mui/material';
 import { ledgerReportService, LedgerStatement } from '../services/reports/ledgerReportService';
 
+const VOUCHERS_CHANGED_EVENT = 'pve:vouchers-changed';
+
 const formatCurrency = (value: number) =>
   value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -71,6 +73,25 @@ export default function LedgerStatementByLedgerId() {
       }
     };
     void run();
+  }, [ledgerId, filters.fromDate, filters.toDate]);
+
+  useEffect(() => {
+    const refresh = () => {
+      if (!ledgerId) return;
+      void ledgerReportService
+        .getStatement(ledgerId, {
+          fromDate: filters.fromDate || undefined,
+          toDate: filters.toDate || undefined,
+        })
+        .then(setStatement)
+        .catch(() => undefined);
+    };
+    window.addEventListener(VOUCHERS_CHANGED_EVENT, refresh);
+    window.addEventListener('pve:parties-changed', refresh);
+    return () => {
+      window.removeEventListener(VOUCHERS_CHANGED_EVENT, refresh);
+      window.removeEventListener('pve:parties-changed', refresh);
+    };
   }, [ledgerId, filters.fromDate, filters.toDate]);
 
   const transactions = useMemo(() => statement?.transactions ?? [], [statement]);

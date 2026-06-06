@@ -32,6 +32,7 @@ export function PartyMasterDialog({ open, onClose, onSaved }: PartyMasterDialogP
       <DialogContent dividers sx={{ pt: 2 }}>
         <PartyForm
           embedded
+          vendorMode={false}
           onSaved={(party) => {
             onSaved(party);
             onClose();

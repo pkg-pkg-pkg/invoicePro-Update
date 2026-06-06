@@ -1,6 +1,6 @@
 import { Box, Paper, Typography } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { DASHBOARD_THEME, dashboardCardSx, sectionEyebrowSx } from './dashboardTheme';
+import { dashboardCardSx, sectionEyebrowSx, useDashboardTheme } from './dashboardTheme';
 
 export interface SnapshotItem {
   label: string;
@@ -11,13 +11,24 @@ export interface SnapshotItem {
 
 export interface BusinessSnapshotCardProps {
   items: SnapshotItem[];
-  isDark: boolean;
 }
 
-export function BusinessSnapshotCard({ items, isDark }: BusinessSnapshotCardProps) {
+export function BusinessSnapshotCard({ items }: BusinessSnapshotCardProps) {
+  const dt = useDashboardTheme();
+  const compact = Boolean(dt.enterprise);
+
   return (
-    <Paper elevation={0} sx={{ ...dashboardCardSx(isDark), p: 1.5 }}>
-      <Typography sx={{ ...sectionEyebrowSx, mb: 1.25 }}>Business snapshot</Typography>
+    <Paper elevation={0} sx={{ ...dashboardCardSx(dt), p: compact ? 1.5 : 2 }}>
+      <Typography
+        sx={{
+          ...sectionEyebrowSx(dt),
+          mb: compact ? 1 : 1.5,
+          color: dt.text.secondary,
+          fontSize: compact ? '0.625rem' : undefined,
+        }}
+      >
+        Business snapshot
+      </Typography>
       <Box
         sx={{
           display: 'grid',
@@ -25,11 +36,11 @@ export function BusinessSnapshotCard({ items, isDark }: BusinessSnapshotCardProp
             xs: 'repeat(2, minmax(0, 1fr))',
             lg: 'repeat(4, minmax(0, 1fr))',
           },
-          gap: 1,
+          gap: compact ? 0.85 : 1.25,
         }}
       >
         {items.map((item) => {
-          const accent = item.accent ?? DASHBOARD_THEME.primary;
+          const accent = item.accent ?? dt.primary;
           const clickable = Boolean(item.onClick);
           return (
             <Box
@@ -39,21 +50,26 @@ export function BusinessSnapshotCard({ items, isDark }: BusinessSnapshotCardProp
               onClick={item.onClick}
               sx={{
                 textAlign: 'left',
-                border: '1px solid',
-                borderColor: alpha(accent, 0.12),
-                borderRadius: DASHBOARD_THEME.innerRadius,
-                bgcolor: isDark ? alpha(accent, 0.08) : alpha(accent, 0.04),
-                p: 1.25,
+                border: `1px solid ${dt.border}`,
+                borderRadius: dt.innerRadius,
+                bgcolor: compact ? dt.bgSubtle : undefined,
+                background: compact
+                  ? dt.bgSubtle
+                  : `linear-gradient(145deg, ${dt.surface} 0%, ${alpha(accent, 0.06)} 100%)`,
+                p: compact ? 1.1 : 1.5,
                 cursor: clickable ? 'pointer' : 'default',
-                transition: DASHBOARD_THEME.transition,
+                transition: dt.transition,
                 fontFamily: 'inherit',
+                color: 'inherit',
                 ...(clickable
                   ? {
-                      '&:hover': {
-                        transform: DASHBOARD_THEME.hoverLift,
-                        boxShadow: DASHBOARD_THEME.cardShadow,
-                        borderColor: alpha(accent, 0.28),
-                      },
+                      '&:hover': compact
+                        ? { bgcolor: alpha('#fff', 0.03), borderColor: dt.border }
+                        : {
+                            transform: dt.hoverLift,
+                            boxShadow: dt.cardShadow,
+                            borderColor: alpha(accent, 0.22),
+                          },
                     }
                   : {}),
               }}
@@ -63,19 +79,19 @@ export function BusinessSnapshotCard({ items, isDark }: BusinessSnapshotCardProp
                 sx={{
                   display: 'block',
                   fontWeight: 600,
-                  color: DASHBOARD_THEME.text.muted,
-                  fontSize: '0.6875rem',
-                  mb: 0.35,
+                  color: dt.text.secondary,
+                  fontSize: compact ? '0.625rem' : '0.6875rem',
+                  mb: 0.25,
                 }}
               >
                 {item.label}
               </Typography>
               <Typography
                 sx={{
-                  fontWeight: 800,
-                  fontSize: '1rem',
+                  fontWeight: compact ? 700 : 800,
+                  fontSize: compact ? '0.9375rem' : '1.0625rem',
                   letterSpacing: '-0.02em',
-                  color: accent,
+                  color: compact ? dt.text.primary : accent,
                   fontFeatureSettings: '"tnum"',
                   lineHeight: 1.2,
                 }}

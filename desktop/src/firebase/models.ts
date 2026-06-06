@@ -24,6 +24,8 @@ export type LicenseDoc = {
 
 export type UserProfileDoc = {
   name: string;
+  fullName?: string;
+  electricianName?: string;
   businessName: string;
   email: string;
   mobile: string;

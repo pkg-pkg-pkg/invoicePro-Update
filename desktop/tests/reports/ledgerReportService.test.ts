@@ -4,6 +4,8 @@ import { ledgerGroupService } from '../../src/services/masters/ledgerGroupServic
 import { ledgerAccountService } from '../../src/services/masters/ledgerAccountService';
 import { ledgerReportService } from '../../src/services/reports/ledgerReportService';
 import { voucherService } from '../../src/services/vouchers/voucherService';
+import { readList, writeList } from '../../src/services/masters/storageHelpers';
+import type { Voucher } from '../../src/types/vouchers';
 
 const unique = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -43,5 +45,35 @@ describe('ledgerReportService.getStatement', () => {
     expect(statement.transactions).toHaveLength(1);
     expect(statement.transactions[0].runningBalance).toBeCloseTo(1000, 6);
     expect(statement.closingBalance).toBeCloseTo(1000, 6);
+  });
+
+  it('includes voucher lines when ledger transactions were never posted', async () => {
+    const customer = await createBasicLedger('Debtor', 'ASSET');
+    const sales = await createBasicLedger('Sales', 'INCOME');
+    const date = new Date().toISOString();
+
+    const vouchers = await readList<Voucher>('pve_vouchers');
+    vouchers.push({
+      id: 'vch-test-unposted',
+      type: 'SALES',
+      status: 'ACTIVE',
+      date,
+      number: unique('INV'),
+      lines: [
+        { ledgerId: customer.id, debit: 2500, credit: 0 },
+        { ledgerId: sales.id, debit: 0, credit: 2500 },
+      ],
+      createdAt: date,
+    });
+    await writeList('pve_vouchers', vouchers);
+
+    const statement = await ledgerReportService.getStatement(customer.id, {
+      fromDate: date,
+      toDate: date,
+    });
+
+    expect(statement.transactions).toHaveLength(1);
+    expect(statement.transactions[0].voucherId).toBe('vch-test-unposted');
+    expect(statement.transactions[0].debit).toBeCloseTo(2500, 6);
   });
 });

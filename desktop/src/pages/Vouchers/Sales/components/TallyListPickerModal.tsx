@@ -118,6 +118,12 @@ export function TallyListPickerModal<T>({
   useEffect(() => {
     if (!open) return;
     const onDocKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+        return;
+      }
       if (onCreateNew && e.ctrlKey && (e.key === 'n' || e.key === 'N')) {
         e.preventDefault();
         onCreateNew();
@@ -125,7 +131,7 @@ export function TallyListPickerModal<T>({
     };
     document.addEventListener('keydown', onDocKey, true);
     return () => document.removeEventListener('keydown', onDocKey, true);
-  }, [open, onCreateNew]);
+  }, [open, onCreateNew, onClose]);
 
   const onSearchKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -191,6 +197,7 @@ export function TallyListPickerModal<T>({
     <Dialog
       open={open}
       onClose={() => onClose()}
+      disableRestoreFocus
       disableAutoFocus={false}
       disableEnforceFocus={false}
       fullWidth

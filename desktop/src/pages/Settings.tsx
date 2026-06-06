@@ -10,6 +10,7 @@ import WhatsAppSettings from '../components/WhatsAppSettings';
 import UserManagement from './UserManagement';
 import AboutAndUpdates from '../components/AboutAndUpdates';
 import BackupRestore from '../components/BackupRestore';
+import GodownList from './Masters/Godowns/GodownList';
 import { networkService, NetworkStatus } from '../services/networkService';
 import { syncPasswordToFirestore } from '../services/userProfileService';
 import { invoke } from '@tauri-apps/api/core';
@@ -256,8 +257,8 @@ function AppearanceSettingsSection() {
           }}
           sx={{ mb: 3 }}
         >
-          <ToggleButton value="premium-dark">Premium dark</ToggleButton>
-          <ToggleButton value="light">Light</ToggleButton>
+          <ToggleButton value="light">Light mode</ToggleButton>
+          <ToggleButton value="premium-dark">Dark mode</ToggleButton>
         </ToggleButtonGroup>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>
           Accent colour
@@ -393,7 +394,6 @@ export default function Settings() {
   const [appSettings, setAppSettings] = useState(() => getAppSettings());
   const [appSettingsSaved, setAppSettingsSaved] = useState(false);
   const [appSettingsError, setAppSettingsError] = useState<string | null>(null);
-
   const loadCompanyMedia = (): CompanyMediaInfo => {
     try {
       const raw = localStorage.getItem('company-info');
@@ -1856,6 +1856,25 @@ export default function Settings() {
                       />
                     </Grid>
                   </Grid>
+                </Paper>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Paper sx={{ p: 3 }}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                    <Box>
+                      <Typography variant="h6" fontWeight={700} gutterBottom>
+                        Godown / Warehouse Master
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Add warehouses, set default godown, and assign stock locations on items.
+                      </Typography>
+                    </Box>
+                    <Button variant="outlined" onClick={() => navigate('/masters/godowns')}>
+                      Manage Godowns
+                    </Button>
+                  </Stack>
+                  <GodownList />
                 </Paper>
               </Grid>
 

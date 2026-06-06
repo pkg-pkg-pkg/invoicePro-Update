@@ -15,8 +15,14 @@ const sortCategories = (categories: ItemCategory[]) =>
 
 const DEFAULT_CATEGORIES: Omit<ItemCategory, 'createdAt' | 'updatedAt'>[] = [
   { id: 'cat-general', name: 'General', code: 'GEN', parentId: null, isActive: true },
+  { id: 'cat-electronics', name: 'Electronics', code: 'ELC', parentId: null, isActive: true },
+  { id: 'cat-furniture', name: 'Furniture', code: 'FUR', parentId: null, isActive: true },
+  { id: 'cat-clothing', name: 'Clothing & Apparel', code: 'CLT', parentId: null, isActive: true },
+  { id: 'cat-food', name: 'Food & Beverages', code: 'FNB', parentId: null, isActive: true },
   { id: 'cat-raw-materials', name: 'Raw Materials', code: 'RAW', parentId: null, isActive: true },
   { id: 'cat-finished-goods', name: 'Finished Goods', code: 'FIN', parentId: null, isActive: true },
+  { id: 'cat-spare-parts', name: 'Spare Parts', code: 'SPR', parentId: null, isActive: true },
+  { id: 'cat-stationery', name: 'Stationery', code: 'STN', parentId: null, isActive: true },
 ];
 
 const ensureParentValidity = (

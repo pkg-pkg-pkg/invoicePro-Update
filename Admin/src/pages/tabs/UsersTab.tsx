@@ -261,17 +261,17 @@ export default function UsersTab() {
       )}
 
       <TableContainer sx={{ overflowX: 'auto' }}>
-        <Table size="small" sx={{ minWidth: 1280 }}>
+        <Table size="small" sx={{ minWidth: 1100 }}>
           <TableHead>
             <TableRow>
               <TableCell>Email</TableCell>
               <TableCell>Name</TableCell>
-              <TableCell>License key</TableCell>
-              <TableCell>License generated</TableCell>
-              <TableCell>License activated</TableCell>
               <TableCell>Last login</TableCell>
               <TableCell>Last used app</TableCell>
               <TableCell>App version</TableCell>
+              <TableCell>License key</TableCell>
+              <TableCell>License generated</TableCell>
+              <TableCell>License activated</TableCell>
               <TableCell>Gateway valid till</TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
@@ -310,11 +310,6 @@ export default function UsersTab() {
                   <TableRow key={`${email}-${licKey}`} hover>
                     <TableCell>{email}</TableCell>
                     <TableCell>{String(u.name ?? u.businessName ?? '') || '—'}</TableCell>
-                    <TableCell sx={{ fontFamily: 'monospace', fontSize: 11, maxWidth: 220, wordBreak: 'break-all' }}>
-                      {licKey || '—'}
-                    </TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap', fontSize: 12 }}>{formatTs(genMs)}</TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap', fontSize: 12 }}>{formatTs(actMs)}</TableCell>
                     <TableCell sx={{ whiteSpace: 'nowrap', fontSize: 12 }}>{formatTs(lastLoginMs)}</TableCell>
                     <TableCell sx={{ whiteSpace: 'nowrap', fontSize: 12 }}>
                       {lastUsedMs != null ? (
@@ -334,6 +329,11 @@ export default function UsersTab() {
                         '—'
                       )}
                     </TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace', fontSize: 11, maxWidth: 220, wordBreak: 'break-all' }}>
+                      {licKey || '—'}
+                    </TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap', fontSize: 12 }}>{formatTs(genMs)}</TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap', fontSize: 12 }}>{formatTs(actMs)}</TableCell>
                     <TableCell sx={{ whiteSpace: 'nowrap', fontSize: 12 }}>
                       {gwMs != null ? (
                         <Chip

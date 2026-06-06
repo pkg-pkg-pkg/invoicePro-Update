@@ -46,6 +46,10 @@ import { isElectronRuntime } from "../utils/runtime";
 import { listCompaniesEnriched, switchCompany } from "../services/companyRegistryService";
 import { validateLicenseAndDevice } from "../services/loginService";
 import { getBundledAppVersion } from "../services/appUpdateService";
+import {
+  fetchUserDisplayName,
+  pickBestDisplayName,
+} from "../services/userDisplayNameService";
 
 const LOCAL_LICENSE_CACHE_KEY = "enc_license_cache_v1";
 
@@ -370,12 +374,23 @@ const Login: React.FC = () => {
       }
       await bindCurrentDevice(normalizedEmail);
 
+      const profileName = await fetchUserDisplayName(
+        userCredential.user.uid,
+        normalizedEmail,
+        resolvedName
+      );
+      const displayName = pickBestDisplayName(
+        [profileName, licName, fbName],
+        normalizedEmail,
+        resolvedName
+      );
+
       await finishAuthAndNavigate(
         {
           id: userCredential.user.uid,
           username: normalizedEmail,
           email: normalizedEmail,
-          fullName: resolvedName,
+          fullName: displayName,
           role: 'admin',
           companyId: '',
           company: null,
@@ -449,17 +464,28 @@ const Login: React.FC = () => {
       await bindCurrentDevice(tEmailNorm);
 
       const tEmail = transferData.email.trim();
+      const tEmailNormLower = tEmailNorm;
       const tFb = String(userCredential.user.displayName ?? "").trim();
       const tLocal = tEmail.split("@")[0] || "";
       const tPretty =
         tLocal.length > 0 ? tLocal.charAt(0).toUpperCase() + tLocal.slice(1) : "";
+      const tProfileName = await fetchUserDisplayName(
+        userCredential.user.uid,
+        tEmailNormLower,
+        tFb || tPretty || tEmail
+      );
+      const tDisplayName = pickBestDisplayName(
+        [tProfileName, tFb, tPretty],
+        tEmailNormLower,
+        tFb || tPretty || 'User'
+      );
 
       await finishAuthAndNavigate(
         {
           id: userCredential.user.uid,
           username: tEmail,
           email: tEmail,
-          fullName: tFb || tPretty || tEmail,
+          fullName: tDisplayName,
           role: 'admin',
           companyId: '',
           company: null,

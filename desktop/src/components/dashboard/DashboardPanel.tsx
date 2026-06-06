@@ -1,14 +1,12 @@
 import { Paper, Stack, Typography } from '@mui/material';
 import type { SxProps, Theme } from '@mui/material/styles';
 import type { ReactNode } from 'react';
-import { dashboardCardSx, sectionTitleSx } from './dashboardTheme';
+import { dashboardCardSx, sectionTitleSx, useDashboardTheme } from './dashboardTheme';
 
 export interface DashboardPanelProps {
   title?: string;
   action?: ReactNode;
-  isDark: boolean;
   accent?: string;
-  /** Only set for side-by-side panels that should match row height */
   fillHeight?: boolean;
   children: ReactNode;
   sx?: SxProps<Theme>;
@@ -18,20 +16,19 @@ export interface DashboardPanelProps {
 export function DashboardPanel({
   title,
   action,
-  isDark,
   accent,
   fillHeight = false,
   children,
   sx,
 }: DashboardPanelProps) {
+  const dt = useDashboardTheme();
+
   return (
     <Paper
       elevation={0}
       sx={{
-        ...dashboardCardSx(isDark, accent),
+        ...dashboardCardSx(dt, accent),
         p: 2.25,
-        transition: 'box-shadow 300ms ease, transform 300ms ease, border-color 300ms ease',
-        '&:hover': { boxShadow: '0 8px 24px rgba(0, 0, 0, 0.08)' },
         ...(fillHeight ? { height: '100%' } : {}),
         ...sx,
       }}
@@ -43,7 +40,7 @@ export function DashboardPanel({
           alignItems="center"
           sx={{ mb: 2, minHeight: 28 }}
         >
-          {title ? <Typography sx={sectionTitleSx}>{title}</Typography> : <span />}
+          {title ? <Typography sx={sectionTitleSx(dt)}>{title}</Typography> : <span />}
           {action}
         </Stack>
       )}

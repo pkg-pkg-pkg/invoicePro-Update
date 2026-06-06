@@ -8,9 +8,9 @@
   },
   "files": ["dist/**/*", "electron/**/*", "package.json"],
   "asar": true,
-  "asarUnpack": ["dist/**/*"],
+  "asarUnpack": ["electron/icon.ico", "electron/icon.png"],
   "win": {
-    "signAndEditExecutable": false,
+    "icon": "icon.ico",
     "target": [
       {
         "target": "nsis",

@@ -6,6 +6,7 @@ import RemoveIcon from '@mui/icons-material/Remove';
 import CropSquareIcon from '@mui/icons-material/CropSquare';
 import FilterNoneIcon from '@mui/icons-material/FilterNone';
 import CloseIcon from '@mui/icons-material/Close';
+import { requestAppQuit } from '../utils/appQuit';
 import { isElectronRuntime } from '../utils/runtime';
 import { APP_DISPLAY_NAME, APP_TAGLINE } from '../constants/appBranding';
 
@@ -143,7 +144,7 @@ export default function ElectronTitleBar() {
           size="small"
           aria-label="Close"
           onClick={() => {
-            void api.windowClose?.();
+            requestAppQuit();
           }}
           sx={{
             color: 'inherit',

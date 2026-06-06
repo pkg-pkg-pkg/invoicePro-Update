@@ -17,6 +17,7 @@ import {
   validateDesktopSession,
   type SessionUser,
 } from "../../services/sessionManager";
+import { subscribeUserDisplayName } from "../../services/userDisplayNameService";
 import { isElectronRuntime } from "../../utils/runtime";
 import { withTimeout } from "../../utils/withTimeout";
 
@@ -131,6 +132,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    return subscribeUserDisplayName(user.id, user.email, (name) => {
+      setUser((prev) => {
+        if (!prev || prev.fullName === name) return prev;
+        const next = { ...prev, fullName: name };
+        try {
+          localStorage.setItem('user', JSON.stringify(next));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+    });
+  }, [user?.id, user?.email]);
 
   const login = useCallback(async (newToken: string, newUser: User) => {
     setToken(newToken);

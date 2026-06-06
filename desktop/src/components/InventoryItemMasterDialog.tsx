@@ -18,6 +18,7 @@ export function InventoryItemMasterDialog({ open, initialBarcode, onClose, onSav
     <Dialog
       open={open}
       onClose={onClose}
+      disableRestoreFocus
       maxWidth="md"
       fullWidth
       scroll="paper"

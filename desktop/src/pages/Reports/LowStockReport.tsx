@@ -15,10 +15,10 @@ import {
   Typography,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import { alpha, useTheme } from '@mui/material/styles';
+import { useTheme } from '@mui/material/styles';
 import { AppDispatch, RootState } from '../../store';
 import { fetchLowStock } from '../../store/slices/dashboardSlice';
-import { DASHBOARD_THEME, dashboardCardSx } from '../../components/dashboard/dashboardTheme';
+import { getDashboardTheme, dashboardCardSx } from '../../components/dashboard/dashboardTheme';
 import { formatCurrency } from '../../utils/formatters';
 
 export default function LowStockReport() {
@@ -26,7 +26,7 @@ export default function LowStockReport() {
   const navigate = useNavigate();
   const dispatch = useDispatch<AppDispatch>();
   const { lowStock, loading } = useSelector((s: RootState) => s.dashboard);
-  const isDark = theme.palette.mode === 'dark';
+  const dt = getDashboardTheme(theme.palette.mode);
 
   useEffect(() => {
     dispatch(fetchLowStock());
@@ -34,14 +34,12 @@ export default function LowStockReport() {
 
   const rows = useMemo(() => lowStock ?? [], [lowStock]);
 
-  const pageBg = isDark
-    ? `linear-gradient(165deg, ${alpha('#0F172A', 0.99)} 0%, ${alpha('#0B1220', 0.99)} 100%)`
-    : `linear-gradient(180deg, ${DASHBOARD_THEME.bg} 0%, ${DASHBOARD_THEME.bgSubtle} 100%)`;
+  const pageBg = `linear-gradient(180deg, ${dt.bg} 0%, ${dt.bgSubtle} 100%)`;
 
   return (
     <Box
       sx={{
-        fontFamily: DASHBOARD_THEME.fontFamily,
+        fontFamily: dt.fontFamily,
         minHeight: '100%',
         bgcolor: pageBg,
         px: { xs: 2, md: 3 },
@@ -65,11 +63,11 @@ export default function LowStockReport() {
         Items at or below reorder level — current stock ≤ minimum stock.
       </Typography>
 
-      <Paper elevation={0} sx={{ ...dashboardCardSx(isDark), p: 2.25 }}>
+      <Paper elevation={0} sx={{ ...dashboardCardSx(dt), p: 2.25 }}>
         <TableContainer>
           <Table size="small">
             <TableHead>
-              <TableRow sx={{ bgcolor: isDark ? alpha('#fff', 0.04) : DASHBOARD_THEME.bgSubtle }}>
+              <TableRow sx={{ bgcolor: dt.bgSubtle }}>
                 <TableCell sx={{ fontWeight: 700 }}>Product Name</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 700 }}>
                   Current Stock
@@ -97,7 +95,7 @@ export default function LowStockReport() {
                 rows.map((row) => (
                   <TableRow key={row.id} hover>
                     <TableCell sx={{ fontWeight: 600 }}>{row.name}</TableCell>
-                    <TableCell align="right" sx={{ color: DASHBOARD_THEME.status.warn, fontWeight: 700 }}>
+                    <TableCell align="right" sx={{ color: dt.status.warn, fontWeight: 700 }}>
                       {row.currentStock}
                     </TableCell>
                     <TableCell align="right">{row.reorderLevel}</TableCell>

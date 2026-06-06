@@ -9,6 +9,14 @@ import { companyScopedKey } from '../../utils/companyStorage';
 
 const STORAGE_KEY = companyScopedKey('pve_inventory_items');
 
+export const INVENTORY_ITEMS_CHANGED_EVENT = 'inventoryItemsChanged';
+
+function notifyInventoryItemsChanged(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(INVENTORY_ITEMS_CHANGED_EVENT));
+  }
+}
+
 export interface InventoryItemFilters {
   includeInactive?: boolean;
   categoryId?: string | null;
@@ -258,6 +266,13 @@ const buildInventoryItem = async (
     godownStocks,
     images: sanitizeStringArray(payload.images),
     status,
+    itemType: payload.itemType ?? 'BOTH',
+    upc: sanitizeString(payload.upc ?? null),
+    ean: sanitizeString(payload.ean ?? null),
+    isbn: sanitizeString(payload.isbn ?? null),
+    taxClass: payload.taxClass ?? (gstRate > 0 ? 'TAXABLE' : 'NON_TAXABLE'),
+    description: sanitizeString(payload.description ?? null),
+    createdSource: payload.createdSource ?? 'USER',
     createdAt: payload.createdAt ?? nowIso(),
     updatedAt: nowIso(),
   };
@@ -320,6 +335,7 @@ export const inventoryItemService = {
     const item = await buildInventoryItem(payload, items, true);
     items.push(item);
     await writeList(STORAGE_KEY, items);
+    notifyInventoryItemsChanged();
     return item;
   },
 
@@ -344,6 +360,7 @@ export const inventoryItemService = {
 
     items[index] = updated;
     await writeList(STORAGE_KEY, items);
+    notifyInventoryItemsChanged();
     return updated;
   },
 
@@ -356,6 +373,7 @@ export const inventoryItemService = {
     }
     items[index] = { ...items[index], status: 'INACTIVE', updatedAt: nowIso() };
     await writeList(STORAGE_KEY, items);
+    notifyInventoryItemsChanged();
   },
 
   async restore(id: string): Promise<void> {
@@ -366,6 +384,7 @@ export const inventoryItemService = {
     }
     items[index] = { ...items[index], status: 'ACTIVE', updatedAt: nowIso() };
     await writeList(STORAGE_KEY, items);
+    notifyInventoryItemsChanged();
   },
 
   async bulkSoftDelete(ids: string[]): Promise<number> {
@@ -384,6 +403,7 @@ export const inventoryItemService = {
     }
     if (updated > 0) {
       await writeList(STORAGE_KEY, items);
+      notifyInventoryItemsChanged();
     }
     return updated;
   },
@@ -436,6 +456,7 @@ export const inventoryItemService = {
 
     if (created || updated) {
       await writeList(STORAGE_KEY, items);
+      notifyInventoryItemsChanged();
     }
 
     return { created, updated, errors };
@@ -527,11 +548,13 @@ export const inventoryItemService = {
     };
 
     await writeList(STORAGE_KEY, items);
+    notifyInventoryItemsChanged();
     return items[index];
   },
 
   async clearAll() {
     await writeList(STORAGE_KEY, []);
+    notifyInventoryItemsChanged();
   },
 
   async backfillMissingGodownSplits(itemId?: string): Promise<number> {
@@ -554,6 +577,7 @@ export const inventoryItemService = {
     });
     if (updated > 0) {
       await writeList(STORAGE_KEY, next);
+      notifyInventoryItemsChanged();
     }
     return updated;
   },

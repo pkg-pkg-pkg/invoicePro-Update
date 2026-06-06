@@ -19,6 +19,8 @@ import {
 
 import { auth } from '../firebase/firebase';
 import { adminCheckMessage, checkAdminUid } from '../firebase/adminAuth';
+import { clearPasscodeVault, hasPasscodeVault } from '../services/passcodeVault';
+import { clearSessionUnlock, isSessionUnlocked } from '../services/sessionLock';
 import Logo from '../components/Logo';
 import LicensesTab from './tabs/LicensesTab';
 import UsersTab from './tabs/UsersTab';
@@ -74,6 +76,15 @@ export default function AdminDashboard() {
         setReady(true);
         return;
       }
+      if (hasPasscodeVault() && !isSessionUnlocked()) {
+        await signOut(auth).catch(() => undefined);
+        if (!cancelled) {
+          setAllowed(false);
+          setDenyMessage(null);
+          setReady(true);
+        }
+        return;
+      }
       setReady(false);
       try {
         const result = await checkAdminUid(u.uid);
@@ -102,7 +113,7 @@ export default function AdminDashboard() {
     );
   }
 
-  if (!auth.currentUser) {
+  if (!auth.currentUser || (hasPasscodeVault() && !isSessionUnlocked())) {
     return <Navigate to="/login" replace />;
   }
 
@@ -131,11 +142,8 @@ export default function AdminDashboard() {
     <Box sx={{ minHeight: '100vh', bgcolor: '#f6f8fb' }}>
       <AppBar position="static" elevation={0}>
         <Toolbar sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
-          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ flexShrink: 0, minWidth: 0 }}>
+          <Stack direction="row" alignItems="center" sx={{ flexShrink: 0, minWidth: 0 }}>
             <Logo size="toolbar" />
-            <Typography fontWeight={800} noWrap>
-              InvoicePro Admin
-            </Typography>
           </Stack>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <IconButton color="inherit" title="Refresh page" onClick={() => window.location.reload()}>
@@ -144,6 +152,18 @@ export default function AdminDashboard() {
             <Button
               color="inherit"
               onClick={async () => {
+                clearSessionUnlock();
+                await signOut(auth).catch(() => undefined);
+                nav('/login', { replace: true });
+              }}
+            >
+              Lock
+            </Button>
+            <Button
+              color="inherit"
+              onClick={async () => {
+                clearPasscodeVault();
+                clearSessionUnlock();
                 await signOut(auth).catch(() => undefined);
                 nav('/login', { replace: true });
               }}

@@ -1,6 +1,7 @@
 import { LedgerAccount, LedgerTransaction } from '../../types/masters';
 import { ledgerAccountService } from '../masters/ledgerAccountService';
 import { ledgerTransactionService } from '../masters/ledgerTransactionService';
+import { voucherService } from '../vouchers/voucherService';
 
 export interface LedgerStatementFilters {
   fromDate?: string;
@@ -59,6 +60,66 @@ const computeLedgerOpening = (
   return Number(opening.toFixed(4));
 };
 
+/** Ledgers with the same name in the same group (duplicate sundry accounts). */
+async function resolveRelatedLedgerIds(primaryLedgerId: string): Promise<string[]> {
+  const ledger = await ledgerAccountService.getById(primaryLedgerId);
+  if (!ledger) return [primaryLedgerId];
+
+  const ledgers = await ledgerAccountService.list({
+    includeInactive: false,
+    groupId: ledger.groupId,
+  });
+  const nameKey = ledger.name.trim().toLowerCase();
+  const related = ledgers.filter((l) => l.name.trim().toLowerCase() === nameKey).map((l) => l.id);
+  return related.length ? related : [primaryLedgerId];
+}
+
+/** Build ledger rows from posted vouchers — source of truth for party ledger display. */
+async function buildTransactionsFromVouchers(ledgerIds: string[]): Promise<LedgerTransaction[]> {
+  const vouchers = await voucherService.list();
+  const ledgerSet = new Set(ledgerIds);
+  const rows: LedgerTransaction[] = [];
+
+  for (const voucher of vouchers) {
+    if ((voucher.status ?? 'ACTIVE') === 'CANCELLED') continue;
+    voucher.lines.forEach((line, lineIndex) => {
+      if (!line.ledgerId || !ledgerSet.has(line.ledgerId)) return;
+      const debit = Number(line.debit ?? 0);
+      const credit = Number(line.credit ?? 0);
+      if (debit === 0 && credit === 0) return;
+      rows.push({
+        id: `${voucher.id}:${lineIndex}`,
+        ledgerId: line.ledgerId,
+        voucherType: voucher.type,
+        voucherId: voucher.id,
+        date: voucher.date,
+        debit,
+        credit,
+        runningBalance: 0,
+        meta: voucher.narration ? { narration: voucher.narration } : undefined,
+        createdAt: voucher.createdAt,
+      });
+    });
+  }
+
+  return rows.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
+/** Merge voucher-derived rows with stored ledger transactions (dedupe by voucher+amounts). */
+function mergeLedgerTransactions(
+  stored: LedgerTransaction[],
+  fromVouchers: LedgerTransaction[]
+): LedgerTransaction[] {
+  const key = (t: LedgerTransaction) =>
+    `${t.voucherId}|${t.date}|${t.debit}|${t.credit}|${t.voucherType}`;
+  const map = new Map<string, LedgerTransaction>();
+  for (const t of stored) map.set(key(t), t);
+  for (const t of fromVouchers) {
+    if (!map.has(key(t))) map.set(key(t), t);
+  }
+  return [...map.values()].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
 export const ledgerReportService = {
   async getStatement(ledgerId: string, filters: LedgerStatementFilters = {}): Promise<LedgerStatement> {
     const ledger = await ledgerAccountService.getById(ledgerId);
@@ -72,7 +133,12 @@ export const ledgerReportService = {
       throw new Error('From date cannot be after To date');
     }
 
-    const transactions = await ledgerTransactionService.list({ ledgerId });
+    const relatedLedgerIds = await resolveRelatedLedgerIds(ledgerId);
+    const storedTxns = (
+      await Promise.all(relatedLedgerIds.map((id) => ledgerTransactionService.list({ ledgerId: id })))
+    ).flat();
+    const voucherTxns = await buildTransactionsFromVouchers(relatedLedgerIds);
+    const transactions = mergeLedgerTransactions(storedTxns, voucherTxns);
 
     const openingBalance = computeLedgerOpening(ledger, transactions, fromTs);
     const statementEntries: LedgerStatementEntry[] = [];

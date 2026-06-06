@@ -189,4 +189,22 @@ export const godownService = {
   async clearAll() {
     await writeList(STORAGE_KEY, []);
   },
+
+  async seedDefaults() {
+    const godowns = await readList<Godown>(STORAGE_KEY);
+    if (godowns.length > 0) return;
+    const now = nowIso();
+    await writeList(STORAGE_KEY, [
+      {
+        id: 'gdn-main',
+        name: 'Main Godown',
+        code: 'MAIN',
+        address: null,
+        isDefault: true,
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+  },
 };

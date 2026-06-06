@@ -14,6 +14,12 @@ export type { Voucher, VoucherLine };
 
 const STORAGE_KEY = companyScopedKey('pve_vouchers');
 
+function notifyVouchersChanged() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('pve:vouchers-changed'));
+  }
+}
+
 export type CreateVoucherInput = Omit<Voucher, 'id' | 'createdAt' | 'status'> & {
   status?: Voucher['status'];
 };
@@ -101,6 +107,7 @@ export const voucherService = {
       await commitInvoiceNumber(voucher.number);
     }
 
+    notifyVouchersChanged();
     return voucher;
   },
 
@@ -144,6 +151,22 @@ export const voucherService = {
 
     vouchers[index] = updated;
     await writeList(STORAGE_KEY, vouchers);
+    notifyVouchersChanged();
+    return updated;
+  },
+
+  async cancel(id: string): Promise<Voucher> {
+    const vouchers = await readList<Voucher>(STORAGE_KEY);
+    const index = vouchers.findIndex((v) => v.id === id);
+    if (index < 0) throw new Error('Voucher not found');
+    const existing = vouchers[index];
+    if (existing.status === 'CANCELLED') return existing;
+    await reverseVoucherPosting(existing);
+    await reverseStockImpact(existing);
+    const updated: Voucher = { ...existing, status: 'CANCELLED' };
+    vouchers[index] = updated;
+    await writeList(STORAGE_KEY, vouchers);
+    notifyVouchersChanged();
     return updated;
   },
 
@@ -162,6 +185,7 @@ export const voucherService = {
     }
     const filtered = vouchers.filter(v => v.id !== id);
     await writeList(STORAGE_KEY, filtered);
+    notifyVouchersChanged();
   },
 
   async clearAll() {

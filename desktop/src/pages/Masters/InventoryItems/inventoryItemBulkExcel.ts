@@ -38,6 +38,7 @@ function normHeader(s: string): string {
   return String(s ?? '')
     .trim()
     .toLowerCase()
+    .replace(/\*/g, '')
     .replace(/\s+/g, '');
 }
 
@@ -118,10 +119,10 @@ export function applyInventoryErpAliases(o: Record<string, unknown>): void {
     'qty',
     'quantity',
   ]);
-  setNum('reorderlevel', ['reorderlevel', 'reorder', 'minlevel', 'minimumlevel']);
+  setNum('reorderlevel', ['reorderlevel', 'reorder', 'minlevel', 'minimumlevel', 'minstock']);
 
   setNum('purchaseprice', ['purchaseprice', 'purchaserate', 'prate', 'costprice', 'buyingprice']);
-  setNum('saleprice', ['saleprice', 'salerate', 'sellingprice', 'salesrate']);
+  setNum('saleprice', ['saleprice', 'salerate', 'sellingprice', 'salesrate', 'selling']);
   setNum('mrp', ['mrp', 'mrpprice', 'listprice']);
   setNum('wholesale', ['wholesale', 'wsp', 'wholesalerate']);
   setNum('distributor', ['distributor', 'dprate', 'distributorprice']);

@@ -33,7 +33,7 @@ export function readUiMode(): UiMode {
   } catch {
     /* ignore */
   }
-  return 'premium-dark';
+  return 'light';
 }
 
 export function readAccentColor(): string {

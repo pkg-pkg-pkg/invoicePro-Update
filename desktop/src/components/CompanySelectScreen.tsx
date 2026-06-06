@@ -26,6 +26,7 @@ import {
   reloadAfterCompanySwitch,
   type EnrichedCompanyRecord,
 } from '../services/companyRegistryService';
+import { useUserDisplayName } from '../hooks/useUserDisplayName';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { getBundledAppVersion } from '../services/appUpdateService';
 import { ERP_HEADER_BG } from '../theme/erpColors';
@@ -145,7 +146,7 @@ export default function CompanySelectScreen({ mode = 'startup', open = true, onC
 
   if (!open) return null;
 
-  const welcomeName = user?.fullName || user?.username || 'User';
+  const welcomeName = useUserDisplayName();
   const isModal = mode === 'switch';
   const isEmbedded = mode === 'embedded';
 

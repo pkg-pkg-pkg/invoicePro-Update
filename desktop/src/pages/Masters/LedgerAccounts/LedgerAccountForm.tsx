@@ -24,6 +24,7 @@ import { LedgerAccount, LedgerGroup } from '../../../types/masters';
 import { useMasterForm } from '../../../hooks/useMasterForm';
 import { usePermission } from '../../../hooks/usePermission';
 import { useFocusField } from '../../../hooks/useFocusField';
+import { IfscField } from '../../../components/forms/IfscField';
 
 interface LedgerAccountInput {
   name: string;
@@ -489,18 +490,25 @@ const LedgerAccountForm = () => {
                   required
                   disabled={formDisabled}
                 />
-                <TextField
-                  label="IFSC Code"
+                <IfscField
                   value={formState.bankDetails?.ifscCode ?? ''}
-                  onChange={(e) =>
+                  onChange={(v) =>
                     setFormState((prev) => ({
                       ...prev,
-                      bankDetails: { ...(prev.bankDetails ?? emptyBankDetails()), ifscCode: e.target.value.toUpperCase() },
+                      bankDetails: { ...(prev.bankDetails ?? emptyBankDetails()), ifscCode: v },
                     }))
                   }
-                  fullWidth
+                  onResolved={(data) =>
+                    setFormState((prev) => ({
+                      ...prev,
+                      bankDetails: {
+                        ...(prev.bankDetails ?? emptyBankDetails()),
+                        bankName: data.bankName,
+                        branchName: data.branchName,
+                      },
+                    }))
+                  }
                   required
-                  inputProps={{ maxLength: 11 }}
                   disabled={formDisabled}
                 />
               </Stack>

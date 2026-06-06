@@ -4,7 +4,8 @@ import path from "path";
 import dotenv from "dotenv";
 import { readFileSync } from "fs";
 
-// Load environment variables
+// Load environment variables (project root + desktop folder)
+dotenv.config({ path: path.join(__dirname, '../.env') });
 dotenv.config();
 
 const pkg = JSON.parse(readFileSync(path.join(__dirname, "package.json"), "utf-8")) as { version?: string };
@@ -15,6 +16,7 @@ export default defineConfig({
     'import.meta.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL || 'http://localhost:3000/api'),
     'import.meta.env.VITE_ENV': JSON.stringify(process.env.VITE_ENV || 'development'),
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(process.env.VITE_APP_VERSION || pkg.version || '1.0.0'),
+    'import.meta.env.VITE_GEMINI_KEY': JSON.stringify(process.env.VITE_GEMINI_KEY || ''),
   },
   resolve: {
     alias: {

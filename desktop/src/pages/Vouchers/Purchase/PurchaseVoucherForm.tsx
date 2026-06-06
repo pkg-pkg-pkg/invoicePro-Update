@@ -29,7 +29,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { inventoryItemService } from '../../../services/masters/inventoryItemService';
+import { useActiveInventoryItems } from '../../../hooks/useActiveInventoryItems';
 import { godownService } from '../../../services/masters/godownService';
 import { partyService } from '../../../services/masters/partyService';
 import { ledgerAccountService } from '../../../services/masters/ledgerAccountService';
@@ -81,7 +81,11 @@ const PurchaseVoucherForm = () => {
   const canCreate = can('create-vouchers');
   const isEditMode = Boolean(editVoucherId);
 
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const {
+    items: inventoryItems,
+    setItems: setInventoryItems,
+    reload: reloadInventoryItems,
+  } = useActiveInventoryItems();
   const [godowns, setGodowns] = useState<Godown[]>([]);
   const [parties, setParties] = useState<Party[]>([]);
   const [saving, setSaving] = useState(false);
@@ -167,10 +171,7 @@ const PurchaseVoucherForm = () => {
       .then(setParties)
       .catch(() => setParties([]));
 
-    inventoryItemService
-      .list({ includeInactive: false })
-      .then((items) => setInventoryItems(items.filter((item) => item.status === 'ACTIVE')))
-      .catch(() => setInventoryItems([]));
+
     godownService
       .list({ includeInactive: false })
       .then((list) => {
@@ -495,10 +496,14 @@ const PurchaseVoucherForm = () => {
     !saving;
 
   const handleInventoryMasterSaved = (newItem: InventoryItem) => {
-    setInventoryItems((prev) => [...prev, newItem]);
+    setInventoryItems((prev) => {
+      if (prev.some((item) => item.id === newItem.id)) return prev;
+      return [...prev, newItem];
+    });
     placeItemFromScan(newItem);
     setPendingScannedBarcode('');
     setShowQuickCreateItem(false);
+    void reloadInventoryItems();
   };
 
   const postingPreview = useMemo(() => {

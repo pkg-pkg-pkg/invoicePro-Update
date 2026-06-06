@@ -100,6 +100,10 @@ export interface Godown {
 
 export type InventoryStatus = 'ACTIVE' | 'INACTIVE';
 
+export type InventoryItemType = 'SALES' | 'PURCHASE' | 'BOTH';
+export type InventoryTaxClass = 'TAXABLE' | 'NON_TAXABLE' | 'EXEMPT';
+export type InventoryCreatedSource = 'USER' | 'IMPORT' | 'SYSTEM';
+
 export interface PricingInfo {
   purchase?: number;
   sale?: number;
@@ -136,11 +140,57 @@ export interface InventoryItem {
   godownStocks?: InventoryGodownStock[];
   images?: string[];
   status: InventoryStatus;
+  itemType?: InventoryItemType;
+  upc?: string | null;
+  ean?: string | null;
+  isbn?: string | null;
+  taxClass?: InventoryTaxClass;
+  description?: string | null;
+  createdSource?: InventoryCreatedSource;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 
+export interface ItemHistoryEntry {
+  id: string;
+  itemId: string;
+  action: 'CREATED' | 'UPDATED' | 'DELETED' | 'DUPLICATED' | 'STATUS_CHANGED' | 'STOCK_ADJUSTED';
+  summary: string;
+  userLabel?: string | null;
+  createdAt: Timestamp;
+}
+
 export type StockAdjustmentType = 'OPENING' | 'ADJUSTMENT';
+
+export type PriceListStatus = 'ACTIVE' | 'INACTIVE';
+
+export type PriceListPricingType = 'EXCLUSIVE' | 'INCLUSIVE';
+
+export interface PriceListEntry {
+  itemId: string;
+  /** Selling price — GST exclusive or inclusive per list pricingType */
+  sellingPrice: number;
+  /** @deprecated migrated to sellingPrice */
+  rate?: number;
+  basePrice?: number | null;
+  gstRate?: number | null;
+  discountPercent?: number | null;
+}
+
+export interface PriceList {
+  id: string;
+  name: string;
+  description?: string | null;
+  pricingType: PriceListPricingType;
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
+  partyIds?: string[];
+  entries: PriceListEntry[];
+  status: PriceListStatus;
+  lastUsedAt?: string | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
 
 export interface StockAdjustment {
   id: string;

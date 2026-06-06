@@ -10,7 +10,11 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControl,
   FormControlLabel,
+  FormLabel,
+  Radio,
+  RadioGroup,
   Grid,
   IconButton,
   MenuItem,
@@ -30,15 +34,16 @@ import AddIcon from '@mui/icons-material/Add';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DeleteIcon from '@mui/icons-material/Delete';
 import dayjs from 'dayjs';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { ledgerAccountService } from '../../../services/masters/ledgerAccountService';
 import { partyService } from '../../../services/masters/partyService';
-import { inventoryItemService } from '../../../services/masters/inventoryItemService';
+import { useActiveInventoryItems } from '../../../hooks/useActiveInventoryItems';
 import { godownService } from '../../../services/masters/godownService';
+import { unitOfMeasureService } from '../../../services/masters/unitOfMeasureService';
 import { voucherService } from '../../../services/vouchers/voucherService';
 import { peekNextInvoiceNumber } from '../../../services/vouchers/invoiceNumberService';
-import { LedgerAccount, InventoryItem, Godown } from '../../../types/masters';
+import { LedgerAccount, InventoryItem, Godown, PriceList } from '../../../types/masters';
 import { Party } from '../../../types/party';
 import { usePermission } from '../../../hooks/usePermission';
 import { focusRegistry } from '../../../services/focus/focusRegistry';
@@ -61,6 +66,8 @@ import PartyMasterDialog from '../../../components/PartyMasterDialog';
 import InventoryItemMasterDialog from '../../../components/InventoryItemMasterDialog';
 import { TallyListPickerModal } from './components/TallyListPickerModal';
 import { rateMemory } from '../../../services/reports/rateMemory';
+import { priceListService } from '../../../services/masters/priceListService';
+import { partyProfileService } from '../../../services/masters/partyProfileService';
 import { getNormalizedCompanyProfile } from '../../../utils/companyProfile';
 import schemeService, { Scheme } from '../../../services/schemeService';
 import { calculateFinalQuantity, getBestScheme } from '../../../services/schemeResolutionEngine';
@@ -73,6 +80,8 @@ import PrintExportSetupDialog, {
 } from '../../../components/invoice/PrintExportSetupDialog';
 import { resolvePrintFormatFromLayout } from '../../../services/voucherPrintBuilder';
 import { runInvoicePrintExportAction } from '../../../services/invoicePrintFlow';
+import { salesPipelineService } from '../../../services/sales/salesDocumentService';
+import { PIPELINE_PREFILL_KEY } from '../../../components/listActions/documentRowActionsHandlers';
 
 interface ItemLineState {
   lineId: string;
@@ -85,6 +94,47 @@ interface ItemLineState {
   appliedSchemeId?: string;
   appliedSchemeLabel?: string;
   freeQuantity?: number;
+  autoRateExclusive?: string;
+  autoRateInclusive?: string;
+  priceOverridden?: boolean;
+}
+
+type InvoicePricingMode = 'MANUAL' | 'PRICE_LIST';
+
+function buildLineRatesFromItem(
+  item: InventoryItem,
+  pricingMode: InvoicePricingMode,
+  activePriceList: PriceList | null,
+  customerLedgerId: string
+): Partial<ItemLineState> {
+  if (pricingMode === 'PRICE_LIST' && activePriceList) {
+    const resolved = priceListService.resolveItemRates(activePriceList, item);
+    if (resolved) {
+      return {
+        itemId: item.id,
+        taxRate: String(resolved.gstRate),
+        rateExclusive: String(resolved.rateExclusive),
+        rateInclusive: String(resolved.rateInclusive),
+        autoRateExclusive: String(resolved.rateExclusive),
+        autoRateInclusive: String(resolved.rateInclusive),
+        priceOverridden: false,
+      };
+    }
+  }
+  const mem =
+    customerLedgerId && item.id ? rateMemory.getLastSaleExclusive(customerLedgerId, item.id) : null;
+  const sale = mem ?? Number(item.pricing?.sale ?? 0);
+  const gst = Number(item.gstRate ?? 0);
+  const inclusive = gst ? sale * (1 + gst / 100) : sale;
+  return {
+    itemId: item.id,
+    taxRate: String(gst),
+    rateExclusive: String(sale),
+    rateInclusive: Number.isFinite(inclusive) ? inclusive.toFixed(2) : String(sale),
+    autoRateExclusive: undefined,
+    autoRateInclusive: undefined,
+    priceOverridden: false,
+  };
 }
 
 const SCREEN_ID = 'sales-voucher-form';
@@ -138,15 +188,16 @@ const isLineDataValid = (line: ItemLineState) =>
 
 const SalesVoucherForm = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const mountedRef = useRef(true);
   const { id: editVoucherId } = useParams<{ id?: string }>();
   const { can } = usePermission();
   const canCreate = can('create-vouchers');
   const isEditMode = Boolean(editVoucherId);
+  const listPath = '/sales/tax-invoices';
 
   const [ledgerAccounts, setLedgerAccounts] = useState<LedgerAccount[]>([]);
   const [parties, setParties] = useState<Party[]>([]);
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [godowns, setGodowns] = useState<Godown[]>([]);
   const createLine = (godownId: string): ItemLineState => ({
     lineId: generateId('s-line'),
@@ -163,7 +214,8 @@ const SalesVoucherForm = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationIssues, setValidationIssues] = useState<string[]>([]);
-  const [mode, setMode] = useState<'edit' | 'view'>('edit');
+  const [mode, setMode] = useState<'edit' | 'view'>(() => (editVoucherId ? 'view' : 'edit'));
+  const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [additionalCharges, setAdditionalCharges] = useState<AdditionalChargeState[]>([]);
   const [enableRoundOff, setEnableRoundOff] = useState(true);
   const [companyState, setCompanyState] = useState<string>(''); // Will be loaded from company config
@@ -181,8 +233,18 @@ const SalesVoucherForm = () => {
   const [partyPickerOpen, setPartyPickerOpen] = useState(false);
   const [itemPickerLineId, setItemPickerLineId] = useState<string | null>(null);
   const [itemPickerInitialQuery, setItemPickerInitialQuery] = useState('');
+  const {
+    items: inventoryItems,
+    setItems: setInventoryItems,
+    reload: reloadInventoryItems,
+  } = useActiveInventoryItems({ reloadWhen: itemPickerLineId });
   const [customerConfirmOpen, setCustomerConfirmOpen] = useState(false);
   const [pendingCustomerDetails, setPendingCustomerDetails] = useState<(Partial<PartyInfo> & { partyId?: string }) | null>(null);
+  const [pricingMode, setPricingMode] = useState<InvoicePricingMode>('MANUAL');
+  const [priceListId, setPriceListId] = useState('');
+  const [priceLists, setPriceLists] = useState<PriceList[]>([]);
+  const [unitLabelById, setUnitLabelById] = useState<Map<string, string>>(new Map());
+  const [selectedPartyId, setSelectedPartyId] = useState('');
   const customerPinAutofill = usePincodeAutofill({
     onFilled: useCallback((addr) => {
       setPendingCustomerDetails((prev) => ({
@@ -193,6 +255,12 @@ const SalesVoucherForm = () => {
       }));
     }, []),
   });
+
+  useEffect(() => {
+    void unitOfMeasureService.list().then((units) => {
+      setUnitLabelById(new Map(units.map((u) => [u.id, u.symbol || u.name])));
+    });
+  }, []);
 
   useEffect(() => {
     if (!customerConfirmOpen) return;
@@ -223,6 +291,7 @@ const SalesVoucherForm = () => {
   const linesRef = useRef(lines);
   const itemPickerLineIdRef = useRef(itemPickerLineId);
   const suppressNextItemFocusOpenRef = useRef(false);
+  const suppressNextPartyFocusOpenRef = useRef(false);
   const lineItemsSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -264,7 +333,7 @@ const SalesVoucherForm = () => {
       if (!el?.isConnected) return;
       if (el.closest?.('[role="dialog"], [data-tally-picker-modal]')) return;
       e.preventDefault();
-      navigate('/vouchers/sales');
+      navigate(listPath);
     };
     window.addEventListener('keydown', onEscape);
     return () => window.removeEventListener('keydown', onEscape);
@@ -321,6 +390,29 @@ const SalesVoucherForm = () => {
       cancelled = true;
     };
   }, [isEditMode]);
+
+  useEffect(() => {
+    void priceListService.list({ status: 'ACTIVE', activeOnDate: formState.date }).then(setPriceLists);
+  }, [formState.date]);
+
+  const activePriceList = useMemo(
+    () => priceLists.find((p) => p.id === priceListId) ?? null,
+    [priceLists, priceListId]
+  );
+
+  const applyCustomerDefaultPriceList = useCallback(async (partyId: string) => {
+    if (!partyId) return;
+    setSelectedPartyId(partyId);
+    try {
+      const profile = await partyProfileService.get(partyId);
+      if (profile?.priceListId) {
+        setPricingMode('PRICE_LIST');
+        setPriceListId(profile.priceListId);
+      }
+    } catch {
+      // ignore profile read errors
+    }
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -440,10 +532,6 @@ const SalesVoucherForm = () => {
       .list({ includeInactive: false })
       .then(setLedgerAccounts)
       .catch(() => setLedgerAccounts([]));
-    inventoryItemService
-      .list({ includeInactive: false })
-      .then((items) => setInventoryItems(items.filter((item) => item.status === 'ACTIVE')))
-      .catch(() => setInventoryItems([]));
     godownService
       .list({ includeInactive: false })
       .then((list) => {
@@ -504,7 +592,6 @@ const SalesVoucherForm = () => {
   useEffect(() => {
     if (!editVoucherId) return;
     if (editLoadedRef.current === editVoucherId) return;
-    if (!parties.length || !inventoryItems.length) return;
     let mounted = true;
     const loadForEdit = async () => {
       try {
@@ -549,6 +636,7 @@ const SalesVoucherForm = () => {
           narration: String(voucher.narration || ''),
           customerLedgerId,
         }));
+        setMode('view');
         if (linkedParty) {
           const resolvedLinkedLedgerId = String(linkedParty.ledgerId || customerLedgerId || '');
           setPartyDraft({
@@ -613,6 +701,99 @@ const SalesVoucherForm = () => {
     };
   }, [editVoucherId, parties, inventoryItems, formState.defaultGodownId, ledgerAccounts]);
 
+  useEffect(() => {
+    if (isEditMode) return;
+    const customerId = searchParams.get('customerId');
+    let pipelineId: string | null = null;
+    try {
+      const raw = sessionStorage.getItem(PIPELINE_PREFILL_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { pipelineId?: string };
+        pipelineId = parsed.pipelineId ?? null;
+        sessionStorage.removeItem(PIPELINE_PREFILL_KEY);
+      }
+    } catch {
+      // ignore invalid prefill payload
+    }
+    if (!pipelineId && !customerId) return;
+    if (!parties.length) return;
+
+    void (async () => {
+      const applyParty = (party: Party) => {
+        const ledgerId = String(party.ledgerId || '');
+        setPartyDraft({
+          billing: {
+            ledgerId,
+            name: party.name || '',
+            gstin: party.gstin || '',
+            address: party.address || '',
+            phone: party.mobile || '',
+            email: party.email || '',
+            city: party.city || '',
+            state: party.state || '',
+            pin: party.pincode || '',
+          },
+          shipping: {
+            ledgerId,
+            name: party.name || '',
+            gstin: party.gstin || '',
+            address: party.address || '',
+            phone: party.mobile || '',
+            email: party.email || '',
+            city: party.city || '',
+            state: party.state || '',
+            pin: party.pincode || '',
+          },
+        });
+        setFormState((prev) => ({ ...prev, customerLedgerId: ledgerId }));
+        void applyCustomerDefaultPriceList(party.id);
+      };
+
+      if (pipelineId) {
+        const doc = await salesPipelineService.getById(pipelineId);
+        if (!doc) return;
+        const party =
+          parties.find((p) => p.id === doc.customerId) ??
+          parties.find((p) => p.name === doc.customerName) ??
+          null;
+        if (party) applyParty(party);
+
+        const mappedLines = doc.lines
+          .map((line) => {
+            const inv =
+              inventoryItems.find((item) => item.id === line.itemId) ??
+              inventoryItems.find((item) => item.name === line.itemName);
+            if (!inv) return null;
+            return {
+              lineId: generateId('s-line'),
+              itemId: inv.id,
+              quantity: String(line.qty ?? 1),
+              rateExclusive: String(line.rate ?? 0),
+              rateInclusive: '',
+              taxRate: String(line.gstPercent ?? inv.gstRate ?? 0),
+              godownId: formState.defaultGodownId || '',
+            } as ItemLineState;
+          })
+          .filter(Boolean) as ItemLineState[];
+        if (mappedLines.length > 0) setLines(mappedLines);
+        return;
+      }
+
+      if (customerId) {
+        const party = parties.find((p) => p.id === customerId);
+        if (party) applyParty(party);
+      }
+    })();
+  }, [isEditMode, searchParams, parties, inventoryItems, formState.defaultGodownId, applyCustomerDefaultPriceList]);
+
+  useEffect(() => {
+    if (!formState.number) return;
+    const label = isEditMode
+      ? `Tax Invoice — ${formState.number}`
+      : 'New Tax Invoice';
+    document.title = `${label} | PVE InvoicePro 360`;
+  }, [formState.number, isEditMode]);
+
   const itemMap = useMemo(() => {
     const map = new Map<string, InventoryItem>();
     inventoryItems.forEach((item) => map.set(item.id, item));
@@ -629,30 +810,40 @@ const SalesVoucherForm = () => {
       setLines((prev) =>
         prev.map((line, idx) => {
           if (idx !== index) return line;
-          const next = { ...line, ...patch };
-          if (patch.itemId) {
+          let next = { ...line, ...patch };
+          if (patch.itemId && patch.itemId !== line.itemId) {
             const selectedItem = itemMap.get(patch.itemId);
-            if (selectedItem && selectedItem.gstRate != null) {
-              next.taxRate = String(selectedItem.gstRate);
-              next.rateInclusive = '';
+            if (selectedItem) {
+              next = {
+                ...next,
+                ...buildLineRatesFromItem(
+                  selectedItem,
+                  pricingMode,
+                  activePriceList,
+                  formState.customerLedgerId
+                ),
+              };
             }
+          }
+          if (patch.rateExclusive !== undefined || patch.rateInclusive !== undefined) {
+            const autoEx = line.autoRateExclusive;
+            const autoIn = line.autoRateInclusive;
+            const ex = patch.rateExclusive ?? line.rateExclusive;
+            const inc = patch.rateInclusive ?? line.rateInclusive;
+            const overridden =
+              Boolean(autoEx || autoIn) &&
+              ((Boolean(autoEx) && ex !== autoEx) || (Boolean(autoIn) && inc !== autoIn));
+            next.priceOverridden = overridden;
           }
           return next;
         })
       );
     },
-    [itemMap]
+    [itemMap, pricingMode, activePriceList, formState.customerLedgerId]
   );
 
   const placeItemFromScan = useCallback(
     (item: InventoryItem) => {
-      const mem =
-        formState.customerLedgerId && item.id
-          ? rateMemory.getLastSaleExclusive(formState.customerLedgerId, item.id)
-          : null;
-      const sale = mem ?? Number(item.pricing?.sale ?? 0);
-      const gst = Number(item.gstRate ?? 0);
-
       setLines((prev) => {
         const next = [...prev];
         let targetIdx = next.findIndex((line) => !line.itemId);
@@ -667,20 +858,31 @@ const SalesVoucherForm = () => {
             targetIdx = lastIdx;
           }
         }
-        const inclusive = gst ? sale * (1 + gst / 100) : sale;
         next[targetIdx] = {
           ...next[targetIdx],
-          itemId: item.id,
-          rateExclusive: String(sale),
-          rateInclusive: Number.isFinite(inclusive) ? inclusive.toFixed(2) : String(sale),
-          taxRate: String(gst),
+          ...buildLineRatesFromItem(item, pricingMode, activePriceList, formState.customerLedgerId),
         };
         focusRegistry.queueFocus(buildLineFieldId(next[targetIdx].lineId, 'quantity'));
         return next;
       });
     },
-    [formState.customerLedgerId, formState.defaultGodownId, godowns.length]
+    [formState.customerLedgerId, formState.defaultGodownId, godowns.length, pricingMode, activePriceList]
   );
+
+  useEffect(() => {
+    if (pricingMode !== 'PRICE_LIST' || !activePriceList) return;
+    setLines((prev) =>
+      prev.map((line) => {
+        if (!line.itemId) return line;
+        const item = itemMap.get(line.itemId);
+        if (!item) return line;
+        return {
+          ...line,
+          ...buildLineRatesFromItem(item, 'PRICE_LIST', activePriceList, formState.customerLedgerId),
+        };
+      })
+    );
+  }, [priceListId, pricingMode, activePriceList, formState.customerLedgerId, itemMap]);
 
   const handleScannedBarcode = useCallback(
     (raw: string) => {
@@ -1229,11 +1431,15 @@ const SalesVoucherForm = () => {
       .map((l) => {
         const amount = computeLineAmount(l);
         const taxBif = bifurcateTax(computeLineTax(l), toNumber(l.taxRate), totals.taxType as 'CGST_SGST' | 'IGST');
+        const product = itemMap.get(l.itemId);
+        const unitLabel = product?.unitId
+          ? unitLabelById.get(product.unitId) ?? product.unitId
+          : 'Nos';
         return {
           name: getItemName(l.itemId),
-          hsn: String((l as any).hsnCode || ''),
+          hsn: String(product?.hsnCode ?? ''),
           qty: toNumber(l.quantity),
-          unit: 'Nos',
+          unit: unitLabel,
           rate: toNumber(l.rateExclusive),
           discount: 0,
           taxPercent: toNumber(l.taxRate),
@@ -1303,15 +1509,26 @@ const SalesVoucherForm = () => {
         window.alert(result.error);
       }
     },
-    [formState.number, formState.date, totals.grandTotal, partyDraft.billing.phone, buildCurrentInvoiceHtml]
+    [formState.number, formState.date, totals.grandTotal, partyDraft.billing.phone, buildCurrentInvoiceHtml, navigate, listPath]
   );
 
-  const saveVoucher = async (navigateAfterSave = true): Promise<boolean> => {
+  useEffect(() => {
+    if (!isEditMode || editLoadedRef.current !== editVoucherId) return;
+    if (searchParams.get('print') === '1') {
+      void runFormPrintAction('print').then(() => navigate(listPath));
+    } else if (searchParams.get('send') === 'whatsapp') {
+      void runFormPrintAction('whatsapp');
+    } else if (searchParams.get('send') === 'email') {
+      setSendDialogOpen(true);
+    }
+  }, [searchParams, isEditMode, editVoucherId, runFormPrintAction, navigate, listPath]);
+
+  const saveVoucher = async (options?: { navigateAfter?: boolean; redirectTo?: string }): Promise<string | null> => {
     if (!canSubmit) {
       const issues = getValidationIssues();
       setValidationIssues(issues);
       setError('Please complete all required fields before saving.');
-      return false;
+      return null;
     }
     try {
       setSaving(true);
@@ -1323,23 +1540,29 @@ const SalesVoucherForm = () => {
         formState.paymentTerms ? `PTERM[${formState.paymentTerms}]` : '',
       ].filter(Boolean);
       const narrationWithTerms = `${String(formState.narration || '').trim()} ${dueTokens.join(' ')}`.trim();
+      const voucherDate = `${formState.date}T12:00:00.000Z`;
 
+      let savedId = editVoucherId ?? null;
       if (isEditMode && editVoucherId) {
         await voucherService.update(editVoucherId, {
           type: 'SALES',
-          date: new Date(formState.date).toISOString(),
+          date: voucherDate,
           number: formState.number,
           narration: narrationWithTerms,
           lines: voucherLines,
         });
       } else {
-        await voucherService.create({
+        const created = await voucherService.create({
           type: 'SALES',
-          date: new Date(formState.date).toISOString(),
+          date: voucherDate,
           number: formState.number,
           narration: narrationWithTerms,
           lines: voucherLines,
         });
+        savedId = created.id;
+        if (!options?.navigateAfter && savedId) {
+          navigate(`/sales/invoices/${savedId}`, { replace: true });
+        }
       }
       const appliedSchemeTotals = new Map<string, number>();
       lines.forEach((line) => {
@@ -1373,13 +1596,17 @@ const SalesVoucherForm = () => {
           }
         }
       }
-      if (navigateAfterSave) navigate('/vouchers/sales');
-      return true;
+      if (pricingMode === 'PRICE_LIST' && priceListId) {
+        await priceListService.recordUsage(priceListId);
+      }
+      if (options?.navigateAfter) navigate(options.redirectTo ?? listPath);
+      setMode('view');
+      return savedId;
     } catch (err) {
       if (mountedRef.current) {
         setError((err as Error).message ?? (isEditMode ? 'Failed to update voucher' : 'Failed to create voucher'));
       }
-      return false;
+      return null;
     } finally {
       if (mountedRef.current) {
         setSaving(false);
@@ -1389,7 +1616,7 @@ const SalesVoucherForm = () => {
 
   const handleFormSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    void saveVoucher();
+    void saveVoucher({ navigateAfter: false });
   };
 
   const billingLedger = ledgerAccounts.find((acct) => acct.id === formState.customerLedgerId);
@@ -1445,6 +1672,7 @@ const SalesVoucherForm = () => {
       },
     });
     if (payload.partyId) {
+      void applyCustomerDefaultPriceList(payload.partyId);
       try {
         const updated = await partyService.update(payload.partyId, {
           name: String(payload.name || ''),
@@ -1481,13 +1709,17 @@ const SalesVoucherForm = () => {
         focusRegistry.focusById(buildLineFieldId(firstLineId, 'item'));
       }, 0);
     }
-  }, [handlePartyChange, pendingCustomerDetails]);
+  }, [handlePartyChange, pendingCustomerDetails, applyCustomerDefaultPriceList]);
 
   const handleInventoryMasterSaved = (newItem: InventoryItem) => {
-    setInventoryItems((prev) => [...prev, newItem]);
+    setInventoryItems((prev) => {
+      if (prev.some((item) => item.id === newItem.id)) return prev;
+      return [...prev, newItem];
+    });
     placeItemFromScan(newItem);
     setPendingScannedBarcode('');
     setShowQuickCreateItem(false);
+    void reloadInventoryItems();
   };
 
   return (
@@ -1495,6 +1727,11 @@ const SalesVoucherForm = () => {
       <Stack spacing={1}>
         <InvoiceHeader
           mode={mode}
+          documentTitle={
+            isEditMode && formState.number
+              ? `Tax Invoice — ${formState.number}`
+              : 'New Tax Invoice'
+          }
           formState={{
             number: formState.number,
             date: formState.date,
@@ -1504,7 +1741,7 @@ const SalesVoucherForm = () => {
           onChange={(patch) => setFormState((prev) => ({ ...prev, ...patch }))}
           company={companyInfo}
           onPrint={() => window.print()}
-          onClose={() => navigate('/vouchers/sales')}
+          onClose={() => navigate(listPath)}
         />
 
         <PartyCards
@@ -1521,6 +1758,53 @@ const SalesVoucherForm = () => {
           billingCustomerSelector="picker"
           onOpenBillingCustomerPicker={() => setPartyPickerOpen(true)}
         />
+
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+            Pricing mode
+          </Typography>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
+            <FormControl>
+              <RadioGroup
+                row
+                value={pricingMode}
+                onChange={(e) => {
+                  const mode = e.target.value as InvoicePricingMode;
+                  setPricingMode(mode);
+                  if (mode === 'MANUAL') {
+                    setPriceListId('');
+                  }
+                }}
+              >
+                <FormControlLabel value="MANUAL" control={<Radio size="small" />} label="Manual pricing" />
+                <FormControlLabel value="PRICE_LIST" control={<Radio size="small" />} label="Use price list" />
+              </RadioGroup>
+            </FormControl>
+            {pricingMode === 'PRICE_LIST' ? (
+              <TextField
+                select
+                size="small"
+                label="Price list"
+                value={priceListId}
+                onChange={(e) => setPriceListId(e.target.value)}
+                sx={{ minWidth: 220 }}
+                helperText={
+                  selectedPartyId
+                    ? 'Customer default applied when available'
+                    : 'Select Retail, Wholesale, Dealer, or Contractor'
+                }
+              >
+                <MenuItem value="">Select price list</MenuItem>
+                {priceLists.map((pl) => (
+                  <MenuItem key={pl.id} value={pl.id}>
+                    {pl.name}
+                    {pl.pricingType === 'INCLUSIVE' ? ' (Incl. GST)' : ' (Excl. GST)'}
+                  </MenuItem>
+                ))}
+              </TextField>
+            ) : null}
+          </Stack>
+        </Paper>
 
         {error && (
           <Alert
@@ -1806,30 +2090,63 @@ const SalesVoucherForm = () => {
         <ActionFooter
           mode={mode}
           saving={saving}
-          onCancel={() => navigate('/vouchers/sales')}
+          onCancel={() => navigate(listPath)}
           onSave={() => {
-            void saveVoucher(true);
+            void saveVoucher({ navigateAfter: false });
           }}
-          onSaveDraft={() => setMode('view')}
+          onSaveAndClose={() => {
+            void saveVoucher({ navigateAfter: true, redirectTo: listPath });
+          }}
           onSaveAndPrint={() => {
             void (async () => {
-              try {
-                const saved = await saveVoucher(false);
-                if (!saved || !mountedRef.current) return;
-                await runFormPrintAction('print');
-              } catch (err) {
-                console.error('Save & print failed', err);
-                if (mountedRef.current) {
-                  setError((err as Error).message || 'Save & print failed');
-                }
-              }
+              const saved = await saveVoucher({ navigateAfter: false });
+              if (!saved) return;
+              await runFormPrintAction('print');
+              navigate(listPath);
             })();
           }}
+          onSaveAndSend={() => setSendDialogOpen(true)}
           onEdit={() => setMode('edit')}
-          onDownloadPDF={() => void runFormPrintAction('download')}
-          onShareWhatsApp={() => void runFormPrintAction('whatsapp')}
-          onChangeTemplate={() => setPrintSetup({ open: true, action: 'print', applyOnly: true })}
         />
+
+        <Dialog open={sendDialogOpen} onClose={() => setSendDialogOpen(false)}>
+          <DialogTitle>Save & Send</DialogTitle>
+          <DialogContent>
+            <Stack spacing={1} sx={{ pt: 1, minWidth: 280 }}>
+              <Button
+                variant="outlined"
+                onClick={() => {
+                  void (async () => {
+                    const saved = await saveVoucher({ navigateAfter: false });
+                    if (!saved) return;
+                    await runFormPrintAction('whatsapp');
+                    setSendDialogOpen(false);
+                  })();
+                }}
+              >
+                Send WhatsApp
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={() => {
+                  void (async () => {
+                    const saved = await saveVoucher({ navigateAfter: false });
+                    if (!saved) return;
+                    const email = partyDraft.billing.email?.trim();
+                    if (email) window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(`Tax Invoice ${formState.number}`)}`;
+                    else window.alert('Customer email is not set.');
+                    setSendDialogOpen(false);
+                  })();
+                }}
+              >
+                Send Email
+              </Button>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setSendDialogOpen(false)}>Close</Button>
+          </DialogActions>
+        </Dialog>
 
         <PrintExportSetupDialog
           open={printSetup.open}
@@ -1903,7 +2220,10 @@ const SalesVoucherForm = () => {
 
         <TallyListPickerModal<Party>
           open={partyPickerOpen}
-          onClose={() => setPartyPickerOpen(false)}
+          onClose={() => {
+            suppressNextPartyFocusOpenRef.current = true;
+            setPartyPickerOpen(false);
+          }}
           title="List of Ledger Accounts"
           searchPlaceholder="Search party name, alias, or GSTIN…"
           rows={parties}
@@ -1975,6 +2295,7 @@ const SalesVoucherForm = () => {
           sessionKey={itemPickerLineId}
           open={itemPickerLineId !== null}
           onClose={() => {
+            suppressNextItemFocusOpenRef.current = true;
             setItemPickerLineId(null);
             setItemPickerInitialQuery('');
           }}
@@ -2031,6 +2352,16 @@ const SalesVoucherForm = () => {
                   </Typography>
                 );
               },
+            },
+            {
+              id: 'unit',
+              header: 'Unit',
+              width: 72,
+              render: (it) => (
+                <Typography variant="body2">
+                  {unitLabelById.get(it.unitId) ?? it.unitId ?? '—'}
+                </Typography>
+              ),
             },
             {
               id: 'gst',
@@ -2383,6 +2714,12 @@ const SalesLineRow = memo(
         </TableCell>
         <TableCell sx={{ minWidth: 280, width: 280 }}>
           <Stack spacing={1}>
+            {line.autoRateInclusive ? (
+              <Typography variant="caption" color="text.secondary">
+                Auto price: ₹{line.autoRateInclusive}
+                {line.priceOverridden ? ` · Manual override: ₹${line.rateInclusive || line.rateExclusive}` : ''}
+              </Typography>
+            ) : null}
             <TextField
               type="number"
               label="Rate (Incl. GST)"
