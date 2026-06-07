@@ -653,6 +653,112 @@ ipcMain.handle('open-external-url', async (_event, rawUrl) => {
 });
 ipcMain.handle('whatsapp-check-status', async () => whatsappBridge.checkWhatsAppStatus());
 ipcMain.handle('whatsapp-open-chat', async (_event, phone, message) => whatsappBridge.openWhatsAppChat(phone, message));
+ipcMain.handle('whatsapp-open-chat', async (_event, phone, message) => whatsappBridge.openWhatsAppChat(phone, message));
+
+function readCompanyJsonFile(filePath) {
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function formatBackupSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return 'N/A';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+ipcMain.handle('dialog-pick-folder', async (_event, payload) => {
+  const result = await dialog.showOpenDialog(mainWindow || undefined, {
+    title: payload?.title || 'Select backup folder',
+    defaultPath: payload?.defaultPath || undefined,
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (result.canceled || !result.filePaths?.length) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle('dialog-pick-backup-file', async (_event, payload) => {
+  const result = await dialog.showOpenDialog(mainWindow || undefined, {
+    title: payload?.title || 'Select backup file',
+    defaultPath: payload?.defaultPath || undefined,
+    filters: [
+      { name: 'InvoicePro Backup', extensions: ['ipbak'] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+    properties: ['openFile'],
+  });
+  if (result.canceled || !result.filePaths?.length) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle('shell-show-item-in-folder', async (_event, targetPath) => {
+  try {
+    const p = String(targetPath || '').trim();
+    if (!p) return false;
+    shell.showItemInFolder(p);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+ipcMain.handle('backup-create-manual', async (_event, payload) => {
+  try {
+    const targetDir = String(payload?.targetDir || '').trim();
+    if (!targetDir) {
+      return { success: false, error: 'Please choose a backup folder first.' };
+    }
+
+    const active = companyRegistry.getActiveCompany(app);
+    const companyId = active?.company?.id || companyRegistry.readActiveId(app);
+    if (!companyId) {
+      return { success: false, error: 'No active company found.' };
+    }
+
+    const companyDir = companyRegistry.getCompanyDir(app, companyId);
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const fileName = `InvoicePro_Backup_${stamp}.ipbak`;
+    const filePath = path.join(targetDir, fileName);
+
+    const backupPayload = {
+      version: '3.5.0',
+      format: 'invoicepro-ipbak',
+      createdAt: new Date().toISOString(),
+      companyId,
+      companyName: String(active?.profile?.name || active?.company?.name || 'Company'),
+      files: {
+        profile: readCompanyJsonFile(path.join(companyDir, 'company_profile.json')),
+        settings: readCompanyJsonFile(path.join(companyDir, 'settings.json')),
+        localData: readCompanyJsonFile(path.join(companyDir, 'company_local_storage.json')),
+      },
+    };
+
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(backupPayload, null, 2), 'utf8');
+    const stat = fs.statSync(filePath);
+
+    return {
+      success: true,
+      fileName,
+      filePath,
+      location: targetDir,
+      sizeBytes: stat.size,
+      sizeLabel: formatBackupSize(stat.size),
+    };
+  } catch (error) {
+    console.error('backup-create-manual failed', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Manual backup failed',
+    };
+  }
+});
+
 ipcMain.handle('print:pdf', async (_event, payload) => {
     const html = String(payload?.html ?? '');
     const suggested = String(payload?.fileName || `invoice-${Date.now()}.pdf`);

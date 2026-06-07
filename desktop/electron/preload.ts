@@ -95,6 +95,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   whatsappCheckStatus: () => ipcRenderer.invoke('whatsapp-check-status'),
   whatsappOpenChat: (phone: string, message: string) =>
     ipcRenderer.invoke('whatsapp-open-chat', phone, message),
+  dialogPickFolder: (options?: { title?: string; defaultPath?: string }) =>
+    ipcRenderer.invoke('dialog-pick-folder', options ?? {}),
+  dialogPickBackupFile: (options?: { title?: string; defaultPath?: string }) =>
+    ipcRenderer.invoke('dialog-pick-backup-file', options ?? {}),
+  backupCreateManual: (payload: { targetDir: string }) =>
+    ipcRenderer.invoke('backup-create-manual', payload),
+  shellShowItemInFolder: (targetPath: string) =>
+    ipcRenderer.invoke('shell-show-item-in-folder', targetPath),
   onWindowStateChanged: (callback: (maximized: boolean) => void) => {
     const fn = (_e: unknown, maxed: unknown) => callback(Boolean(maxed));
     ipcRenderer.on('window-state-changed', fn);

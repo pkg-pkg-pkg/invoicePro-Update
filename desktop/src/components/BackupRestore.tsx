@@ -39,6 +39,8 @@ import {
   Warning as WarningIcon,
 } from '@mui/icons-material';
 import { backupService } from '../services/backupService';
+import { pickBackupFile, pickBackupFolder, revealPathInFolder } from '../services/fileDialogService';
+import { isElectronRuntime } from '../utils/runtime';
 
 interface BackupInfo {
   id: string;
@@ -52,6 +54,7 @@ interface BackupInfo {
   supplierCount: number;
   productCount: number;
   location: string;
+  filePath?: string;
 }
 
 interface BackupStats {
@@ -84,34 +87,41 @@ const BackupRestore: React.FC = () => {
   });
 
   const [backups, setBackups] = useState<BackupInfo[]>([]);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Load backup history on component mount
   useEffect(() => {
     const rows = backupService.getBackupHistory();
     setBackups(rows);
+    setBackupLocation(backupService.getManualBackupLocation());
     setStats((prev) => ({
       ...prev,
       totalBackups: rows.length,
+      lastBackup: rows[0]?.createdAt ?? prev.lastBackup,
     }));
   }, []);
 
   const handleCreateBackup = async () => {
+    if (!backupLocation.trim()) {
+      setActionError('Choose a backup folder before creating a manual backup.');
+      return;
+    }
+
+    setActionError(null);
     setLoading(true);
     setProgress(0);
 
     try {
-      // Simulate backup creation progress
       const progressInterval = setInterval(() => {
         setProgress(prev => {
-          if (prev >= 100) {
+          if (prev >= 90) {
             clearInterval(progressInterval);
-            return 100;
+            return 90;
           }
           return prev + 10;
         });
-      }, 500);
+      }, 300);
 
-      // Create backup using service
       const result = await backupService.createManualBackup(backupLocation);
 
       clearInterval(progressInterval);
@@ -119,27 +129,57 @@ const BackupRestore: React.FC = () => {
       setLoading(false);
 
       if (result.success) {
-        // Reload backup history
-        setBackups(backupService.getBackupHistory());
+        const rows = backupService.getBackupHistory();
+        setBackups(rows);
         setStats(prev => ({
           ...prev,
-          totalBackups: backupService.getBackupHistory().length,
+          totalBackups: rows.length,
           lastBackup: new Date().toISOString(),
+          totalSize: result.size ?? prev.totalSize,
         }));
+        if (result.filePath) {
+          setBackupFile(result.filePath);
+        }
       } else {
-        alert(`Backup failed: ${result.error}`);
+        setActionError(result.error || 'Backup failed');
         setProgress(0);
       }
     } catch (error) {
       setLoading(false);
       setProgress(0);
-      alert(`Backup failed: ${error}`);
+      setActionError(String(error));
     }
   };
 
-  const handleBrowseBackupFile = () => {
-    const picked = window.prompt('Enter backup file path (.ipbak):', backupFile || '') || '';
-    if (picked.trim()) setBackupFile(picked.trim());
+  const handleBrowseBackupFile = async () => {
+    setActionError(null);
+    const picked = await pickBackupFile({
+      title: 'Select backup file (.ipbak)',
+      defaultPath: backupFile || backupLocation || undefined,
+    });
+    if (picked) {
+      setBackupFile(picked);
+      return;
+    }
+    if (!isElectronRuntime()) {
+      setActionError('Use the desktop app to browse for backup files.');
+    }
+  };
+
+  const handleChangeBackupLocation = async () => {
+    setActionError(null);
+    const picked = await pickBackupFolder({
+      title: 'Choose folder to save backups',
+      defaultPath: backupLocation || undefined,
+    });
+    if (picked) {
+      setBackupLocation(picked);
+      backupService.setManualBackupLocation(picked);
+      return;
+    }
+    if (!isElectronRuntime()) {
+      setActionError('Use the desktop app to choose a custom backup folder.');
+    }
   };
 
   const handleRestoreBackup = () => {
@@ -163,14 +203,6 @@ const BackupRestore: React.FC = () => {
         return prev + 8;
       });
     }, 600);
-  };
-
-  const handleChangeBackupLocation = () => {
-    // In a real Electron app, this would open a folder dialog
-    const newLocation = prompt('Enter backup location:', backupLocation);
-    if (newLocation) {
-      setBackupLocation(newLocation);
-    }
   };
 
   const handleDeleteBackup = (backupId: string) => {
@@ -221,17 +253,27 @@ const BackupRestore: React.FC = () => {
         Backup & Restore
       </Typography>
 
+      <Typography variant="h6" gutterBottom>
+        Backup & Restore
+      </Typography>
+
+      {actionError ? (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError(null)}>
+          {actionError}
+        </Alert>
+      ) : null}
+
       <Grid container spacing={3}>
-        {/* Create Backup Section */}
+        {/* Manual Backup Section */}
         <Grid item xs={12}>
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
               <BackupIcon sx={{ mr: 1 }} />
-              Create Backup
+              Manual Backup
             </Typography>
 
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Backup includes: Company details, invoices, customers, suppliers, products, payments, and settings
+              Save a backup file (.ipbak) to any folder on your PC — company profile, settings, and local data.
             </Typography>
 
             <Box sx={{ mb: 3 }}>
@@ -239,8 +281,9 @@ const BackupRestore: React.FC = () => {
                 <Grid item xs={12} md={8}>
                   <TextField
                     fullWidth
-                    label="Backup Location"
+                    label="Backup folder"
                     value={backupLocation}
+                    placeholder="Click Browse Folder to choose where backups are saved"
                     InputProps={{ readOnly: true }}
                   />
                 </Grid>
@@ -248,24 +291,24 @@ const BackupRestore: React.FC = () => {
                   <Button
                     variant="outlined"
                     startIcon={<FolderIcon />}
-                    onClick={handleChangeBackupLocation}
+                    onClick={() => void handleChangeBackupLocation()}
                     fullWidth
                   >
-                    Change Location
+                    Browse Folder
                   </Button>
                 </Grid>
               </Grid>
             </Box>
 
-            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+            <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
               <Button
                 variant="contained"
                 startIcon={<BackupIcon />}
-                onClick={handleCreateBackup}
-                disabled={loading}
+                onClick={() => void handleCreateBackup()}
+                disabled={loading || !backupLocation.trim()}
                 size="large"
               >
-                {loading ? 'Creating Backup...' : 'Create Backup Now'}
+                {loading ? 'Creating Backup...' : 'Create Manual Backup'}
               </Button>
 
               <Button
@@ -322,10 +365,10 @@ const BackupRestore: React.FC = () => {
                 <Grid item xs={12} md={4}>
                   <Button
                     variant="outlined"
-                    onClick={handleBrowseBackupFile}
+                    onClick={() => void handleBrowseBackupFile()}
                     fullWidth
                   >
-                    Browse Files
+                    Browse Backup File
                   </Button>
                 </Grid>
               </Grid>
@@ -395,7 +438,7 @@ const BackupRestore: React.FC = () => {
                         <IconButton
                           size="small"
                           onClick={() => {
-                            setBackupFile(`${backup.location}\\${backup.fileName}`);
+                            setBackupFile(backup.filePath || `${backup.location}\\${backup.fileName}`);
                             setShowRestoreDialog(true);
                           }}
                           title="Restore"
@@ -597,8 +640,8 @@ const BackupRestore: React.FC = () => {
           <Button
             variant="outlined"
             onClick={() => {
-              // In real app, open folder
-              alert(`Opening folder: ${showBackupInfo?.location}`);
+              const target = showBackupInfo?.filePath || showBackupInfo?.location;
+              if (target) void revealPathInFolder(target);
             }}
           >
             Open Folder

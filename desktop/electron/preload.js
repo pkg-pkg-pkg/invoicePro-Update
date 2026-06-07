@@ -84,6 +84,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
   whatsappCheckStatus: () => ipcRenderer.invoke('whatsapp-check-status'),
   whatsappOpenChat: (phone, message) => ipcRenderer.invoke('whatsapp-open-chat', phone, message),
+  dialogPickFolder: (options) => ipcRenderer.invoke('dialog-pick-folder', options ?? {}),
+  dialogPickBackupFile: (options) => ipcRenderer.invoke('dialog-pick-backup-file', options ?? {}),
+  backupCreateManual: (payload) => ipcRenderer.invoke('backup-create-manual', payload),
+  shellShowItemInFolder: (targetPath) => ipcRenderer.invoke('shell-show-item-in-folder', targetPath),
   onWindowStateChanged: (callback) => {
     const fn = (_e, maxed) => callback(Boolean(maxed));
     ipcRenderer.on('window-state-changed', fn);

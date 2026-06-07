@@ -151,6 +151,19 @@ export interface ElectronAPI {
     error?: string;
   }>;
   onWindowStateChanged?: (callback: (maximized: boolean) => void) => () => void;
+
+  dialogPickFolder?: (options?: { title?: string; defaultPath?: string }) => Promise<string | null>;
+  dialogPickBackupFile?: (options?: { title?: string; defaultPath?: string }) => Promise<string | null>;
+  backupCreateManual?: (payload: { targetDir: string }) => Promise<{
+    success: boolean;
+    fileName?: string;
+    filePath?: string;
+    location?: string;
+    sizeBytes?: number;
+    sizeLabel?: string;
+    error?: string;
+  }>;
+  shellShowItemInFolder?: (targetPath: string) => Promise<boolean>;
 }
 
 declare global {

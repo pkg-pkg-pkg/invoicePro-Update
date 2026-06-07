@@ -1,7 +1,9 @@
 // src/services/backupService.ts
-// Simple auto-backup service for demonstration
 
 import { APP_DISPLAY_NAME } from '../constants/appBranding';
+import { isElectronRuntime } from '../utils/runtime';
+
+const MANUAL_LOCATION_KEY = 'manualBackupLocation';
 
 interface AutoBackupConfig {
   enabled: boolean;
@@ -45,6 +47,27 @@ class BackupService {
     this.config = { ...this.config, ...newConfig };
     this.saveConfig();
     this.restartAutoBackup();
+  }
+
+  public getManualBackupLocation(): string {
+    try {
+      const saved = localStorage.getItem(MANUAL_LOCATION_KEY);
+      if (saved?.trim()) return saved.trim();
+    } catch {
+      /* ignore */
+    }
+    return this.config.location || '';
+  }
+
+  public setManualBackupLocation(location: string) {
+    const trimmed = location.trim();
+    try {
+      if (trimmed) localStorage.setItem(MANUAL_LOCATION_KEY, trimmed);
+      else localStorage.removeItem(MANUAL_LOCATION_KEY);
+    } catch {
+      /* ignore */
+    }
+    this.updateConfig({ location: trimmed });
   }
 
   public getConfig(): AutoBackupConfig {
@@ -166,13 +189,56 @@ class BackupService {
     }
   }
 
-  public async createManualBackup(location: string): Promise<{ success: boolean; fileName?: string; error?: string }> {
+  public async createManualBackup(location: string): Promise<{
+    success: boolean;
+    fileName?: string;
+    filePath?: string;
+    location?: string;
+    size?: string;
+    error?: string;
+  }> {
     try {
-      console.log('Creating manual backup...');
+      const targetDir = location.trim();
+      if (!targetDir) {
+        return { success: false, error: 'Please choose a backup folder first.' };
+      }
 
-      // Overwrite strategy: keep a single latest backup by default
+      if (isElectronRuntime() && window.electronAPI?.backupCreateManual) {
+        const result = await window.electronAPI.backupCreateManual({ targetDir });
+        if (!result.success) {
+          return { success: false, error: result.error || 'Manual backup failed' };
+        }
+
+        const backupEntry = {
+          id: Date.now().toString(),
+          fileName: result.fileName || 'InvoicePro_Backup.ipbak',
+          createdAt: new Date().toISOString(),
+          size: result.sizeLabel || 'N/A',
+          type: 'manual' as const,
+          companyName: localStorage.getItem('companyName') || 'Your Company',
+          invoiceCount: 0,
+          customerCount: 0,
+          supplierCount: 0,
+          productCount: 0,
+          location: result.location || targetDir,
+          filePath: result.filePath,
+        };
+
+        const history = this.getBackupHistory();
+        history.unshift(backupEntry);
+        localStorage.setItem('backupHistory', JSON.stringify(history.slice(0, 20)));
+        this.setManualBackupLocation(result.location || targetDir);
+
+        return {
+          success: true,
+          fileName: result.fileName,
+          filePath: result.filePath,
+          location: result.location || targetDir,
+          size: backupEntry.size,
+        };
+      }
+
       const fileName = `InvoicePro_Backup_Latest.ipbak`;
-
       const loadCount = (key: string) => {
         try {
           const raw = localStorage.getItem(key);
@@ -184,11 +250,6 @@ class BackupService {
         }
       };
 
-      const invoiceCount = loadCount('pve_invoicepro_invoices');
-      const customerCount = loadCount('pve_customers');
-      const supplierCount = loadCount('pve_suppliers');
-      const productCount = loadCount('pve_products');
-
       const backupEntry = {
         id: Date.now().toString(),
         fileName,
@@ -196,16 +257,17 @@ class BackupService {
         size: 'N/A',
         type: 'manual' as const,
         companyName: localStorage.getItem('companyName') || 'Your Company',
-        invoiceCount,
-        customerCount,
-        supplierCount,
-        productCount,
-        location,
+        invoiceCount: loadCount('pve_invoicepro_invoices'),
+        customerCount: loadCount('pve_customers'),
+        supplierCount: loadCount('pve_suppliers'),
+        productCount: loadCount('pve_products'),
+        location: targetDir,
       };
 
       localStorage.setItem('backupHistory', JSON.stringify([backupEntry]));
+      this.setManualBackupLocation(targetDir);
 
-      return { success: true, fileName };
+      return { success: true, fileName, location: targetDir };
     } catch (error) {
       console.error('Manual backup failed:', error);
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };

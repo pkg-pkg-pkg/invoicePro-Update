@@ -23,6 +23,7 @@ import {
   CircularProgress,
 } from '@mui/material';
 import { Business, Person, Palette, Backup, Restore, CheckCircle } from '@mui/icons-material';
+import { pickBackupFile } from '../services/fileDialogService';
 import { restoreCompanyDetailsFromCloud, saveCompanyDetailsToCloud, archiveCompanyDetails } from '../services/companyDetailsCloudService';
 import { APP_DISPLAY_NAME, APP_TAGLINE } from '../constants/appBranding';
 import { usePincodeAutofill } from '../hooks/usePincodeAutofill';
@@ -164,8 +165,11 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ open, onComplete, onRestoreBa
 
   const handleBackupFileSelect = async () => {
     setBackupInfo(null);
-    const picked = window.prompt('Enter backup file path (.ipbak):', backupFile || '') || '';
-    if (picked.trim()) {
+    const picked = await pickBackupFile({
+      title: 'Select backup file (.ipbak)',
+      defaultPath: backupFile || undefined,
+    });
+    if (picked?.trim()) {
       setBackupFile(picked.trim());
     }
   };
