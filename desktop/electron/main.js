@@ -653,7 +653,6 @@ ipcMain.handle('open-external-url', async (_event, rawUrl) => {
 });
 ipcMain.handle('whatsapp-check-status', async () => whatsappBridge.checkWhatsAppStatus());
 ipcMain.handle('whatsapp-open-chat', async (_event, phone, message) => whatsappBridge.openWhatsAppChat(phone, message));
-ipcMain.handle('whatsapp-open-chat', async (_event, phone, message) => whatsappBridge.openWhatsAppChat(phone, message));
 
 function readCompanyJsonFile(filePath) {
   if (!fs.existsSync(filePath)) return null;
