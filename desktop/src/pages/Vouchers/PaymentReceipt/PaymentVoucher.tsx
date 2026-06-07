@@ -171,19 +171,18 @@ const PaymentReceiptVoucherPage = ({
           return ledger.groupId === 'grp-sundry-debtors' || ledger.groupId === 'grp-sundry-creditors';
         });
 
-        // If no customers or suppliers exist, seed minimal ledgers for first voucher entry
+        // Fresh install: seed neutral default ledgers so payment/receipt entry works without demo names.
         if (customerSupplierLedgers.length === 0) {
           try {
             await autoLedgerService.ensureCustomerLedger('Walk-in Customer');
-            await autoLedgerService.ensureSupplierLedger('Cash Supplier');
-            
-            // Reload ledgers to get the newly created ones
+            await autoLedgerService.ensureSupplierLedger('Walk-in Supplier');
+
             const updatedLedgers = await ledgerAccountService.list({ includeInactive: false });
             customerSupplierLedgers = updatedLedgers.filter(ledger => {
               return ledger.groupId === 'grp-sundry-debtors' || ledger.groupId === 'grp-sundry-creditors';
             });
           } catch (createError) {
-            console.error('Failed to create sample customers/suppliers:', createError);
+            console.error('Failed to create default walk-in ledgers:', createError);
           }
         }
 

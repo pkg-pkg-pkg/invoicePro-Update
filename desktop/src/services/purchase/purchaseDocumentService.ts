@@ -1,4 +1,4 @@
-import type { PurchaseDocKind, PurchaseDocumentRow } from '../../types/purchaseDocuments';
+import type { PurchaseDocKind, PurchaseDocumentRow, PurchasePipelineDocument } from '../../types/purchaseDocuments';
 import type { SalesDocumentStatus } from '../../types/salesDocuments';
 import { voucherService } from '../vouchers/voucherService';
 import { ledgerAccountService } from '../masters/ledgerAccountService';
@@ -6,6 +6,7 @@ import { voucherGrandTotal } from '../voucherPrintBuilder';
 import { parseDueDateToken } from '../vouchers/invoicePaymentStatus';
 import type { Voucher } from '../../types/vouchers';
 import { readList } from '../masters/storageHelpers';
+import { purchasePipelineService } from './purchasePipelineService';
 
 function partyFromVoucher(voucher: Voucher, ledgerMap: Map<string, string>): { id?: string; name: string } {
   const partyLine = voucher.lines.find((l) => Number(l.debit ?? 0) > 0 || Number(l.credit ?? 0) > 0);
@@ -140,11 +141,33 @@ async function expenseRows(): Promise<PurchaseDocumentRow[]> {
   }));
 }
 
+function pipelineToRow(doc: PurchasePipelineDocument): PurchaseDocumentRow {
+  const gstAmount = Number(doc.cgst ?? 0) + Number(doc.sgst ?? 0) + Number(doc.igst ?? 0);
+  const grandTotal = Number(doc.grandTotal ?? doc.amount ?? 0);
+  const balanceDue = doc.status === 'PAID' ? 0 : grandTotal;
+  return {
+    id: doc.id,
+    kind: doc.kind,
+    number: doc.number,
+    date: doc.date,
+    vendorId: doc.vendorId ?? undefined,
+    vendorName: doc.vendorName,
+    amount: grandTotal,
+    gstAmount,
+    balanceDue,
+    status: doc.status,
+    dueDate: doc.dueDate ?? undefined,
+    source: 'pipeline',
+    editPath: `/purchase/${doc.kind}/${doc.id}/edit`,
+  };
+}
+
 export const purchaseDocumentService = {
   async listByKind(kind: PurchaseDocKind): Promise<PurchaseDocumentRow[]> {
-    const [vouchers, ledgers] = await Promise.all([
+    const [vouchers, ledgers, pipeline] = await Promise.all([
       voucherService.list(),
       ledgerAccountService.list({ includeInactive: false }),
+      purchasePipelineService.list(kind),
     ]);
     const ledgerMap = new Map(ledgers.map((l) => [l.id, l.name]));
 
@@ -157,8 +180,15 @@ export const purchaseDocumentService = {
         return debitNoteRows(vouchers, ledgerMap);
       case 'expenses':
         return expenseRows();
+      case 'purchase-orders':
+      case 'recurring-bills':
+        return pipeline.filter((p) => p.kind === kind).map(pipelineToRow);
       default:
         return [];
     }
+  },
+
+  async bulkDeletePipeline(ids: string[]): Promise<void> {
+    await purchasePipelineService.remove(ids);
   },
 };

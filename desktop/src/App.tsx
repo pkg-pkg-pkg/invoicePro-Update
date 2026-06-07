@@ -65,6 +65,7 @@ import CollectionFormPage from "./pages/sales/CollectionFormPage";
 import SalesPipelineForm from "./pages/sales/SalesPipelineForm";
 import { PurchaseManagementShell } from "./components/purchase/PurchaseManagementShell";
 import PurchaseDocumentPage from "./pages/purchase/PurchaseDocumentPage";
+import PurchasePipelineForm from "./pages/purchase/PurchasePipelineForm";
 import InventoryItemDetail from "./pages/Masters/InventoryItems/InventoryItemDetail";
 import PriceListList from "./pages/Masters/PriceLists/PriceListList";
 import PriceListForm from "./pages/Masters/PriceLists/PriceListForm";
@@ -1069,6 +1070,8 @@ function App() {
                     </Route>
                     <Route path="purchase" element={<PurchaseManagementShell />}>
                       <Route index element={<Navigate to="/purchase/purchase-bills" replace />} />
+                      <Route path=":docKind/new" element={<PurchasePipelineForm />} />
+                      <Route path=":docKind/:id/edit" element={<PurchasePipelineForm />} />
                       <Route path=":docKind" element={<PurchaseDocumentPage />} />
                     </Route>
                     <Route path="products" element={<Navigate to="/items" replace />} />

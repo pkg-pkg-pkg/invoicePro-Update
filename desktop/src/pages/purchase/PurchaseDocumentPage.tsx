@@ -98,15 +98,27 @@ export default function PurchaseDocumentPage() {
   }, [rows, filters]);
 
   const handleCreate = () => {
-    if (!nav?.createPath) return;
-    navigate(nav.createPath);
+    if (!nav || !kind) return;
+    if (nav.createPath) {
+      navigate(nav.createPath);
+      return;
+    }
+    if (nav.supportsPipeline) {
+      navigate(`/purchase/${kind}/new`);
+    }
   };
 
   if (!kind || !nav) {
     return <Alert severity="warning">Unknown purchase document type.</Alert>;
   }
 
-  const canCreate = Boolean(nav.createPath);
+  const canCreate = nav.supportsPipeline || Boolean(nav.createPath);
+
+  const handleBulkDelete = async (ids: string[]) => {
+    if (!ids.length) return;
+    await purchaseDocumentService.bulkDeletePipeline(ids);
+    await load();
+  };
 
   const salesFilters = {
     search: filters.search,
@@ -149,6 +161,8 @@ export default function PurchaseDocumentPage() {
         loading={loading}
         onRefresh={() => void load()}
         partyColumnLabel="Vendor"
+        onBulkDelete={(ids) => void handleBulkDelete(ids)}
+        allowPipelineDelete={nav.supportsPipeline}
       />
     </Box>
   );

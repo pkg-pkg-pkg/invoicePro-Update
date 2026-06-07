@@ -64,6 +64,7 @@ export const SALES_NAV_ITEMS: SalesNavItem[] = [
     description: 'Delivery and shipment records',
     icon: 'LocalShipping',
     createLabel: 'New Dispatch Note',
+    createPath: '/sales/dispatch/new',
     supportsPipeline: true,
   },
   {
@@ -107,6 +108,7 @@ export const SALES_NAV_ITEMS: SalesNavItem[] = [
     description: 'Subscription & repeat invoices',
     icon: 'Autorenew',
     createLabel: 'New Recurring Plan',
+    createPath: '/sales/recurring/new',
     supportsPipeline: true,
   },
 ];

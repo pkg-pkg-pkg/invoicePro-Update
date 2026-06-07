@@ -1,4 +1,4 @@
-import type { SalesDocumentStatus } from './salesDocuments';
+import type { SalesDocumentStatus, SalesPipelineLineItem } from './salesDocuments';
 
 export type PurchaseDocKind =
   | 'purchase-orders'
@@ -48,3 +48,39 @@ export type PurchaseNavItem = {
   createPath?: string;
   supportsPipeline: boolean;
 };
+
+export interface PurchasePipelineHeader {
+  vendorGstin?: string | null;
+  billingAddress?: string | null;
+  placeOfSupply?: string | null;
+  paymentTerms?: string | null;
+  freightCharges?: number;
+  roundOff?: number;
+  termsAndConditions?: string | null;
+  vendorNotes?: string | null;
+  recurringPaused?: boolean;
+}
+
+export interface PurchasePipelineDocument {
+  id: string;
+  kind: PurchaseDocKind;
+  number: string;
+  date: string;
+  vendorId?: string | null;
+  vendorName: string;
+  amount: number;
+  status: SalesDocumentStatus;
+  dueDate?: string | null;
+  notes?: string | null;
+  lines: SalesPipelineLineItem[];
+  header: PurchasePipelineHeader;
+  subtotal?: number;
+  totalDiscount?: number;
+  cgst?: number;
+  sgst?: number;
+  igst?: number;
+  grandTotal?: number;
+  amountInWords?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}

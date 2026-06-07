@@ -107,6 +107,8 @@ const NUMBER_PREFIX: Record<string, string> = {
   'sales-orders': 'SO',
   dispatch: 'DC',
   recurring: 'REC',
+  'purchase-orders': 'PO',
+  'recurring-bills': 'PRB',
 };
 
 export function generatePipelineNumber(kind: string, existingCount: number, year = new Date().getFullYear()): string {

@@ -8,8 +8,8 @@ export const PURCHASE_NAV_ITEMS: PurchaseNavItem[] = [
     description: 'Supplier orders before billing',
     icon: 'ShoppingCart',
     createLabel: 'New Purchase Order',
-    createPath: '/vouchers/purchase/new',
-    supportsPipeline: false,
+    createPath: '/purchase/purchase-orders/new',
+    supportsPipeline: true,
   },
   {
     kind: 'purchase-bills',
@@ -58,13 +58,20 @@ export const PURCHASE_NAV_ITEMS: PurchaseNavItem[] = [
     description: 'Repeat supplier bills & subscriptions',
     icon: 'Autorenew',
     createLabel: 'New Recurring Bill',
-    createPath: '/vouchers/purchase/new',
-    supportsPipeline: false,
+    createPath: '/purchase/recurring-bills/new',
+    supportsPipeline: true,
   },
 ];
 
+const PURCHASE_KIND_ALIASES: Record<string, PurchaseDocKind> = {
+  'purchase-order': 'purchase-orders',
+  'recurring-bill': 'recurring-bills',
+};
+
 export function purchaseKindFromParam(param: string | undefined): PurchaseDocKind | null {
-  const found = PURCHASE_NAV_ITEMS.find((n) => n.kind === param);
+  if (!param) return null;
+  const normalized = PURCHASE_KIND_ALIASES[param] ?? param;
+  const found = PURCHASE_NAV_ITEMS.find((n) => n.kind === normalized);
   return found?.kind ?? null;
 }
 
