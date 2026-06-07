@@ -95,6 +95,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   whatsappCheckStatus: () => ipcRenderer.invoke('whatsapp-check-status'),
   whatsappOpenChat: (phone: string, message: string) =>
     ipcRenderer.invoke('whatsapp-open-chat', phone, message),
+  getAppSystemInfo: () => ipcRenderer.invoke('app-system-info'),
   dialogPickFolder: (options?: { title?: string; defaultPath?: string }) =>
     ipcRenderer.invoke('dialog-pick-folder', options ?? {}),
   dialogPickBackupFile: (options?: { title?: string; defaultPath?: string }) =>

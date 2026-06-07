@@ -152,6 +152,22 @@ export interface ElectronAPI {
   }>;
   onWindowStateChanged?: (callback: (maximized: boolean) => void) => () => void;
 
+  getAppSystemInfo?: () => Promise<{
+    appVersion?: string;
+    applicationPath?: string;
+    execPath?: string;
+    userDataPath?: string;
+    companyDataPath?: string;
+    companyId?: string;
+    companyName?: string;
+    platform?: string;
+    osLabel?: string;
+    hostName?: string;
+    totalMemoryGb?: number;
+    arch?: string;
+    error?: string;
+  }>;
+
   dialogPickFolder?: (options?: { title?: string; defaultPath?: string }) => Promise<string | null>;
   dialogPickBackupFile?: (options?: { title?: string; defaultPath?: string }) => Promise<string | null>;
   backupCreateManual?: (payload: { targetDir: string }) => Promise<{

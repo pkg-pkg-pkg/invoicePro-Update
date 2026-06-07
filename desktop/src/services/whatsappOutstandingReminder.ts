@@ -70,6 +70,37 @@ export async function prepareOutstandingReminder(
   };
 }
 
+/** Customers with positive outstanding balance, highest first. */
+export function getOutstandingCustomers(
+  customers: CustomerSummary[] | undefined | null
+): CustomerSummary[] {
+  if (!customers?.length) return [];
+  return customers
+    .filter((c) => Number(c.currentBalance) > 0)
+    .sort((a, b) => Number(b.currentBalance) - Number(a.currentBalance));
+}
+
+export interface OutstandingReminderPrepareResult {
+  drafts: OutstandingReminderDraft[];
+  skipped: { customerId: string; customerName: string }[];
+}
+
+/** Prepare reminder drafts for multiple customers (skips those without phone). */
+export async function prepareOutstandingRemindersBatch(
+  customers: CustomerSummary[]
+): Promise<OutstandingReminderPrepareResult> {
+  const drafts: OutstandingReminderDraft[] = [];
+  const skipped: { customerId: string; customerName: string }[] = [];
+
+  for (const customer of customers) {
+    const draft = await prepareOutstandingReminder(customer);
+    if (draft) drafts.push(draft);
+    else skipped.push({ customerId: customer.id, customerName: customer.name });
+  }
+
+  return { drafts, skipped };
+}
+
 /** Top overdue customer from dashboard summary, if any. */
 export function pickTopOutstandingCustomer(
   customers: CustomerSummary[] | undefined | null

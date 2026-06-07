@@ -10,7 +10,6 @@ import {
   Divider,
   CircularProgress,
   Grid,
-  Paper,
   Stack,
   Table,
   TableBody,
@@ -27,10 +26,11 @@ import {
   BarChart as BarChartIcon,
   Groups2 as Groups2Icon,
   Inventory2 as Inventory2Icon,
+  LocalShipping as LocalShippingIcon,
   PersonAddAlt as PersonAddAltIcon,
   PointOfSale as PointOfSaleIcon,
   ReceiptLong as ReceiptLongIcon,
-  SwapHoriz as SwapHorizIcon,
+  ShoppingCart as ShoppingCartIcon,
   WhatsApp as WhatsAppIcon,
 } from '@mui/icons-material';
 import { AppDispatch, RootState } from '../store';
@@ -50,9 +50,7 @@ import { BusinessHealthCard } from '../components/dashboard/BusinessHealthCard';
 import { DashboardPanel } from '../components/dashboard/DashboardPanel';
 import {
   computeSparkTrend,
-  dashboardCardSx,
   greetingForHour,
-  sectionEyebrowSx,
   useDashboardTheme,
 } from '../components/dashboard/dashboardTheme';
 import { PremiumKpiCard } from '../components/dashboard/PremiumKpiCard';
@@ -61,10 +59,11 @@ import { OutstandingAgingCard } from '../components/dashboard/OutstandingAgingCa
 import { BusinessSnapshotCard } from '../components/dashboard/BusinessSnapshotCard';
 import { DashboardModuleGrid } from '../components/dashboard/DashboardModuleGrid';
 import { WhatsAppReminderPreviewDialog } from '../components/whatsapp/WhatsAppReminderPreviewDialog';
+import { WhatsAppOutstandingPickerDialog } from '../components/whatsapp/WhatsAppOutstandingPickerDialog';
 import { buildOutstandingAging } from '../utils/outstandingAging';
 import {
-  prepareOutstandingReminder,
-  pickTopOutstandingCustomer,
+  getOutstandingCustomers,
+  prepareOutstandingRemindersBatch,
   type OutstandingReminderDraft,
 } from '../services/whatsappOutstandingReminder';
 import {
@@ -124,8 +123,10 @@ export default function Dashboard() {
   } = useSelector((state: RootState) => state.dashboard);
 
   const [waBusy, setWaBusy] = useState(false);
+  const [waPickerOpen, setWaPickerOpen] = useState(false);
   const [waReminderOpen, setWaReminderOpen] = useState(false);
-  const [waReminderDraft, setWaReminderDraft] = useState<OutstandingReminderDraft | null>(null);
+  const [waReminderQueue, setWaReminderQueue] = useState<OutstandingReminderDraft[]>([]);
+  const [waReminderIndex, setWaReminderIndex] = useState(0);
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -175,31 +176,47 @@ export default function Dashboard() {
   const kpiCards = useMemo(
     () => [
       {
+        id: 'today-sales',
         title: "Today's Sales",
         value: Number(overview?.totalSales || 0),
         color: dt.kpi.sales,
         icon: <ReceiptLongIcon fontSize="small" />,
+        drillPath: '/dashboard/drill/today-sales',
+        modulePath: '/sales/tax-invoices',
+        drillHint: "Click to view today's invoices · Double-click for Sales module",
       },
       {
+        id: 'today-receipts',
         title: "Today's Receipts",
         value: todayReceiptsTotal,
         color: dt.kpi.receipts,
         icon: <PointOfSaleIcon fontSize="small" />,
+        drillPath: '/dashboard/drill/today-receipts',
+        modulePath: '/vouchers/receipt-vouchers',
+        drillHint: "Click to view today's receipts · Double-click for Receipt module",
       },
       {
+        id: 'outstanding',
         title: 'Outstanding Amount',
         value: Number(overview?.totalOutstanding || 0),
         color: dt.kpi.outstanding,
         icon: <AssignmentTurnedInIcon fontSize="small" />,
+        drillPath: '/dashboard/drill/outstanding',
+        modulePath: '/reports/outstanding-aging',
+        drillHint: 'Click to view pending collections · Double-click for Outstanding report',
       },
       {
+        id: 'stock-value',
         title: 'Stock Value',
         value: stockValue,
         color: dt.kpi.stock,
         icon: <Inventory2Icon fontSize="small" />,
+        drillPath: '/dashboard/drill/stock-value',
+        modulePath: '/items',
+        drillHint: 'Click for inventory valuation · Double-click for Items module',
       },
     ],
-    [overview, todayReceiptsTotal, stockValue]
+    [overview, todayReceiptsTotal, stockValue, dt.kpi]
   );
 
   const { buckets: agingBuckets, total: agingTotal } = useMemo(
@@ -295,58 +312,86 @@ export default function Dashboard() {
     ]
   );
 
-  const handleWhatsAppReminder = useCallback(async () => {
-    const target = pickTopOutstandingCustomer(outstandingSummary?.customers);
-    if (!target) {
+  const outstandingCustomers = useMemo(
+    () => getOutstandingCustomers(outstandingSummary?.customers),
+    [outstandingSummary?.customers]
+  );
+
+  const waReminderDraft = waReminderQueue[waReminderIndex] ?? null;
+
+  const handleWhatsAppReminder = useCallback(() => {
+    if (!outstandingCustomers.length) {
       window.alert('No outstanding customer balance to remind.');
       return;
     }
-    setWaBusy(true);
-    try {
-      const draft = await prepareOutstandingReminder(target);
-      if (!draft) {
-        window.alert(
-          `"${target.name}" has no mobile or WhatsApp number. Add contact details in Party Master.`
-        );
-        navigate('/parties');
-        return;
-      }
-      setWaReminderDraft(draft);
-      setWaReminderOpen(true);
-    } catch (err) {
-      console.error('WhatsApp reminder prepare failed', err);
-      window.alert('Could not prepare WhatsApp reminder. Please try again.');
-    } finally {
-      setWaBusy(false);
-    }
-  }, [outstandingSummary?.customers, navigate]);
+    setWaPickerOpen(true);
+  }, [outstandingCustomers.length]);
 
-  const utilityShortcuts = useMemo(
-    () => [
-      { label: 'GST Returns', onClick: () => navigate('/gst') },
-      { label: 'E-Way Bill', onClick: () => navigate('/utilities/e-way-bill') },
-      { label: 'WhatsApp Center', onClick: () => navigate('/settings?tab=4') },
-      { label: 'Company Profile', onClick: () => navigate('/settings?tab=0') },
-    ],
-    [navigate]
+  const handleWhatsAppPickerConfirm = useCallback(
+    async (selected: typeof outstandingCustomers) => {
+      if (!selected.length) return;
+      setWaBusy(true);
+      try {
+        const { drafts, skipped } = await prepareOutstandingRemindersBatch(selected);
+        if (!drafts.length) {
+          window.alert(
+            skipped.length === 1
+              ? `"${skipped[0].customerName}" has no mobile or WhatsApp number. Add contact details in Party Master.`
+              : 'Selected customers have no mobile or WhatsApp number. Add contact details in Party Master.'
+          );
+          return;
+        }
+        if (skipped.length) {
+          window.alert(
+            `${skipped.length} customer(s) skipped — no mobile/WhatsApp number:\n${skipped
+              .slice(0, 5)
+              .map((s) => `• ${s.customerName}`)
+              .join('\n')}${skipped.length > 5 ? `\n…and ${skipped.length - 5} more` : ''}`
+          );
+        }
+        setWaPickerOpen(false);
+        setWaReminderQueue(drafts);
+        setWaReminderIndex(0);
+        setWaReminderOpen(true);
+      } catch (err) {
+        console.error('WhatsApp reminder prepare failed', err);
+        window.alert('Could not prepare WhatsApp reminder. Please try again.');
+      } finally {
+        setWaBusy(false);
+      }
+    },
+    []
   );
+
+  const closeWhatsAppReminderFlow = useCallback(() => {
+    setWaReminderOpen(false);
+    setWaReminderQueue([]);
+    setWaReminderIndex(0);
+  }, []);
+
+  const advanceWhatsAppReminderQueue = useCallback(() => {
+    setWaReminderIndex((idx) => (idx + 1 < waReminderQueue.length ? idx + 1 : idx));
+  }, [waReminderQueue.length]);
 
   const quickActions = useMemo(
     () => [
       { label: 'Create Invoice', icon: <ReceiptLongIcon fontSize="small" />, to: '/vouchers/sales/new' },
       { label: 'Receipt Entry', icon: <PointOfSaleIcon fontSize="small" />, to: '/vouchers/receipt-vouchers/new' },
+      { label: 'Payment Entry', icon: <PointOfSaleIcon fontSize="small" />, to: '/vouchers/payment-vouchers/new' },
+      { label: 'Purchase Bill', icon: <ShoppingCartIcon fontSize="small" />, to: '/vouchers/purchase/new' },
       { label: 'New Customer', icon: <PersonAddAltIcon fontSize="small" />, to: '/parties/new' },
       { label: 'New Item', icon: <AddCircleOutlineIcon fontSize="small" />, to: '/items?new=1' },
-      { label: 'Price List', icon: <Inventory2Icon fontSize="small" />, to: '/masters/price-lists/new' },
-      { label: 'Stock Adjust', icon: <Inventory2Icon fontSize="small" />, to: '/masters/stock-adjustments/new' },
+      { label: 'Outstanding', icon: <AssignmentTurnedInIcon fontSize="small" />, to: '/reports/outstanding-aging' },
       {
-        label: 'WhatsApp Outstanding',
+        label: 'WhatsApp Reminder',
         icon: <WhatsAppIcon fontSize="small" />,
         onClick: handleWhatsAppReminder,
       },
-      { label: 'Customer Ledger', icon: <Groups2Icon fontSize="small" />, to: '/reports?tab=party' },
       { label: 'Stock Summary', icon: <Inventory2Icon fontSize="small" />, to: '/items' },
+      { label: 'GST Returns', icon: <BarChartIcon fontSize="small" />, to: '/gst' },
+      { label: 'E-Way Bill', icon: <LocalShippingIcon fontSize="small" />, to: '/gst/e-way-bill' },
       { label: 'Reports', icon: <BarChartIcon fontSize="small" />, to: '/reports' },
+      { label: 'Customer Ledger', icon: <Groups2Icon fontSize="small" />, to: '/customers/ledger-report' },
     ],
     [handleWhatsAppReminder]
   );
@@ -388,7 +433,7 @@ export default function Dashboard() {
         now={now}
       />
 
-      {/* Row 1 — equal-width KPI cards */}
+      {/* KPI cards */}
       <Box
         sx={{
           display: 'grid',
@@ -402,7 +447,7 @@ export default function Dashboard() {
         }}
       >
         {kpiCards.map((kpi, idx) => (
-          <Box key={kpi.title} sx={{ minWidth: 0, display: 'flex' }}>
+          <Box key={kpi.id} sx={{ minWidth: 0, display: 'flex' }}>
             <PremiumKpiCard
               title={kpi.title}
               value={kpi.value}
@@ -410,6 +455,9 @@ export default function Dashboard() {
               trendUp={sparkTrend.up}
               color={kpi.color}
               icon={kpi.icon}
+              drillHint={kpi.drillHint}
+              onDrill={() => navigate(kpi.drillPath)}
+              onOpenModule={() => navigate(kpi.modulePath)}
               graphData={sparklineData.map((s, i) => ({
                 ...s,
                 value: s.value + idx * 3 + i,
@@ -419,75 +467,75 @@ export default function Dashboard() {
         ))}
       </Box>
 
-      {/* Row 2 — outstanding aging + quick links */}
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: {
-            xs: 'minmax(0, 1fr)',
-            md: 'repeat(2, minmax(0, 1fr))',
-          },
-          gap: dt.gridGap,
-          mb: dt.gridGap,
-          alignItems: 'stretch',
-        }}
-      >
-        <Box sx={{ minWidth: 0 }}>
-          <OutstandingAgingCard
-            buckets={agingBuckets}
-            total={agingTotal}
-            onViewReport={() => navigate('/reports/outstanding-aging')}
-          />
-        </Box>
-
-        <Paper
-          elevation={0}
-          sx={{
-            ...dashboardCardSx(dt),
-            p: 2,
-            minWidth: 0,
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          <Typography sx={{ ...sectionEyebrowSx(dt), mb: 1 }}>Quick links</Typography>
-          <Stack spacing={0} divider={<Divider sx={{ borderColor: dt.border }} />} sx={{ flex: 1 }}>
-            {utilityShortcuts.map((s) => (
-              <Button
-                key={s.label}
-                size="small"
-                variant="text"
-                onClick={s.onClick}
-                sx={{
-                  justifyContent: 'space-between',
-                  textTransform: 'none',
-                  fontWeight: 600,
-                  fontSize: '0.8125rem',
-                  py: 1,
-                  px: 0.75,
-                  color: dt.text.primary,
-                  borderRadius: dt.innerRadius,
-                  overflow: 'hidden',
-                  '&:hover': { bgcolor: dt.primarySoft },
-                }}
-              >
-                <Box
-                  component="span"
+      <DashboardPanel title="Quick Action Center" sx={{ mb: dt.gridGap }}>
+        <Grid container spacing={1.25}>
+          {quickActions.map((qa, idx) => {
+            const accent = QUICK_ACTION_ACCENTS_BASE[idx % QUICK_ACTION_ACCENTS_BASE.length];
+            return (
+              <Grid item xs={6} sm={4} md={3} lg={2} key={qa.label}>
+                <Button
+                  fullWidth
+                  title={qa.label}
+                  onClick={() =>
+                    'onClick' in qa && qa.onClick ? qa.onClick() : navigate((qa as { to: string }).to)
+                  }
                   sx={{
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    minWidth: 0,
-                    textAlign: 'left',
+                    minHeight: 76,
+                    py: 1,
+                    borderRadius: dt.cardRadius,
+                    border: '1px solid',
+                    borderColor: alpha(accent, 0.14),
+                    flexDirection: 'column',
+                    gap: 0.65,
+                    bgcolor: alpha(accent, 0.06),
+                    textTransform: 'none',
+                    fontFamily: dt.fontFamily,
+                    transition: dt.transition,
+                    boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+                    '&:hover': {
+                      transform: dt.hoverLift,
+                      borderColor: alpha(accent, 0.35),
+                      bgcolor: alpha(accent, 0.1),
+                      boxShadow: dt.cardShadow,
+                    },
                   }}
                 >
-                  {s.label}
-                </Box>
-                <SwapHorizIcon sx={{ fontSize: 14, color: dt.text.muted, flexShrink: 0, ml: 1 }} />
-              </Button>
-            ))}
-          </Stack>
-        </Paper>
+                  <Box
+                    sx={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: `linear-gradient(145deg, ${alpha(accent, 0.22)} 0%, ${alpha(accent, 0.08)} 100%)`,
+                      color: accent,
+                      '& .MuiSvgIcon-root': { fontSize: 22 },
+                    }}
+                  >
+                    {qa.icon}
+                  </Box>
+                  <Typography
+                    variant="caption"
+                    fontWeight={700}
+                    sx={{ color: dt.text.primary, lineHeight: 1.2, fontSize: '0.72rem' }}
+                  >
+                    {qa.label}
+                  </Typography>
+                </Button>
+              </Grid>
+            );
+          })}
+        </Grid>
+      </DashboardPanel>
+
+      {/* Outstanding aging — full width */}
+      <Box sx={{ mb: dt.gridGap }}>
+        <OutstandingAgingCard
+          buckets={agingBuckets}
+          total={agingTotal}
+          onViewReport={() => navigate('/reports/outstanding-aging')}
+        />
       </Box>
 
       {/* Row 3 — business modules */}
@@ -499,67 +547,6 @@ export default function Dashboard() {
       <Box sx={{ mb: dt.gridGap }}>
         <BusinessSnapshotCard items={snapshotItems} />
       </Box>
-
-      <DashboardPanel title="Quick Action Center" sx={{ mb: dt.gridGap }}>
-            <Grid container spacing={1.25}>
-              {quickActions.map((qa, idx) => {
-                const accent = QUICK_ACTION_ACCENTS_BASE[idx % QUICK_ACTION_ACCENTS_BASE.length];
-                return (
-                  <Grid item xs={6} sm={4} md={3} key={qa.label}>
-                    <Button
-                      fullWidth
-                      onClick={() =>
-                        'onClick' in qa && qa.onClick ? qa.onClick() : navigate((qa as { to: string }).to)
-                      }
-                      sx={{
-                        minHeight: 92,
-                        py: 1.25,
-                        borderRadius: dt.cardRadius,
-                        border: '1px solid',
-                        borderColor: alpha(accent, 0.14),
-                        flexDirection: 'column',
-                        gap: 0.85,
-                        bgcolor: alpha(accent, 0.06),
-                        textTransform: 'none',
-                        fontFamily: dt.fontFamily,
-                        transition: dt.transition,
-                        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
-                        '&:hover': {
-                          transform: dt.hoverLift,
-                          borderColor: alpha(accent, 0.35),
-                          bgcolor: alpha(accent, 0.1),
-                          boxShadow: dt.cardShadow,
-                        },
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          width: 44,
-                          height: 44,
-                          borderRadius: '14px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          background: `linear-gradient(145deg, ${alpha(accent, 0.22)} 0%, ${alpha(accent, 0.08)} 100%)`,
-                          color: accent,
-                          '& .MuiSvgIcon-root': { fontSize: 24 },
-                        }}
-                      >
-                        {qa.icon}
-                      </Box>
-                      <Typography
-                        variant="caption"
-                        fontWeight={700}
-                        sx={{ color: dt.text.primary, lineHeight: 1.25, fontSize: '0.75rem' }}
-                      >
-                        {qa.label}
-                      </Typography>
-                    </Button>
-                  </Grid>
-                );
-              })}
-            </Grid>
-          </DashboardPanel>
 
       <Grid container spacing={dt.gridGap} sx={{ mb: dt.gridGap }}>
             <Grid item xs={12}>
@@ -781,18 +768,32 @@ export default function Dashboard() {
         </Box>
       )}
 
+      <WhatsAppOutstandingPickerDialog
+        open={waPickerOpen}
+        onClose={() => setWaPickerOpen(false)}
+        customers={outstandingCustomers}
+        onConfirm={(selected) => void handleWhatsAppPickerConfirm(selected)}
+        busy={waBusy}
+      />
+
       {waReminderDraft ? (
         <WhatsAppReminderPreviewDialog
           open={waReminderOpen}
-          onClose={() => {
-            setWaReminderOpen(false);
-            setWaReminderDraft(null);
-          }}
+          onClose={closeWhatsAppReminderFlow}
+          title={
+            waReminderQueue.length > 1
+              ? `WhatsApp Reminder (${waReminderIndex + 1} of ${waReminderQueue.length})`
+              : 'WhatsApp Reminder Preview'
+          }
           customerName={waReminderDraft.customerName}
           mobile={waReminderDraft.mobile}
           outstandingAmount={waReminderDraft.outstandingAmount}
           initialMessage={waReminderDraft.message}
-          onLaunchSuccess={() => void refreshWhatsAppConnectionStatus()}
+          closeAfterLaunch={waReminderIndex + 1 >= waReminderQueue.length}
+          onLaunchSuccess={() => {
+            void refreshWhatsAppConnectionStatus();
+            advanceWhatsAppReminderQueue();
+          }}
         />
       ) : null}
     </Box>

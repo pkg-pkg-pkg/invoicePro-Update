@@ -84,6 +84,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
   whatsappCheckStatus: () => ipcRenderer.invoke('whatsapp-check-status'),
   whatsappOpenChat: (phone, message) => ipcRenderer.invoke('whatsapp-open-chat', phone, message),
+  getAppSystemInfo: () => ipcRenderer.invoke('app-system-info'),
   dialogPickFolder: (options) => ipcRenderer.invoke('dialog-pick-folder', options ?? {}),
   dialogPickBackupFile: (options) => ipcRenderer.invoke('dialog-pick-backup-file', options ?? {}),
   backupCreateManual: (payload) => ipcRenderer.invoke('backup-create-manual', payload),

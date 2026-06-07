@@ -1,5 +1,7 @@
 /** PVE Sales Management — document kinds & unified row model */
 
+import type { VoucherEwayBill } from './ewayBill';
+
 export type SalesDocKind =
   | 'quotations'
   | 'proforma'
@@ -113,6 +115,7 @@ export interface SalesDocumentRow {
   source: 'voucher' | 'pipeline' | 'expense';
   voucherId?: string;
   editPath?: string;
+  ewayBill?: VoucherEwayBill;
 }
 
 export interface SalesDocumentFilters {

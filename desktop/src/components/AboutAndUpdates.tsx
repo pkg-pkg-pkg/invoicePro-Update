@@ -30,6 +30,7 @@ import {
   resolveDownloadUrl,
 } from '../services/appUpdateService';
 import { openExternalUrl } from '../services/printService';
+import SystemInformationPanel from './about/SystemInformationPanel';
 
 function releaseNotesToChangelog(notes?: string): string[] | undefined {
   const text = String(notes ?? '').trim();
@@ -526,6 +527,10 @@ const AboutAndUpdates: React.FC = () => {
             </Paper>
           </Grid>
         )}
+
+        <Grid item xs={12}>
+          <SystemInformationPanel />
+        </Grid>
 
         {/* Support & Contact Information */}
         <Grid item xs={12}>

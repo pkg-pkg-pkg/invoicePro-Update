@@ -237,6 +237,7 @@ async function taxInvoiceRows(vouchers: Voucher[], ledgerMap: Map<string, string
         source: 'voucher' as const,
         voucherId: v.id,
         editPath: `/sales/invoices/${v.id}`,
+        ewayBill: v.ewayBill,
       };
     })
     .sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number));

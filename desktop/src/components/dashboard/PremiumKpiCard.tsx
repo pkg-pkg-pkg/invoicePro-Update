@@ -1,4 +1,5 @@
-import { Box, Card, CardContent, Stack, Typography } from '@mui/material';
+import { useRef } from 'react';
+import { Box, Card, CardContent, Stack, Tooltip, Typography } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -16,6 +17,11 @@ export interface PremiumKpiCardProps {
   color: string;
   icon: React.ReactNode;
   graphData: KpiSparkPoint[];
+  /** Single click — open drill-down report */
+  onDrill?: () => void;
+  /** Double click — open full module */
+  onOpenModule?: () => void;
+  drillHint?: string;
 }
 
 export function PremiumKpiCard({
@@ -26,14 +32,46 @@ export function PremiumKpiCard({
   color,
   icon,
   graphData,
+  onDrill,
+  onOpenModule,
+  drillHint,
 }: PremiumKpiCardProps) {
   const dt = useDashboardTheme();
   const trendColor = trendUp ? dt.success : dt.danger;
   const compact = Boolean(dt.enterprise);
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  return (
+  const handleClick = () => {
+    if (!onDrill && !onOpenModule) return;
+    if (clickTimer.current) clearTimeout(clickTimer.current);
+    clickTimer.current = setTimeout(() => {
+      onDrill?.();
+      clickTimer.current = null;
+    }, 220);
+  };
+
+  const handleDoubleClick = () => {
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current);
+      clickTimer.current = null;
+    }
+    onOpenModule?.();
+  };
+
+  const clickable = Boolean(onDrill || onOpenModule);
+  const hint =
+    drillHint ??
+    (onDrill && onOpenModule
+      ? 'Click for details · Double-click for full module'
+      : onDrill
+        ? 'Click to view details'
+        : undefined);
+
+  const card = (
     <Card
       elevation={0}
+      onClick={clickable ? handleClick : undefined}
+      onDoubleClick={clickable ? handleDoubleClick : undefined}
       sx={{
         height: '100%',
         width: '100%',
@@ -43,6 +81,7 @@ export function PremiumKpiCard({
         display: 'flex',
         flexDirection: 'column',
         position: 'relative',
+        cursor: clickable ? 'pointer' : 'default',
         borderRadius: dt.cardRadius,
         border: `1px solid ${dt.border}`,
         boxShadow: dt.cardShadow,
@@ -210,6 +249,13 @@ export function PremiumKpiCard({
         )}
       </CardContent>
     </Card>
+  );
+
+  if (!hint) return card;
+  return (
+    <Tooltip title={hint} arrow placement="top">
+      <Box sx={{ height: '100%', width: '100%', minWidth: 0 }}>{card}</Box>
+    </Tooltip>
   );
 }
 

@@ -25,6 +25,8 @@ export interface WhatsAppReminderPreviewDialogProps {
   initialMessage: string;
   title?: string;
   amountLabel?: string;
+  /** When false, dialog stays open after WhatsApp launch (e.g. multi-customer queue). Default true. */
+  closeAfterLaunch?: boolean;
   onLaunchError?: (message: string) => void;
   onLaunchSuccess?: () => void;
 }
@@ -38,6 +40,7 @@ export function WhatsAppReminderPreviewDialog({
   initialMessage,
   title = 'WhatsApp Reminder Preview',
   amountLabel = 'Outstanding Amount',
+  closeAfterLaunch = true,
   onLaunchError,
   onLaunchSuccess,
 }: WhatsAppReminderPreviewDialogProps) {
@@ -67,7 +70,7 @@ export function WhatsAppReminderPreviewDialog({
         return;
       }
       onLaunchSuccess?.();
-      onClose();
+      if (closeAfterLaunch) onClose();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Could not open WhatsApp.';
       setError(msg);

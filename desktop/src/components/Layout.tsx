@@ -75,6 +75,10 @@ import { pageHasOwnHeading } from "../utils/pageChrome";
 const getPageTitle = (pathname: string): { title: string; showBackButton: boolean } => {
   const routeMap: Record<string, { title: string; showBackButton: boolean }> = {
     '/dashboard': { title: 'Dashboard', showBackButton: false },
+    '/dashboard/drill/today-sales': { title: "Today's Sales", showBackButton: true },
+    '/dashboard/drill/today-receipts': { title: "Today's Receipts", showBackButton: true },
+    '/dashboard/drill/outstanding': { title: 'Outstanding', showBackButton: true },
+    '/dashboard/drill/stock-value': { title: 'Stock Value', showBackButton: true },
     '/items': { title: 'Items', showBackButton: false },
     '/banking': { title: 'Banking', showBackButton: false },
     '/sales': { title: 'Sales', showBackButton: false },
@@ -144,6 +148,7 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
     '/gst/gstr3b': { title: 'GSTR-3B (Monthly Return)', showBackButton: true },
     '/gst/gstr9': { title: 'GSTR-9 (Annual Return)', showBackButton: true },
     '/gst/hsn-summary': { title: 'HSN Summary', showBackButton: true },
+    '/gst/e-way-bill': { title: 'E-Way Bill', showBackButton: true },
     '/schemes': { title: 'Schemes', showBackButton: false },
     '/schemes/new': { title: 'New Scheme', showBackButton: true },
     '/schemes/edit': { title: 'Edit Scheme', showBackButton: true },
@@ -165,6 +170,17 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
 
   if (pathname.startsWith('/parties/party-ledger/')) {
     return { title: 'Party Ledger', showBackButton: true };
+  }
+
+  if (pathname.startsWith('/dashboard/drill/')) {
+    const kind = pathname.split('/').pop() ?? '';
+    const titles: Record<string, string> = {
+      'today-sales': "Today's Sales",
+      'today-receipts': "Today's Receipts",
+      outstanding: 'Outstanding',
+      'stock-value': 'Stock Value',
+    };
+    return { title: titles[kind] ?? 'Dashboard Drill', showBackButton: true };
   }
 
   // Check for pattern matches (for edit routes with IDs)

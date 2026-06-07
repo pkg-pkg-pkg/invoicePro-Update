@@ -42,6 +42,7 @@ import {
 } from '../../../services/voucherPrintBuilder';
 import PrintExportSetupDialog, { type PrintExportAction } from '../../../components/invoice/PrintExportSetupDialog';
 import { WhatsAppReminderPreviewDialog } from '../../../components/whatsapp/WhatsAppReminderPreviewDialog';
+import { EwayBillStatusChip } from '../../../components/eway/EwayBillStatusChip';
 import { buildInvoiceWhatsAppMessage } from '../../../services/printService';
 import { resolvePartyPhone } from '../../../services/whatsappOutstandingReminder';
 
@@ -493,6 +494,7 @@ const SalesVoucherList = () => {
                   <TableCell>Customer</TableCell>
                   <TableCell align="right">Items</TableCell>
                   <TableCell align="right">Total</TableCell>
+                  <TableCell>EWB</TableCell>
                   {showProfit && <TableCell align="right">Gross Revenue</TableCell>}
                   {showProfit && <TableCell align="right">Cost</TableCell>}
                   {showProfit && <TableCell align="right">Gross Profit</TableCell>}
@@ -504,7 +506,7 @@ const SalesVoucherList = () => {
               <TableBody>
                 {filteredVouchers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={showProfit ? 11 : 7} align="center">
+                    <TableCell colSpan={showProfit ? 12 : 8} align="center">
                       <Typography variant="body2" color="text.secondary">
                         No invoices found
                       </Typography>
@@ -524,6 +526,7 @@ const SalesVoucherList = () => {
                             {voucher.lines.filter((line) => Boolean(line.itemId) && Number(line.quantity || 0) > 0).length}
                           </TableCell>
                           <TableCell align="right">₹ {voucherTotal(voucher).toFixed(2)}</TableCell>
+                          <TableCell><EwayBillStatusChip eway={voucher.ewayBill} /></TableCell>
                           {showProfit && <TableCell align="right">₹ {profit.grossRevenue.toFixed(2)}</TableCell>}
                           {showProfit && <TableCell align="right">₹ {profit.cost.toFixed(2)}</TableCell>}
                           {showProfit && (

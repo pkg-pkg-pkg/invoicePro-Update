@@ -9,6 +9,7 @@ const companyRegistry = require('./companyRegistry.cjs');
 const { registerSessionIpc } = require('./registerSessionIpc.cjs');
 const { registerPincodeIpc } = require('./registerPincodeIpc.cjs');
 const { execFile } = require('child_process');
+const os = require('os');
 const whatsappBridge = require('./whatsappBridge.cjs');
 
 function openUrlWithFallback(url) {
@@ -670,6 +671,32 @@ function formatBackupSize(bytes) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+ipcMain.handle('app-system-info', () => {
+  try {
+    const active = companyRegistry.getActiveCompany(app);
+    const companyId = active?.company?.id || companyRegistry.readActiveId(app);
+    const companyDir = companyRegistry.getCompanyDir(app, companyId);
+    const profileName = String(active?.profile?.name || active?.company?.name || '');
+
+    return {
+      appVersion: app.getVersion(),
+      applicationPath: app.isPackaged ? path.dirname(process.execPath) : app.getAppPath(),
+      execPath: process.execPath,
+      userDataPath: app.getPath('userData'),
+      companyDataPath: companyDir,
+      companyId: String(companyId || ''),
+      companyName: profileName,
+      platform: process.platform,
+      osLabel: `${os.type()} ${os.release()}`,
+      hostName: os.hostname(),
+      totalMemoryGb: Math.round((os.totalmem() / 1024 ** 3) * 10) / 10,
+      arch: process.arch,
+    };
+  } catch (err) {
+    return { error: String(err?.message || err) };
+  }
+});
 
 ipcMain.handle('dialog-pick-folder', async (_event, payload) => {
   const result = await dialog.showOpenDialog(mainWindow || undefined, {

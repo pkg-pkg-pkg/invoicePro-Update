@@ -73,6 +73,7 @@ const buildVoucher = (payload: CreateVoucherInput): Voucher => {
     lines: payload.lines.map(cloneLine),
     status: payload.status ?? 'ACTIVE',
     createdAt: nowIso(),
+    ewayBill: payload.ewayBill,
   };
 };
 

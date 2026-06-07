@@ -22,6 +22,7 @@ import Dashboard from "./pages/Dashboard";
 import PartyForm from "./pages/Parties/PartyForm";
 import PartyLedgerReport from "./pages/PartyLedgerReport";
 import OutstandingAgingReport from "./pages/Reports/OutstandingAgingReport";
+import DashboardKpiDrillPage from "./pages/dashboard/DashboardKpiDrillPage";
 import LowStockReport from "./pages/Reports/LowStockReport";
 import LedgerStatementByLedgerId from "./pages/LedgerStatementByLedgerId";
 import PurchaseInvoices from "./pages/PurchaseInvoices";
@@ -33,6 +34,7 @@ import GSTR1Report from "./pages/GST/GSTR1Report";
 import GSTR2Report from "./pages/GST/GSTR2Report";
 import GSTR3BReport from "./pages/GST/GSTR3BReport";
 import GSTR9Report from "./pages/GST/GSTR9Report";
+import EWayBillPage from "./pages/GST/EWayBillPage";
 import HSNSummary from "./pages/GST/HSNSummary";
 import ManualExpenseEntry from "./pages/Expenses/ManualExpenseEntry";
 import Payments from "./pages/Payments";
@@ -1379,6 +1381,7 @@ function App() {
                       }
                     />
                     <Route path="reports" element={<Reports />} />
+                    <Route path="dashboard/drill/:kind" element={<DashboardKpiDrillPage />} />
                     <Route path="reports/outstanding-aging" element={<OutstandingAgingReport />} />
                     <Route path="reports/low-stock" element={<LowStockReport />} />
                     <Route path="gst" element={<GSTReports />} />
@@ -1387,6 +1390,8 @@ function App() {
                     <Route path="gst/gstr3b" element={<GSTR3BReport />} />
                     <Route path="gst/gstr9" element={<GSTR9Report />} />
                     <Route path="gst/hsn-summary" element={<HSNSummary />} />
+                    <Route path="gst/e-way-bill" element={<EWayBillPage />} />
+                    <Route path="utilities/e-way-bill" element={<Navigate to="/gst/e-way-bill" replace />} />
                     <Route path="user-management" element={<Navigate to="/settings" replace />} />
                     <Route path="settings" element={<Settings />} />
                   </Route>

@@ -82,6 +82,19 @@ import { resolvePrintFormatFromLayout } from '../../../services/voucherPrintBuil
 import { runInvoicePrintExportAction } from '../../../services/invoicePrintFlow';
 import { salesPipelineService } from '../../../services/sales/salesDocumentService';
 import { PIPELINE_PREFILL_KEY } from '../../../components/listActions/documentRowActionsHandlers';
+import { EwayBillThresholdDialog } from '../../../components/eway/EwayBillThresholdDialog';
+import { EwayBillDetailsModal } from '../../../components/eway/EwayBillDetailsModal';
+import { EwayBillInfoPanel } from '../../../components/eway/EwayBillInfoPanel';
+import type { EwayBillFormValues, VoucherEwayBill } from '../../../types/ewayBill';
+import {
+  buildEwayBillForSkipSave,
+  buildEwayPrintBlock,
+  buildEwayPrintDocumentHtml,
+  ewayBillToFormValues,
+  formValuesToEwayBill,
+  patchVoucherEwayBill,
+  shouldShowEwayReminder,
+} from '../../../services/ewayBillService';
 
 interface ItemLineState {
   lineId: string;
@@ -216,6 +229,13 @@ const SalesVoucherForm = () => {
   const [validationIssues, setValidationIssues] = useState<string[]>([]);
   const [mode, setMode] = useState<'edit' | 'view'>(() => (editVoucherId ? 'view' : 'edit'));
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
+  const [voucherEwayBill, setVoucherEwayBill] = useState<VoucherEwayBill | undefined>(undefined);
+  const [ewayThresholdOpen, setEwayThresholdOpen] = useState(false);
+  const [ewayDetailsOpen, setEwayDetailsOpen] = useState(false);
+  const [ewayDetailsOnly, setEwayDetailsOnly] = useState(false);
+  const [pendingSaveOptions, setPendingSaveOptions] = useState<
+    { navigateAfter?: boolean; redirectTo?: string } | null
+  >(null);
   const [additionalCharges, setAdditionalCharges] = useState<AdditionalChargeState[]>([]);
   const [enableRoundOff, setEnableRoundOff] = useState(true);
   const [companyState, setCompanyState] = useState<string>(''); // Will be loaded from company config
@@ -636,6 +656,7 @@ const SalesVoucherForm = () => {
           narration: String(voucher.narration || ''),
           customerLedgerId,
         }));
+        setVoucherEwayBill(voucher.ewayBill);
         setMode('view');
         if (linkedParty) {
           const resolvedLinkedLedgerId = String(linkedParty.ledgerId || customerLedgerId || '');
@@ -1476,6 +1497,7 @@ const SalesVoucherForm = () => {
         grandTotal: Number(totals.grandTotal || 0),
         amountInWords: amountToWordsINR(Number(totals.grandTotal || 0)),
         termsAndConditions: String(formState.termsAndConditions || '').trim() || undefined,
+        ewayBillBlock: buildEwayPrintBlock(voucherEwayBill),
         declaration:
           'We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',
       } as any,
@@ -1523,7 +1545,10 @@ const SalesVoucherForm = () => {
     }
   }, [searchParams, isEditMode, editVoucherId, runFormPrintAction, navigate, listPath]);
 
-  const saveVoucher = async (options?: { navigateAfter?: boolean; redirectTo?: string }): Promise<string | null> => {
+  const executeSaveVoucher = async (
+    ewayOverride: VoucherEwayBill | undefined,
+    options?: { navigateAfter?: boolean; redirectTo?: string }
+  ): Promise<string | null> => {
     if (!canSubmit) {
       const issues = getValidationIssues();
       setValidationIssues(issues);
@@ -1541,6 +1566,10 @@ const SalesVoucherForm = () => {
       ].filter(Boolean);
       const narrationWithTerms = `${String(formState.narration || '').trim()} ${dueTokens.join(' ')}`.trim();
       const voucherDate = `${formState.date}T12:00:00.000Z`;
+      const resolvedEway =
+        ewayOverride ??
+        voucherEwayBill ??
+        buildEwayBillForSkipSave(Number(totals.grandTotal || 0));
 
       let savedId = editVoucherId ?? null;
       if (isEditMode && editVoucherId) {
@@ -1550,6 +1579,7 @@ const SalesVoucherForm = () => {
           number: formState.number,
           narration: narrationWithTerms,
           lines: voucherLines,
+          ewayBill: resolvedEway,
         });
       } else {
         const created = await voucherService.create({
@@ -1558,12 +1588,14 @@ const SalesVoucherForm = () => {
           number: formState.number,
           narration: narrationWithTerms,
           lines: voucherLines,
+          ewayBill: resolvedEway,
         });
         savedId = created.id;
         if (!options?.navigateAfter && savedId) {
           navigate(`/sales/invoices/${savedId}`, { replace: true });
         }
       }
+      setVoucherEwayBill(resolvedEway);
       const appliedSchemeTotals = new Map<string, number>();
       lines.forEach((line) => {
         if (!line.appliedSchemeId) return;
@@ -1613,6 +1645,64 @@ const SalesVoucherForm = () => {
       }
     }
   };
+
+  const requestSaveVoucher = async (options?: { navigateAfter?: boolean; redirectTo?: string }) => {
+    if (!canSubmit) {
+      const issues = getValidationIssues();
+      setValidationIssues(issues);
+      setError('Please complete all required fields before saving.');
+      return null;
+    }
+    if (shouldShowEwayReminder(Number(totals.grandTotal || 0))) {
+      setPendingSaveOptions(options ?? null);
+      setEwayThresholdOpen(true);
+      return null;
+    }
+    return executeSaveVoucher(undefined, options);
+  };
+
+  const handleEwaySkipAndSave = () => {
+    setEwayThresholdOpen(false);
+    const opts = pendingSaveOptions ?? undefined;
+    setPendingSaveOptions(null);
+    void executeSaveVoucher(buildEwayBillForSkipSave(Number(totals.grandTotal || 0)), opts);
+  };
+
+  const handleEwayAddDetails = () => {
+    setEwayThresholdOpen(false);
+    setEwayDetailsOnly(false);
+    setEwayDetailsOpen(true);
+  };
+
+  const handleEwayDetailsSave = (values: EwayBillFormValues) => {
+    const eway = formValuesToEwayBill(values, Number(totals.grandTotal || 0), voucherEwayBill?.status);
+    setEwayDetailsOpen(false);
+    if (ewayDetailsOnly && editVoucherId) {
+      void patchVoucherEwayBill(editVoucherId, eway).then(() => setVoucherEwayBill(eway));
+      setEwayDetailsOnly(false);
+      return;
+    }
+    const opts = pendingSaveOptions ?? undefined;
+    setPendingSaveOptions(null);
+    void executeSaveVoucher(eway, opts);
+  };
+
+  const printEwayDetails = () => {
+    if (!voucherEwayBill) return;
+    const html = buildEwayPrintDocumentHtml(
+      formState.number,
+      String(partyDraft.billing.name || ''),
+      voucherEwayBill
+    );
+    const win = window.open('', '_blank');
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    win.print();
+  };
+
+  const saveVoucher = requestSaveVoucher;
 
   const handleFormSubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -2087,6 +2177,19 @@ const SalesVoucherForm = () => {
           </CardContent>
         </Card>
 
+        <EwayBillInfoPanel
+          eway={voucherEwayBill}
+          onEdit={
+            mode === 'view' && editVoucherId
+              ? () => {
+                  setEwayDetailsOnly(true);
+                  setEwayDetailsOpen(true);
+                }
+              : undefined
+          }
+          onPrint={voucherEwayBill ? printEwayDetails : undefined}
+        />
+
         <ActionFooter
           mode={mode}
           saving={saving}
@@ -2107,6 +2210,30 @@ const SalesVoucherForm = () => {
           }}
           onSaveAndSend={() => setSendDialogOpen(true)}
           onEdit={() => setMode('edit')}
+        />
+
+        <EwayBillThresholdDialog
+          open={ewayThresholdOpen}
+          invoiceAmount={Number(totals.grandTotal || 0)}
+          onAddEway={handleEwayAddDetails}
+          onSkipSave={handleEwaySkipAndSave}
+          onCancel={() => {
+            setEwayThresholdOpen(false);
+            setPendingSaveOptions(null);
+          }}
+          busy={saving}
+        />
+
+        <EwayBillDetailsModal
+          open={ewayDetailsOpen}
+          initialValues={ewayBillToFormValues(voucherEwayBill)}
+          title={ewayDetailsOnly ? 'Edit E-Way Bill' : 'E-Way Bill Details'}
+          onClose={() => {
+            setEwayDetailsOpen(false);
+            setEwayDetailsOnly(false);
+          }}
+          onSave={handleEwayDetailsSave}
+          busy={saving}
         />
 
         <Dialog open={sendDialogOpen} onClose={() => setSendDialogOpen(false)}>

@@ -9,6 +9,7 @@ import {
   PrintOptions,
 } from './printService';
 import type { InvoiceTemplateId } from '../templates/invoice/invoiceTemplatesConfig';
+import { buildEwayPrintBlock } from './ewayBillService';
 
 export const amountToWordsINR = (amount: number): string => {
   const n = Math.round(Number(amount || 0));
@@ -218,6 +219,7 @@ export const buildSalesVoucherInvoiceHtml = async (
     termsAndConditions: termsAndConditions || undefined,
     declaration:
       'We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',
+    ewayBillBlock: buildEwayPrintBlock(voucher.ewayBill),
   };
 
   const html = await buildInvoiceHTML(

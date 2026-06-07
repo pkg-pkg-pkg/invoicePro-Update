@@ -1,3 +1,5 @@
+import type { VoucherEwayBill } from './ewayBill';
+
 export type VoucherType =
   | 'SALES'
   | 'SALES_RETURN'
@@ -38,4 +40,6 @@ export interface Voucher {
   lines: VoucherLine[];
   status: 'ACTIVE' | 'CANCELLED';
   createdAt: string;
+  /** GST E-Way Bill details (sales invoices). */
+  ewayBill?: VoucherEwayBill;
 }

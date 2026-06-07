@@ -1,20 +1,16 @@
 import { useEffect, useState, ChangeEvent, useRef } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { Typography, Paper, Box, TextField, Button, Divider, Alert, Grid, IconButton, Tabs, Tab, FormControlLabel, Switch, Chip, Stack, Card, CardContent, ToggleButton, ToggleButtonGroup, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
+import { useLocation } from 'react-router-dom';
+import { Typography, Paper, Box, TextField, Button, Divider, Alert, Grid, Chip, Stack, Card } from '@mui/material';
 import { useTheme, alpha } from '@mui/material/styles';
 import EditIcon from '@mui/icons-material/Edit';
-import NavigationCustomization from '../components/NavigationCustomization';
 import PrintCustomization from '../components/PrintCustomization';
-import InvoiceTemplateSelector from '../components/invoice/InvoiceTemplateSelector';
 import WhatsAppSettings from '../components/WhatsAppSettings';
 import UserManagement from './UserManagement';
 import AboutAndUpdates from '../components/AboutAndUpdates';
 import BackupRestore from '../components/BackupRestore';
-import GodownList from './Masters/Godowns/GodownList';
 import { networkService, NetworkStatus } from '../services/networkService';
 import { syncPasswordToFirestore } from '../services/userProfileService';
 import { invoke } from '@tauri-apps/api/core';
-import { getAppSettings, saveAppSettings } from '../services/appSettingsService';
 import { usePermissions } from '../hooks/usePermissions';
 import { isTauriRuntime, isElectronRuntime } from '../utils/runtime';
 import { persistActiveCompanyLocalData } from '../services/companyRegistryService';
@@ -38,15 +34,6 @@ import {
   gatewayUpiQrImageUrl,
   GATEWAY_RENEWAL_AMOUNT_INR,
 } from '../constants/gatewayRenewal';
-import {
-  ACCENT_PRESETS,
-  DEFAULT_ACCENT,
-  APPEARANCE_CHANGED_EVENT,
-  applyAppearanceAndNotify,
-  readAccentColor,
-  readUiMode,
-  type UiMode,
-} from '../theme/appearanceSettings';
 import { APP_DISPLAY_NAME } from '@/constants/appBranding';
 import { settingsIdentityHeroGradient } from '../theme/authScreenChrome';
 import CreateCompanyDialog from '../components/CreateCompanyDialog';
@@ -54,6 +41,9 @@ import CompanySelectScreen from '../components/CompanySelectScreen';
 import { setDefaultCompany } from '../services/companyRegistryService';
 import { getActiveCompanyId } from '../utils/companyStorage';
 import { getSessionSettings, setSessionSettings } from '../services/sessionManager';
+import SettingsShell, { SettingsSectionBlock } from '../components/settings/SettingsShell';
+import GstEwayBillSettings from '../components/settings/GstEwayBillSettings';
+import type { SettingsSectionId } from '../components/settings/settingsNavConfig';
 
 // Password Change Form Component
 const PasswordChangeForm = () => {
@@ -217,101 +207,6 @@ interface CompanyMediaInfo {
   signature?: string;
 }
 
-function AppearanceSettingsSection() {
-  const [uiMode, setUiMode] = useState<UiMode>(() => readUiMode());
-  const [accent, setAccent] = useState(() => readAccentColor());
-
-  useEffect(() => {
-    const sync = () => {
-      setUiMode(readUiMode());
-      setAccent(readAccentColor());
-    };
-    window.addEventListener(APPEARANCE_CHANGED_EVENT, sync);
-    return () => window.removeEventListener(APPEARANCE_CHANGED_EVENT, sync);
-  }, []);
-
-  const apply = (mode: UiMode, hex: string) => {
-    applyAppearanceAndNotify(mode, hex);
-    setUiMode(readUiMode());
-    setAccent(readAccentColor());
-  };
-
-  return (
-    <Grid item xs={12}>
-      <Paper sx={{ p: 3, mb: 3, bgcolor: 'var(--bg-card)', borderRadius: '16px', transition: 'all 0.2s ease' }}>
-        <Typography variant="h6" gutterBottom>
-          Colours & theme
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Choose shell mode and accent colour. The top bar, sidebar, and main area update together; sidebar uses a slightly different tint than the body so they stay visually separate. Text and buttons adjust for readability.
-        </Typography>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>
-          Theme
-        </Typography>
-        <ToggleButtonGroup
-          exclusive
-          size="small"
-          value={uiMode}
-          onChange={(_, v) => {
-            if (v != null) apply(v as UiMode, accent);
-          }}
-          sx={{ mb: 3 }}
-        >
-          <ToggleButton value="light">Light mode</ToggleButton>
-          <ToggleButton value="premium-dark">Dark mode</ToggleButton>
-        </ToggleButtonGroup>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>
-          Accent colour
-        </Typography>
-        <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mb: 2 }}>
-          {ACCENT_PRESETS.map((p) => (
-            <Box
-              key={p.value}
-              component="button"
-              type="button"
-              title={p.label}
-              onClick={() => apply(uiMode, p.value)}
-              sx={{
-                width: 36,
-                height: 36,
-                borderRadius: 1,
-                border: accent.toLowerCase() === p.value.toLowerCase() ? '2px solid' : '1px solid',
-                borderColor: accent.toLowerCase() === p.value.toLowerCase() ? 'primary.main' : 'divider',
-                bgcolor: p.value,
-                cursor: 'pointer',
-                p: 0,
-              }}
-            />
-          ))}
-        </Stack>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
-          <TextField
-            label="Hex colour"
-            value={accent}
-            onChange={(e) => setAccent(e.target.value)}
-            onBlur={() => {
-              const t = accent.trim();
-              if (/^#?[0-9A-Fa-f]{6}$/.test(t)) apply(uiMode, t.startsWith('#') ? t : `#${t}`);
-              else setAccent(readAccentColor());
-            }}
-            placeholder={DEFAULT_ACCENT}
-            size="small"
-            sx={{ minWidth: 140 }}
-          />
-          <TextField
-            type="color"
-            label="Picker"
-            value={/^#[0-9A-Fa-f]{6}$/.test(accent) ? accent : DEFAULT_ACCENT}
-            onChange={(e) => apply(uiMode, e.target.value)}
-            InputLabelProps={{ shrink: true }}
-            sx={{ width: 120 }}
-          />
-        </Stack>
-      </Paper>
-    </Grid>
-  );
-}
-
 export default function Settings() {
   const theme = useTheme();
   const { canAccessFeature } = usePermissions();
@@ -330,9 +225,8 @@ export default function Settings() {
     );
   }
 
-  const [activeTab, setActiveTab] = useState<number>(0);
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>('company');
   const location = useLocation();
-  const navigate = useNavigate();
   const [networkStatus, setNetworkStatus] = useState<NetworkStatus>(networkService.getStatus());
   const [deskHint, setDeskHint] = useState('Open Company Profile and keep legal details updated.');
   const [createCompanyOpen, setCreateCompanyOpen] = useState(false);
@@ -356,23 +250,29 @@ export default function Settings() {
     }
     const t = fromRouter || fromHash;
     if (t === 'multiuser' || t === 'network') {
-      setActiveTab(7);
+      setActiveSection('network');
     } else if (t === 'about' || t === 'updates') {
-      setActiveTab(2);
-    } else if (t === 'appearance' || t === 'layout') {
-      setActiveTab(9);
-    } else if (t === 'appsettings') {
-      setActiveTab(10);
-    } else if (t === 'companydesk' || t === 'companyops') {
-      setActiveTab(11);
+      setActiveSection('about');
+    } else if (t === 'companydesk' || t === 'companyops' || t === 'company' || t === 'profile') {
+      setActiveSection('company');
     } else if (t === 'security') {
-      setActiveTab(12);
+      setActiveSection('security');
+    } else if (t === 'backup') {
+      setActiveSection('backup');
+    } else if (t === 'whatsapp') {
+      setActiveSection('whatsapp');
+    } else if (t === 'print') {
+      setActiveSection('print');
+    } else if (t === 'gst' || t === 'eway' || t === 'gst-eway') {
+      setActiveSection('gst-eway');
+    } else if (t === 'users') {
+      setActiveSection('users');
     }
   }, [location.search, location.pathname]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (activeTab !== 11) return;
+      if (activeSection !== 'company') return;
       if (e.altKey && e.shiftKey && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         setCreateCompanyOpen(true);
@@ -381,19 +281,16 @@ export default function Settings() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activeTab]);
+  }, [activeSection]);
 
   useEffect(() => {
-    if (activeTab !== 12) return;
+    if (activeSection !== 'security') return;
     void getSessionSettings().then((s) => {
       setSessionDaysDefault(s.sessionDaysDefault);
       setSessionDaysRemember(s.sessionDaysRemember);
     });
-  }, [activeTab]);
+  }, [activeSection]);
 
-  const [appSettings, setAppSettings] = useState(() => getAppSettings());
-  const [appSettingsSaved, setAppSettingsSaved] = useState(false);
-  const [appSettingsError, setAppSettingsError] = useState<string | null>(null);
   const loadCompanyMedia = (): CompanyMediaInfo => {
     try {
       const raw = localStorage.getItem('company-info');
@@ -432,21 +329,6 @@ export default function Settings() {
   const [gatewayRenewInfo, setGatewayRenewInfo] = useState<string | null>(null);
   const [gatewayRenewRequest, setGatewayRenewRequest] = useState<any | null>(null);
 
-  const settingsSectionLabels: Record<number, string> = {
-    0: 'Company Profile',
-    1: 'Navigation',
-    2: 'About & Updates',
-    3: 'Print Settings',
-    4: 'WhatsApp',
-    5: 'User Management',
-    6: 'Change Password',
-    7: 'Network & Multi-User',
-    8: 'Backup & Restore',
-    9: 'Layout',
-    10: 'App Settings',
-    11: 'Company Desk',
-    12: 'Security',
-  };
 
   const loadCompanyProfile = (): CompanyProfile => ({
     name: localStorage.getItem('companyName')?.trim() || APP_DISPLAY_NAME,
@@ -829,84 +711,13 @@ export default function Settings() {
   };
 
   useEffect(() => {
-    if (activeTab !== 7) return;
+    if (activeSection !== 'network') return;
     void refreshNetworkLicenseFlags();
-  }, [activeTab]);
-
-  useEffect(() => {
-    const onSettings = () => setAppSettings(getAppSettings());
-    window.addEventListener('appSettingsUpdated', onSettings as any);
-    return () => window.removeEventListener('appSettingsUpdated', onSettings as any);
-  }, []);
+  }, [activeSection]);
 
   useEffect(() => {
     setSaved(false);
   }, [companyProfile]);
-
-  const saveAppConfig = () => {
-    if (!canManageSettings) {
-      alert('You do not have permission to manage app settings');
-      return;
-    }
-    setAppSettingsError(null);
-    setAppSettingsSaved(false);
-    
-    // Validate Financial Year
-    const fyStart = String(appSettings?.financialYear?.startDate ?? '').trim();
-    const fyEnd = String(appSettings?.financialYear?.endDate ?? '').trim();
-    if (!fyStart || !fyEnd) {
-      setAppSettingsError('Financial year start and end are required');
-      return;
-    }
-    const s = new Date(fyStart);
-    const e = new Date(fyEnd);
-    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) {
-      setAppSettingsError('Invalid financial year dates');
-      return;
-    }
-    if (s.getTime() > e.getTime()) {
-      setAppSettingsError('Financial year start cannot be after financial year end');
-      return;
-    }
-
-    // Validate Lock Date
-    const lock = String(appSettings?.lockDate ?? '').trim();
-    if (lock) {
-      const ld = new Date(lock);
-      if (Number.isNaN(ld.getTime())) {
-        setAppSettingsError('Invalid lock date');
-        return;
-      }
-    }
-
-    // Validate Invoice Numbering
-    const startNum = Number(appSettings?.invoiceNumbering?.startingNumber ?? 1);
-    if (Number.isNaN(startNum) || startNum < 1) {
-      setAppSettingsError('Starting number must be at least 1');
-      return;
-    }
-
-    try {
-      saveAppSettings({
-        financialYear: { startDate: fyStart, endDate: fyEnd },
-        lockDate: lock,
-        features: {
-          gstEnabled: Boolean(appSettings?.features?.gstEnabled),
-          inventoryEnabled: Boolean(appSettings?.features?.inventoryEnabled),
-          payrollEnabled: Boolean(appSettings?.features?.payrollEnabled),
-          multiCurrencyEnabled: Boolean(appSettings?.features?.multiCurrencyEnabled),
-        },
-        invoiceNumbering: {
-          prefix: String(appSettings?.invoiceNumbering?.prefix ?? '').trim(),
-          suffix: String(appSettings?.invoiceNumbering?.suffix ?? '').trim(),
-          startingNumber: startNum,
-        },
-      });
-      setAppSettingsSaved(true);
-    } catch (e: any) {
-      setAppSettingsError(e?.message ?? 'Failed to save app settings');
-    }
-  };
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -1026,58 +837,30 @@ export default function Settings() {
   };
 
   return (
-    <Box sx={{ p: 1.5, maxWidth: 1320, mx: 'auto', bgcolor: 'var(--bg-section)', borderRadius: '14px', transition: 'all 0.2s ease' }}>
-      <Box sx={{ mb: 1.5 }}>
-        <Typography variant="h5" sx={{ fontWeight: 800 }}>
-        Settings
-      </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Manage profile, layout, network, backup, and app behavior from one place.
-        </Typography>
-      </Box>
-
-      <Paper
-        sx={{
-          mt: 1.5,
-          p: 1.25,
-          borderRadius: 2.5,
-          border: '1px solid var(--border)',
-          background: 'var(--bg-card)',
-          transition: 'all 0.2s ease',
-        }}
+    <>
+      <SettingsShell
+        activeSection={activeSection}
+        onSectionChange={setActiveSection}
+        onBackupNow={() => setActiveSection('backup')}
+        onRestore={() => setActiveSection('backup')}
+        onAddUser={() => setActiveSection('users')}
+        canBackup={canBackup}
+        canRestore={canRestore}
+        canManageUsers={canManageUsers}
       >
-        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" flexWrap="wrap">
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Button
-              variant={activeTab === 11 ? 'contained' : 'outlined'}
-              size="small"
-              onClick={() => setActiveTab(11)}
-            >
-              Company Desk
-            </Button>
-            {activeTab !== 11 && (
-              <Button variant="text" size="small" onClick={() => setActiveTab(11)}>
-                Back to Desk
-              </Button>
-            )}
-          </Stack>
-          <Chip size="small" label={settingsSectionLabels[activeTab] || 'Settings'} color="primary" variant="outlined" />
-        </Stack>
-      </Paper>
-
-      {activeTab === 0 && (
-        <Box sx={{ p: 0 }}>
+      {activeSection === 'company' && (
+        <Box sx={{ p: 0, mx: { xs: -2, md: -3 }, mt: { xs: -2, md: -3 } }}>
           <Box sx={{ 
-            p: 4, 
+            p: { xs: 2.5, md: 3 }, 
             background: settingsIdentityHeroGradient(theme), 
             color: theme.palette.primary.contrastText,
-            borderRadius: '0 0 24px 24px',
-            mb: 4,
-            boxShadow: `0 10px 15px -3px ${alpha(theme.palette.primary.main, 0.28)}`
+            borderRadius: 0,
+            mb: 3,
+            boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.2)}`
           }}>
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Box>
-                <Typography variant="h4" fontWeight={900}>Company Identity</Typography>
+                <Typography variant="h5" fontWeight={900}>Company Identity</Typography>
                 <Typography variant="body1" sx={{ opacity: 0.8 }}>
                   Your business profile used across invoices and documents
                 </Typography>
@@ -1101,7 +884,7 @@ export default function Settings() {
             </Stack>
           </Box>
 
-          <Grid container spacing={4} sx={{ px: 4, pb: 4 }}>
+          <Grid container spacing={3} sx={{ px: { xs: 2, md: 3 }, pb: 3 }}>
             <Grid item xs={12} md={4}>
               <Stack spacing={3}>
                 <Card variant="outlined" sx={{ textAlign: 'center', p: 3, borderRadius: 4 }}>
@@ -1300,46 +1083,124 @@ export default function Settings() {
             </Grid>
           </Grid>
           {saved && (
-            <Alert severity="success" sx={{ mx: 4, mb: 4, borderRadius: 3 }}>
+            <Alert severity="success" sx={{ mx: { xs: 2, md: 3 }, mb: 3, borderRadius: 3 }}>
               Company profile updated successfully!
             </Alert>
           )}
-          {licenseError && (
-            <Alert severity="error" sx={{ mx: 4, mb: 4, borderRadius: 3 }}>
+{licenseError && (
+            <Alert severity="error" sx={{ mx: { xs: 2, md: 3 }, mb: 3, borderRadius: 3 }}>
               {licenseError}
             </Alert>
           )}
+
+          <Divider sx={{ my: 3, mx: { xs: 2, md: 3 } }} />
+          <Box sx={{ px: { xs: 2, md: 3 }, pb: 3 }}>
+            <SettingsSectionBlock title="Company Operations" subtitle="Create, switch, or set the default company.">
+              <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 2 }}>
+                <Button variant="contained" onClick={() => setCreateCompanyOpen(true)}>
+                  Create New Company (Alt+Shift+N)
+                </Button>
+                <Button variant="outlined" onClick={() => setSwitchCompanyOpen(true)}>
+                  Switch Company
+                </Button>
+                <Button
+                  variant="outlined"
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        const id = getActiveCompanyId();
+                        await setDefaultCompany(id);
+                        setDeskHint(`${id} is now the default company when you open the app.`);
+                      } catch (e: unknown) {
+                        setDeskHint(String((e as Error)?.message ?? 'Failed to set default company'));
+                      }
+                    })();
+                  }}
+                >
+                  Set Current as Default
+                </Button>
+              </Stack>
+            </SettingsSectionBlock>
+            <SettingsSectionBlock title="Your Companies">
+              <Alert severity="info" sx={{ mb: 2 }}>
+                {deskHint} Open a company, set default, or use <strong>Delete Company</strong> on each card.
+              </Alert>
+              <CompanySelectScreen mode="embedded" open={activeSection === 'company'} />
+            </SettingsSectionBlock>
+          </Box>
         </Box>
       )}
 
-      {activeTab === 1 && (
-        <NavigationCustomization />
-      )}
+      {activeSection === 'about' && <AboutAndUpdates />}
 
-      {activeTab === 2 && <AboutAndUpdates />}
-
-        {activeTab === 3 && (
+        {activeSection === 'print' && (
           canCustomizePrint ? <PrintCustomization /> : <Alert severity="error" sx={{ mt: 3 }}>You do not have permission to customize print</Alert>
         )}
 
-        {activeTab === 4 && (
+        {activeSection === 'gst-eway' && (
+          <SettingsSectionBlock title="GST & E-Way Bill">
+            <GstEwayBillSettings />
+          </SettingsSectionBlock>
+        )}
+
+        {activeSection === 'whatsapp' && (
           <WhatsAppSettings />
         )}
 
-        {activeTab === 5 && (
+        {activeSection === 'users' && (
           canManageUsers ? <UserManagement /> : <Alert severity="error" sx={{ mt: 3 }}>You do not have permission to manage users</Alert>
         )}
 
-        {activeTab === 6 && (
-          <Box sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Change Password
-            </Typography>
-            <PasswordChangeForm />
+        {activeSection === 'security' && (
+          <Box>
+            <SettingsSectionBlock title="Change Password">
+              <PasswordChangeForm />
+            </SettingsSectionBlock>
+            <Divider sx={{ my: 3 }} />
+            <SettingsSectionBlock title="Session & Login" subtitle="Control how long you stay signed in on this PC.">
+              <Paper sx={{ p: 3, border: '1px solid var(--border)', maxWidth: 480 }}>
+                <Stack spacing={2}>
+                  <TextField
+                    label="Default session (days)"
+                    type="number"
+                    size="small"
+                    value={sessionDaysDefault}
+                    onChange={(e) => setSessionDaysDefault(Number(e.target.value) || 7)}
+                    inputProps={{ min: 1, max: 365 }}
+                    helperText="Used when Remember me is off (default 7 days)"
+                  />
+                  <TextField
+                    label="Remember me session (days)"
+                    type="number"
+                    size="small"
+                    value={sessionDaysRemember}
+                    onChange={(e) => setSessionDaysRemember(Number(e.target.value) || 30)}
+                    inputProps={{ min: 1, max: 365 }}
+                    helperText="Used when Remember me is checked on login (default 30 days)"
+                  />
+                  <Button
+                    variant="contained"
+                    onClick={() => {
+                      void setSessionSettings({
+                        sessionDaysDefault,
+                        sessionDaysRemember,
+                      }).then(() => setSessionSettingsSaved(true));
+                    }}
+                  >
+                    Save security settings
+                  </Button>
+                  {sessionSettingsSaved && (
+                    <Alert severity="success" onClose={() => setSessionSettingsSaved(false)}>
+                      Session settings saved.
+                    </Alert>
+                  )}
+                </Stack>
+              </Paper>
+            </SettingsSectionBlock>
           </Box>
         )}
 
-        {activeTab === 7 && (
+        {activeSection === 'network' && (
           <Box sx={{ mt: 3 }}>
             <Typography variant="h6" gutterBottom>
               LAN Multi-User (network mode)
@@ -1624,573 +1485,13 @@ export default function Settings() {
           </Box>
         )}
 
-        {activeTab === 8 && (
+        {activeSection === 'backup' && (
           canBackup || canRestore ? <BackupRestore /> : <Alert severity="error" sx={{ mt: 3 }}>You do not have permission to backup/restore</Alert>
         )}
 
-        {activeTab === 9 && (
-          <Box sx={{ mt: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Layout
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Theme, accent colour, and how the app shell looks. Your choice is saved on this device.
-            </Typography>
-            <Grid container spacing={3}>
-              <AppearanceSettingsSection />
-              <Grid item xs={12}>
-                <Paper sx={{ p: 3, bgcolor: 'var(--bg-card)', borderRadius: '16px' }}>
-                  <InvoiceTemplateSelector showSaveButton />
-                </Paper>
-              </Grid>
-            </Grid>
-          </Box>
-        )}
-
-        {activeTab === 10 && (
-          <Box sx={{ mt: 3 }}>
-            <Grid container spacing={3}>
-              <Grid item xs={12}>
-                <Typography variant="h6" gutterBottom>
-                  Financial Year & Date Lock
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Configure financial year limits and lock past dates to prevent editing or deleting old entries.
-                </Typography>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <Paper sx={{ p: 3 }}>
-                  <Typography variant="h6" gutterBottom>
-                    Financial Year
-                  </Typography>
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        label="FY Start"
-                        type="date"
-                        value={String(appSettings?.financialYear?.startDate ?? '')}
-                        onChange={(e) => {
-                          setAppSettings((p: any) => ({
-                            ...p,
-                            financialYear: { ...(p?.financialYear ?? {}), startDate: e.target.value },
-                          }));
-                          setAppSettingsSaved(false);
-                        }}
-                        InputLabelProps={{ shrink: true }}
-                        fullWidth
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        label="FY End"
-                        type="date"
-                        value={String(appSettings?.financialYear?.endDate ?? '')}
-                        onChange={(e) => {
-                          setAppSettings((p: any) => ({
-                            ...p,
-                            financialYear: { ...(p?.financialYear ?? {}), endDate: e.target.value },
-                          }));
-                          setAppSettingsSaved(false);
-                        }}
-                        InputLabelProps={{ shrink: true }}
-                        fullWidth
-                      />
-                    </Grid>
-                  </Grid>
-                </Paper>
-              </Grid>
-
-              <Grid item xs={12} md={6}>
-                <Paper sx={{ p: 3 }}>
-                  <Typography variant="h6" gutterBottom>
-                    Date Lock
-                  </Typography>
-                  <TextField
-                    label="Lock entries up to (inclusive)"
-                    type="date"
-                    value={String(appSettings?.lockDate ?? '')}
-                    onChange={(e) => {
-                      setAppSettings((p: any) => ({ ...p, lockDate: e.target.value }));
-                      setAppSettingsSaved(false);
-                    }}
-                    InputLabelProps={{ shrink: true }}
-                    fullWidth
-                  />
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-                    Leave empty to disable lock. If set, entries on or before the lock date cannot be created/edited/deleted.
-                  </Typography>
-                </Paper>
-              </Grid>
-
-              <Grid item xs={12}>
-                <Paper sx={{ p: 3 }}>
-                  <Typography variant="h6" gutterBottom>
-                    Module Toggles
-                  </Typography>
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={Boolean(appSettings?.features?.gstEnabled)}
-                            onChange={(e) => {
-                              setAppSettings((p: any) => ({
-                                ...p,
-                                features: { ...(p?.features ?? {}), gstEnabled: e.target.checked },
-                              }));
-                              setAppSettingsSaved(false);
-                            }}
-                          />
-                        }
-                        label="GST"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={Boolean(appSettings?.features?.inventoryEnabled)}
-                            onChange={(e) => {
-                              setAppSettings((p: any) => ({
-                                ...p,
-                                features: { ...(p?.features ?? {}), inventoryEnabled: e.target.checked },
-                              }));
-                              setAppSettingsSaved(false);
-                            }}
-                          />
-                        }
-                        label="Inventory"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={Boolean(appSettings?.features?.payrollEnabled)}
-                            onChange={(e) => {
-                              setAppSettings((p: any) => ({
-                                ...p,
-                                features: { ...(p?.features ?? {}), payrollEnabled: e.target.checked },
-                              }));
-                              setAppSettingsSaved(false);
-                            }}
-                          />
-                        }
-                        label="Payroll"
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={Boolean(appSettings?.features?.multiCurrencyEnabled)}
-                            onChange={(e) => {
-                              setAppSettings((p: any) => ({
-                                ...p,
-                                features: { ...(p?.features ?? {}), multiCurrencyEnabled: e.target.checked },
-                              }));
-                              setAppSettingsSaved(false);
-                            }}
-                          />
-                        }
-                        label="Multi-currency"
-                      />
-                    </Grid>
-                  </Grid>
-                </Paper>
-              </Grid>
-
-              <Grid item xs={12}>
-                <Paper sx={{ p: 3 }}>
-                  <Typography variant="h6" fontWeight={700} gutterBottom>
-                    Invoice Numbering (Manual)
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                    Customize how your invoice numbers are generated. e.g., <strong>{appSettings?.invoiceNumbering?.prefix ?? 'INV-'}00{appSettings?.invoiceNumbering?.startingNumber ?? 1}{appSettings?.invoiceNumbering?.suffix ?? ''}</strong>
-                  </Typography>
-                  <Grid container spacing={3}>
-                    <Grid item xs={12} sm={4}>
-                      <TextField
-                        label="Prefix"
-                        value={appSettings?.invoiceNumbering?.prefix ?? ''}
-                        onChange={(e) => {
-                          setAppSettings((p: any) => ({
-                            ...p,
-                            invoiceNumbering: { ...(p?.invoiceNumbering ?? {}), prefix: e.target.value },
-                          }));
-                          setAppSettingsSaved(false);
-                        }}
-                        placeholder="e.g., INV-"
-                        fullWidth
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={4}>
-                      <TextField
-                        label="Starting Number"
-                        type="number"
-                        value={appSettings?.invoiceNumbering?.startingNumber ?? 1}
-                        onChange={(e) => {
-                          setAppSettings((p: any) => ({
-                            ...p,
-                            invoiceNumbering: { ...(p?.invoiceNumbering ?? {}), startingNumber: parseInt(e.target.value) || 1 },
-                          }));
-                          setAppSettingsSaved(false);
-                        }}
-                        InputProps={{ inputProps: { min: 1 } }}
-                        fullWidth
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={4}>
-                      <TextField
-                        label="Suffix"
-                        value={appSettings?.invoiceNumbering?.suffix ?? ''}
-                        onChange={(e) => {
-                          setAppSettings((p: any) => ({
-                            ...p,
-                            invoiceNumbering: { ...(p?.invoiceNumbering ?? {}), suffix: e.target.value },
-                          }));
-                          setAppSettingsSaved(false);
-                        }}
-                        placeholder="e.g., /2024"
-                        fullWidth
-                      />
-                    </Grid>
-                  </Grid>
-                </Paper>
-              </Grid>
-
-              <Grid item xs={12}>
-                <Paper sx={{ p: 3 }}>
-                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-                    <Box>
-                      <Typography variant="h6" fontWeight={700} gutterBottom>
-                        Godown / Warehouse Master
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Add warehouses, set default godown, and assign stock locations on items.
-                      </Typography>
-                    </Box>
-                    <Button variant="outlined" onClick={() => navigate('/masters/godowns')}>
-                      Manage Godowns
-                    </Button>
-                  </Stack>
-                  <GodownList />
-                </Paper>
-              </Grid>
-
-              <Grid item xs={12}>
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                  <Button variant="contained" onClick={saveAppConfig} disabled={!canManageSettings}>
-                    Save App Settings
-                  </Button>
-                  {appSettingsSaved && <Alert severity="success" sx={{ p: 0.5, px: 1 }}>Saved</Alert>}
-                </Box>
-                {appSettingsError && (
-                  <Box sx={{ mt: 2 }}>
-                    <Alert severity="error">{appSettingsError}</Alert>
-                  </Box>
-                )}
-              </Grid>
-            </Grid>
-          </Box>
-        )}
-
-        {activeTab === 11 && (
-          <Box sx={{ mt: 3 }}>
-            <Grid container spacing={3}>
-              <Grid item xs={12} md={4}>
-                <Paper sx={{ p: 2.5, border: '1px solid var(--border)' }}>
-                  <Typography variant="h6" fontWeight={800} gutterBottom>
-                    Company Command Desk
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Frequently used company/admin actions in one place.
-                  </Typography>
-
-                  <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 700 }}>
-                    Company
-                  </Typography>
-                  <Stack spacing={1} sx={{ mt: 1, mb: 2 }}>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      sx={{ justifyContent: 'flex-start' }}
-                      onClick={() => {
-                        setDeskHint('Open Company Profile and keep legal details updated.');
-                        setActiveTab(0);
-                      }}
-                    >
-                      Open Company Profile
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      sx={{ justifyContent: 'flex-start' }}
-                      onClick={() => {
-                        setDeskHint('Open Layout settings to adjust theme and ERP visual density.');
-                        setActiveTab(9);
-                      }}
-                    >
-                      Layout / Appearance
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      sx={{ justifyContent: 'flex-start' }}
-                      onClick={() => {
-                        setDeskHint('Open Financial Year and Date Lock settings.');
-                        setActiveTab(10);
-                      }}
-                    >
-                      Financial Year / Date Lock
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      sx={{ justifyContent: 'flex-start' }}
-                      onClick={() => {
-                        setDeskHint('Create a new company; each business gets its own data folder (PVE1002, …).');
-                        setCreateCompanyOpen(true);
-                      }}
-                    >
-                      Create New Company (Alt+Shift+N)
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      sx={{ justifyContent: 'flex-start' }}
-                      onClick={() => {
-                        setDeskHint('Switch active company — invoices, stock, and masters reload from that folder.');
-                        setSwitchCompanyOpen(true);
-                      }}
-                    >
-                      Switch Company
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      sx={{ justifyContent: 'flex-start' }}
-                      onClick={() => {
-                        void (async () => {
-                          try {
-                            const id = getActiveCompanyId();
-                            await setDefaultCompany(id);
-                            setDeskHint(`${id} is now the default company when you open the app.`);
-                          } catch (e: unknown) {
-                            setDeskHint(String((e as Error)?.message ?? 'Failed to set default company'));
-                          }
-                        })();
-                      }}
-                    >
-                      Set Current as Default
-                    </Button>
-                  </Stack>
-
-                  <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 700 }}>
-                    Data Safety
-                  </Typography>
-                  <Stack spacing={1} sx={{ mt: 1, mb: 2 }}>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      sx={{ justifyContent: 'flex-start' }}
-                      disabled={!(canBackup || canRestore)}
-                      onClick={() => {
-                        setDeskHint('Create backup files and restore from existing snapshots.');
-                        setActiveTab(8);
-                      }}
-                    >
-                      Backup / Restore
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      sx={{ justifyContent: 'flex-start' }}
-                      onClick={() => {
-                        setDeskHint('Configure host/client and LAN multi-user licensing.');
-                        setActiveTab(7);
-                      }}
-                    >
-                      Network & Multi-User
-                    </Button>
-                  </Stack>
-
-                  <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 700 }}>
-                    Operations
-                  </Typography>
-                  <Stack spacing={1} sx={{ mt: 1 }}>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      sx={{ justifyContent: 'flex-start' }}
-                      onClick={() => {
-                        setDeskHint('Customize shortcuts, menu access and landing preferences.');
-                        setActiveTab(1);
-                      }}
-                    >
-                      Navigation Settings
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      disabled={!canCustomizePrint}
-                      sx={{ justifyContent: 'flex-start' }}
-                      onClick={() => {
-                        setDeskHint('Setup invoice print templates, paper sizes and branding.');
-                        setActiveTab(3);
-                      }}
-                    >
-                      Print Setup
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      sx={{ justifyContent: 'flex-start' }}
-                      onClick={() => {
-                        setDeskHint('Configure WhatsApp sharing and delivery workflow.');
-                        setActiveTab(4);
-                      }}
-                    >
-                      WhatsApp Settings
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      sx={{ justifyContent: 'flex-start' }}
-                      onClick={() => {
-                        setDeskHint('Open dashboard for daily operations and current business KPIs.');
-                        navigate('/dashboard');
-                      }}
-                    >
-                      Go to Dashboard
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      sx={{ justifyContent: 'flex-start' }}
-                      onClick={() => {
-                        setDeskHint('Check build/version/update channel and release information.');
-                        setActiveTab(2);
-                      }}
-                    >
-                      About & Updates
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      sx={{ justifyContent: 'flex-start' }}
-                      onClick={() => {
-                        setDeskHint('Manage account security and password policy.');
-                        setActiveTab(6);
-                      }}
-                    >
-                      Change Password
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      sx={{ justifyContent: 'flex-start' }}
-                      onClick={() => {
-                        setDeskHint('Configure login session length (7 / 30 days).');
-                        setActiveTab(12);
-                      }}
-                    >
-                      Security / Session
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      sx={{ justifyContent: 'flex-start' }}
-                      onClick={() => {
-                        setDeskHint('Control FY lock, date lock and invoice numbering format.');
-                        setActiveTab(10);
-                      }}
-                    >
-                      App Settings
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      disabled={!canManageUsers}
-                      sx={{ justifyContent: 'flex-start' }}
-                      onClick={() => {
-                        setDeskHint('Manage users, roles, and permissions.');
-                        setActiveTab(5);
-                      }}
-                    >
-                      User Management
-                    </Button>
-                  </Stack>
-                </Paper>
-              </Grid>
-
-              <Grid item xs={12} md={8}>
-                <Paper sx={{ p: 3, border: '1px solid var(--border)', minHeight: 360 }}>
-                  <Typography variant="h6" fontWeight={800} gutterBottom>
-                    Your companies
-                  </Typography>
-                  <Alert severity="info" sx={{ mb: 2 }}>
-                    {deskHint} Open a company, set default, or use <strong>Delete Company</strong> on the
-                    right of each card. At least one company must remain.
-                  </Alert>
-                  <CompanySelectScreen mode="embedded" open={activeTab === 11} />
-                </Paper>
-              </Grid>
-            </Grid>
-          </Box>
-        )}
-
-        {activeTab === 12 && (
-          <Box sx={{ mt: 3 }}>
-            <Paper sx={{ p: 3, border: '1px solid var(--border)', maxWidth: 480 }}>
-              <Typography variant="h6" fontWeight={800} gutterBottom>
-                Session &amp; Login
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Control how long you stay signed in on this PC. Passwords are stored hashed locally; no internet required for session restore.
-              </Typography>
-              <Stack spacing={2}>
-                <TextField
-                  label="Default session (days)"
-                  type="number"
-                  size="small"
-                  value={sessionDaysDefault}
-                  onChange={(e) => setSessionDaysDefault(Number(e.target.value) || 7)}
-                  inputProps={{ min: 1, max: 365 }}
-                  helperText="Used when Remember me is off (default 7 days)"
-                />
-                <TextField
-                  label="Remember me session (days)"
-                  type="number"
-                  size="small"
-                  value={sessionDaysRemember}
-                  onChange={(e) => setSessionDaysRemember(Number(e.target.value) || 30)}
-                  inputProps={{ min: 1, max: 365 }}
-                  helperText="Used when Remember me is checked on login (default 30 days)"
-                />
-                <Button
-                  variant="contained"
-                  onClick={() => {
-                    void setSessionSettings({
-                      sessionDaysDefault,
-                      sessionDaysRemember,
-                    }).then(() => setSessionSettingsSaved(true));
-                  }}
-                >
-                  Save security settings
-                </Button>
-                {sessionSettingsSaved && (
-                  <Alert severity="success" onClose={() => setSessionSettingsSaved(false)}>
-                    Session settings saved.
-                  </Alert>
-                )}
-              </Stack>
-            </Paper>
-          </Box>
-        )}
-
+      </SettingsShell>
       <CreateCompanyDialog open={createCompanyOpen} onClose={() => setCreateCompanyOpen(false)} />
       <CompanySelectScreen mode="switch" open={switchCompanyOpen} onClose={() => setSwitchCompanyOpen(false)} />
-    </Box>
+    </>
   );
 }

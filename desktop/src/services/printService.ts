@@ -59,6 +59,7 @@ export interface InvoiceData {
   customerSealLabel?: string;
   declaration?: string;
   termsAndConditions?: string;
+  ewayBillBlock?: string;
 }
 
 export interface PrintOptions {

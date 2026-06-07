@@ -156,6 +156,7 @@ export const renderInvoiceTemplate = async (
     bank_block: buildBankBlock(company),
     upi_qr_block,
     terms_block: buildTermsBlock(data, opts),
+    eway_block: String((data as InvoiceData & { ewayBillBlock?: string }).ewayBillBlock || ''),
     signature_html: signatureHtml,
     footer_note: FOOTER_NOTE,
     page_number: 'Page 1 of 1',

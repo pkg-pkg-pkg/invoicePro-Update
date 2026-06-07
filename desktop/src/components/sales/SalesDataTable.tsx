@@ -37,8 +37,18 @@ import { formatCurrency, formatDate } from '../../utils/formatters';
 import { exportSalesDocumentsExcel, exportSalesDocumentsPdf } from '../../utils/salesDocumentExport';
 import { DocumentRowActionsMenu } from '../listActions/DocumentRowActionsMenu';
 import type { DocumentListKind } from '../listActions/types';
+import { EwayBillStatusChip } from '../eway/EwayBillStatusChip';
 
-export type SalesColumnKey = 'number' | 'date' | 'customer' | 'amount' | 'gstAmount' | 'balanceDue' | 'status' | 'dueDate';
+export type SalesColumnKey =
+  | 'number'
+  | 'date'
+  | 'customer'
+  | 'amount'
+  | 'gstAmount'
+  | 'balanceDue'
+  | 'status'
+  | 'dueDate'
+  | 'ewayBill';
 
 const ALL_COLUMNS: { key: SalesColumnKey; label: string; align?: 'left' | 'right' }[] = [
   { key: 'number', label: 'Document No.' },
@@ -49,6 +59,7 @@ const ALL_COLUMNS: { key: SalesColumnKey; label: string; align?: 'left' | 'right
   { key: 'balanceDue', label: 'Balance Due', align: 'right' },
   { key: 'status', label: 'Status' },
   { key: 'dueDate', label: 'Due Date' },
+  { key: 'ewayBill', label: 'EWB' },
 ];
 
 type SortKey = SalesColumnKey;
@@ -364,6 +375,8 @@ export function SalesDataTable({
                       <SalesStatusBadge status={row.status} />
                     ) : col.key === 'dueDate' ? (
                       row.dueDate ? formatDate(row.dueDate) : '—'
+                    ) : col.key === 'ewayBill' ? (
+                      <EwayBillStatusChip eway={row.ewayBill} />
                     ) : null}
                   </TableCell>
                 ))}
