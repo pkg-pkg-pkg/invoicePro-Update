@@ -57,7 +57,7 @@ export function ItemsToolbar({
       spacing={1}
       sx={{ px: compact ? 1.25 : 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}
     >
-      <FormControl size="small" sx={{ flex: compact ? 1 : { xs: 1, sm: 180 }, minWidth: 0 }}>
+      <FormControl size="small" sx={{ flex: compact ? 1 : { xs: 1, sm: 'none' }, minWidth: compact ? 0 : { sm: 180 } }}>
         <InputLabel>Filter</InputLabel>
         <Select label="Filter" value={filter} onChange={(e) => onFilterChange(e.target.value as FilterKey)}>
           <MenuItem value="ALL">All Items</MenuItem>
@@ -72,7 +72,12 @@ export function ItemsToolbar({
       </FormControl>
       <TextField
         size="small"
-        sx={{ flex: 1, minWidth: 0 }}
+        sx={{
+          width: { xs: '100%', sm: compact ? undefined : 240 },
+          flex: compact ? 1 : 'none',
+          minWidth: compact ? 0 : { sm: 200 },
+          maxWidth: compact ? undefined : { sm: 280 },
+        }}
         placeholder="Search items…"
         value={search}
         onChange={(e) => onSearchChange(e.target.value)}
@@ -84,12 +89,14 @@ export function ItemsToolbar({
           ),
         }}
       />
-      <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={onNew} sx={{ flexShrink: 0, fontWeight: 700 }}>
+      <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexShrink: 0, ml: { sm: 'auto' } }}>
+      <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={onNew} sx={{ fontWeight: 700 }}>
         New
       </Button>
       <IconButton size="small" onClick={(e) => setMenuAnchor(e.currentTarget)}>
         <MoreVertIcon />
       </IconButton>
+      </Stack>
       <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={() => setMenuAnchor(null)}>
         {onImport ? (
           <MenuItem onClick={() => { onImport(); setMenuAnchor(null); }}>
