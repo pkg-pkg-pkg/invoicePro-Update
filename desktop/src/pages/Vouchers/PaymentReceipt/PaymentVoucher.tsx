@@ -54,7 +54,7 @@ export type PaymentReceiptVoucherPageProps = {
   embedded?: boolean;
   /** Initial voucher type: PAYMENT or RECEIPT */
   initialType?: 'PAYMENT' | 'RECEIPT';
-  /** Dedicated minimal full-screen entry mode (Tally-like). */
+  /** Dedicated minimal full-screen entry mode. */
   fullScreenMode?: boolean;
   /** When true, show modern card-heavy layout even for /new route. */
   forceModernView?: boolean;
@@ -171,13 +171,11 @@ const PaymentReceiptVoucherPage = ({
           return ledger.groupId === 'grp-sundry-debtors' || ledger.groupId === 'grp-sundry-creditors';
         });
 
-        // If no customers or suppliers exist, create some sample ones
+        // If no customers or suppliers exist, seed minimal ledgers for first voucher entry
         if (customerSupplierLedgers.length === 0) {
           try {
-            // Create sample customer
-            await autoLedgerService.ensureCustomerLedger('Sample Customer');
-            // Create sample supplier
-            await autoLedgerService.ensureSupplierLedger('Sample Supplier');
+            await autoLedgerService.ensureCustomerLedger('Walk-in Customer');
+            await autoLedgerService.ensureSupplierLedger('Cash Supplier');
             
             // Reload ledgers to get the newly created ones
             const updatedLedgers = await ledgerAccountService.list({ includeInactive: false });
@@ -1254,7 +1252,7 @@ const PaymentReceiptVoucherPage = ({
           label="Narration"
           value={formState.narration}
           onChange={(e) => setFormState((prev) => ({ ...prev, narration: e.target.value }))}
-          placeholder="Narration (bottom anchored like Tally)"
+          placeholder="Narration (pinned at bottom)"
         />
       </Box>
     </Box>

@@ -189,4 +189,4 @@ const filtered = await auditService.getLog({
 
 ---
 
-This security layer ensures production-grade access control comparable to mature accounting systems like TallyPrime.
+This security layer ensures production-grade access control comparable to mature accounting systems.

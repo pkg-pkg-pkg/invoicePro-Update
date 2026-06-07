@@ -2,7 +2,7 @@ import { alpha, type Theme } from '@mui/material/styles';
 import { LIGHT_THEME } from './lightTheme';
 import { DARK_THEME } from './darkTheme';
 
-/** PVE Sales module — Navy + Gold enterprise SaaS (not Zoho palette) */
+/** PVE Sales module — Navy + Gold enterprise SaaS palette */
 export const SALES_MODULE = {
   navy: '#0B1F3A',
   navyMid: '#132D54',

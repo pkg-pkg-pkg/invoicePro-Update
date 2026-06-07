@@ -133,7 +133,7 @@ const ERP_MENUS: ErpMenu[] = [
     id: 'utilities',
     label: 'Utilities',
     items: [
-      { label: 'Upload from Tally/Busy/Marg', path: '/import/erp' },
+      { label: 'Import from accounting software', path: '/import/erp' },
       { label: 'Approval Pending', path: '/approvals/pending', perm: 'manage-users' },
     ],
   },

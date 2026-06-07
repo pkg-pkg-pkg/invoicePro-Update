@@ -27,11 +27,12 @@ import TuneIcon from '@mui/icons-material/Tune';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { useTheme } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom';
-import type { InventoryItem, ItemCategory, ItemHistoryEntry, UnitOfMeasure, Godown } from '../../types/masters';
+import type { InventoryItem, ItemHistoryEntry, Godown } from '../../types/masters';
 import type { ItemTransactionRow } from '../../services/items/itemsApi';
 import type { StockAdjustment } from '../../types/masters';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { getItemsModuleTokens } from '../../theme/itemsModuleTheme';
+import { getItemTypeLabel, getTxStatusColor } from '../../utils/itemDisplayHelpers';
 
 type Props = {
   item: InventoryItem | null;
@@ -70,17 +71,27 @@ function FieldRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-const ITEM_TYPE_LABEL: Record<string, string> = {
-  SALES: 'Sales Items',
-  PURCHASE: 'Purchase Items',
-  BOTH: 'Sales & Purchase Items',
-};
-
 const TAX_LABEL: Record<string, string> = {
   TAXABLE: 'Taxable',
   NON_TAXABLE: 'Non-Taxable',
   EXEMPT: 'Tax Exempt',
 };
+
+function TxStatusBadge({ status }: { status: ItemTransactionRow['status'] }) {
+  return (
+    <Chip
+      label={status}
+      size="small"
+      sx={{
+        fontWeight: 700,
+        fontSize: '0.7rem',
+        bgcolor: `${getTxStatusColor(status)}18`,
+        color: getTxStatusColor(status),
+        border: `1px solid ${getTxStatusColor(status)}44`,
+      }}
+    />
+  );
+}
 
 export function ItemDetailPanel({
   item,
@@ -110,7 +121,7 @@ export function ItemDetailPanel({
   const overviewFields = useMemo(() => {
     if (!item) return [];
     return [
-      { label: 'Item Type', value: ITEM_TYPE_LABEL[item.itemType ?? 'BOTH'] ?? 'Both' },
+      { label: 'Item Type', value: getItemTypeLabel(item.itemType) },
       { label: 'SKU', value: item.sku },
       { label: 'HSN Code', value: item.hsnCode ?? '—' },
       { label: 'Unit', value: unitName },
@@ -123,44 +134,37 @@ export function ItemDetailPanel({
       { label: 'GST Rate', value: `${item.gstRate}%` },
       { label: 'Selling Price', value: formatCurrency(item.pricing?.sale ?? 0) },
       { label: 'Purchase Price', value: formatCurrency(item.pricing?.purchase ?? 0) },
+      { label: 'MRP', value: formatCurrency(item.pricing?.mrp ?? 0) },
       { label: 'Current Stock', value: String(item.currentStock) },
       { label: 'Status', value: item.status },
       { label: 'Description', value: item.description ?? '—' },
     ];
   }, [item, categoryName, unitName]);
 
-  if (!item) {
-    return (
-      <Box
-        sx={{
-          flex: 1,
-          border: `1px solid ${tok.border}`,
-          borderRadius: `${tok.radius}px`,
-          bgcolor: tok.surface,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: 400,
-          color: tok.textMuted,
-        }}
-      >
-        <Typography>Select an item from the list to view details</Typography>
-      </Box>
-    );
-  }
+  const summary = useMemo(() => {
+    const salesTx = transactions.filter((t) => t.type === 'SALES');
+    const totalBilled = salesTx.reduce((sum, t) => sum + t.amount, 0);
+    const pending = salesTx.filter((t) => t.status === 'Pending' || t.status === 'Overdue');
+    const balanceDue = pending.reduce((sum, t) => sum + t.amount, 0);
+    return {
+      totalBilled,
+      transactionCount: transactions.length,
+      balanceDue,
+    };
+  }, [transactions]);
+
+  if (!item) return null;
 
   return (
     <Box
       sx={{
         flex: 1,
-        border: `1px solid ${tok.border}`,
-        borderRadius: `${tok.radius}px`,
-        bgcolor: tok.surface,
         display: 'flex',
         flexDirection: 'column',
         minHeight: 400,
-        height: { lg: 'calc(100vh - 220px)' },
+        height: '100%',
         overflow: 'hidden',
+        bgcolor: tok.surface,
       }}
     >
       <Stack
@@ -173,13 +177,17 @@ export function ItemDetailPanel({
           <Typography variant="h5" fontWeight={800} color={tok.text}>
             {item.name}
           </Typography>
-          <Chip label={item.sku} size="small" sx={{ mt: 0.75, fontWeight: 600 }} />
+          <Chip
+            label={item.sku}
+            size="small"
+            sx={{ mt: 0.75, fontWeight: 600, bgcolor: `${tok.accent}12`, color: tok.accent, border: `1px solid ${tok.accent}33` }}
+          />
         </Box>
-        <Stack direction="row" spacing={0.5}>
+        <Stack direction="row" spacing={0.5} alignItems="center">
           {canManage ? (
-            <IconButton size="small" onClick={onEdit} title="Edit">
-              <EditOutlinedIcon fontSize="small" />
-            </IconButton>
+            <Button size="small" variant="outlined" startIcon={<EditOutlinedIcon />} onClick={onEdit} sx={{ fontWeight: 700 }}>
+              Edit
+            </Button>
           ) : null}
           <Button size="small" variant="outlined" endIcon={<MoreHorizIcon />} onClick={(e) => setMoreAnchor(e.currentTarget)}>
             More
@@ -206,7 +214,16 @@ export function ItemDetailPanel({
         </Stack>
       </Stack>
 
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ px: 2, borderBottom: `1px solid ${tok.border}` }}>
+      <Tabs
+        value={tab}
+        onChange={(_, v) => setTab(v)}
+        sx={{
+          px: 2,
+          borderBottom: `1px solid ${tok.border}`,
+          '& .MuiTab-root.Mui-selected': { color: tok.accent },
+          '& .MuiTabs-indicator': { bgcolor: tok.accent },
+        }}
+      >
         <Tab label="Overview" sx={{ textTransform: 'none', fontWeight: 700 }} />
         <Tab label="Transactions" sx={{ textTransform: 'none', fontWeight: 700 }} />
         <Tab label="History" sx={{ textTransform: 'none', fontWeight: 700 }} />
@@ -225,6 +242,7 @@ export function ItemDetailPanel({
               <FieldRow key={f.label} label={f.label} value={f.value} />
             ))}
             <Grid item xs={12}>
+              <Divider sx={{ my: 1 }} />
               <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>
                 Stock by Godown
               </Typography>
@@ -259,9 +277,12 @@ export function ItemDetailPanel({
             <TableHead>
               <TableRow>
                 <TableCell>Date</TableCell>
-                <TableCell>Type</TableCell>
-                <TableCell>Number</TableCell>
+                <TableCell>Invoice No.</TableCell>
+                <TableCell>Customer</TableCell>
                 <TableCell align="right">Qty</TableCell>
+                <TableCell align="right">Rate</TableCell>
+                <TableCell align="right">Amount</TableCell>
+                <TableCell>Status</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -279,14 +300,19 @@ export function ItemDetailPanel({
                   }}
                 >
                   <TableCell>{formatDate(tx.date)}</TableCell>
-                  <TableCell>{tx.type}</TableCell>
                   <TableCell>{tx.number}</TableCell>
+                  <TableCell>{tx.customer}</TableCell>
                   <TableCell align="right">{tx.quantity}</TableCell>
+                  <TableCell align="right">{formatCurrency(tx.rate)}</TableCell>
+                  <TableCell align="right">{formatCurrency(tx.amount)}</TableCell>
+                  <TableCell>
+                    <TxStatusBadge status={tx.status} />
+                  </TableCell>
                 </TableRow>
               ))}
               {transactions.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} align="center" sx={{ py: 4, color: tok.textMuted }}>
+                  <TableCell colSpan={7} align="center" sx={{ py: 4, color: tok.textMuted }}>
                     No transactions for this item yet.
                   </TableCell>
                 </TableRow>
@@ -328,6 +354,43 @@ export function ItemDetailPanel({
             ) : null}
           </Stack>
         ) : null}
+      </Box>
+
+      <Box
+        sx={{
+          px: 2.5,
+          py: 1.25,
+          borderTop: `1px solid ${tok.border}`,
+          bgcolor: tok.surfaceMuted,
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 3,
+        }}
+      >
+        <Box>
+          <Typography variant="caption" color={tok.textMuted} fontWeight={600}>
+            Total Billed
+          </Typography>
+          <Typography variant="body2" fontWeight={800} color={tok.text}>
+            {formatCurrency(summary.totalBilled)}
+          </Typography>
+        </Box>
+        <Box>
+          <Typography variant="caption" color={tok.textMuted} fontWeight={600}>
+            Transaction Count
+          </Typography>
+          <Typography variant="body2" fontWeight={800} color={tok.text}>
+            {summary.transactionCount}
+          </Typography>
+        </Box>
+        <Box>
+          <Typography variant="caption" color={tok.textMuted} fontWeight={600}>
+            Balance Due
+          </Typography>
+          <Typography variant="body2" fontWeight={800} color={tok.accent}>
+            {formatCurrency(summary.balanceDue)}
+          </Typography>
+        </Box>
       </Box>
     </Box>
   );

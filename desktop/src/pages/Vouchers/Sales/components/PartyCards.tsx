@@ -42,7 +42,7 @@ interface PartyCardsProps {
   parties?: Party[];
   onChange: (patch: { billing?: Partial<PartyInfo>; shipping?: Partial<PartyInfo> }) => void;
   onQuickCreateCustomer?: () => void;
-  /** `picker` opens a Tally-style search modal from the parent instead of a long dropdown. */
+  /** `picker` opens a searchable list modal from the parent instead of a long dropdown. */
   billingCustomerSelector?: 'menu' | 'picker';
   onOpenBillingCustomerPicker?: () => void;
 }

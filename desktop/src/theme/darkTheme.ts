@@ -1,5 +1,5 @@
 /**
- * PVE InvoicePro 360 — Enterprise dark theme (Zoho / Notion / Linear style).
+ * PVE InvoicePro 360 — Enterprise dark theme (modern enterprise UI).
  * Flat surfaces · low eye strain · no neon or glow.
  */
 export const DARK_THEME = {

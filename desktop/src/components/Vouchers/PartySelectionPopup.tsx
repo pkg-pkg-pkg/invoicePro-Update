@@ -31,7 +31,7 @@ interface PartySelectionPopupProps {
   onCreateNew: () => void;
 }
 
-const TALLY_COLORS = {
+const PICKER_COLORS = {
   headerBg: '#1F3864',
   formBg: '#FFFFFF',
   tableHeaderBg: '#E8E8E8',
@@ -146,12 +146,12 @@ const PartySelectionPopup: React.FC<PartySelectionPopupProps> = ({
       fullWidth
       PaperProps={{
         sx: {
-          bgcolor: TALLY_COLORS.formBg,
+          bgcolor: PICKER_COLORS.formBg,
         }
       }}
     >
       <DialogTitle sx={{ 
-        bgcolor: TALLY_COLORS.headerBg, 
+        bgcolor: PICKER_COLORS.headerBg, 
         color: 'white',
         display: 'flex',
         justifyContent: 'space-between',
@@ -184,7 +184,7 @@ const PartySelectionPopup: React.FC<PartySelectionPopupProps> = ({
         </Box>
 
         {/* Create New Button */}
-        <Box sx={{ p: 2, bgcolor: TALLY_COLORS.tableRowOdd }}>
+        <Box sx={{ p: 2, bgcolor: PICKER_COLORS.tableRowOdd }}>
           <Button
             variant="contained"
             startIcon={<AddIcon />}
@@ -204,7 +204,7 @@ const PartySelectionPopup: React.FC<PartySelectionPopupProps> = ({
         ) : (
           <Table size="small">
             <TableHead>
-              <TableRow sx={{ bgcolor: TALLY_COLORS.tableHeaderBg }}>
+              <TableRow sx={{ bgcolor: PICKER_COLORS.tableHeaderBg }}>
                 <TableCell width="5%">#</TableCell>
                 <TableCell width="45%">Party Name</TableCell>
                 <TableCell width="35%">Outstanding Balance</TableCell>
@@ -220,12 +220,12 @@ const PartySelectionPopup: React.FC<PartySelectionPopupProps> = ({
                   sx={{
                     cursor: 'pointer',
                     bgcolor: index === selectedIndex 
-                      ? TALLY_COLORS.primaryBlue + '20' 
+                      ? PICKER_COLORS.primaryBlue + '20' 
                       : index % 2 === 0 
-                        ? TALLY_COLORS.tableRowEven 
-                        : TALLY_COLORS.tableRowOdd,
+                        ? PICKER_COLORS.tableRowEven 
+                        : PICKER_COLORS.tableRowOdd,
                     '&:hover': {
-                      bgcolor: TALLY_COLORS.primaryBlue + '10',
+                      bgcolor: PICKER_COLORS.primaryBlue + '10',
                     },
                   }}
                 >
@@ -269,7 +269,7 @@ const PartySelectionPopup: React.FC<PartySelectionPopupProps> = ({
       </DialogContent>
 
       <DialogActions sx={{ 
-        bgcolor: TALLY_COLORS.tableHeaderBg, 
+        bgcolor: PICKER_COLORS.tableHeaderBg, 
         p: 2 
       }}>
         <Typography variant="caption" color="textSecondary">

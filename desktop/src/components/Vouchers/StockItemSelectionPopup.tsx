@@ -53,7 +53,7 @@ interface StockItemSelectionPopupProps {
   onCreateNew: () => void;
 }
 
-const TALLY_COLORS = {
+const PICKER_COLORS = {
   headerBg: '#1F3864',
   formBg: '#FFFFFF',
   tableHeaderBg: '#E8E8E8',
@@ -173,7 +173,7 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
     if (quantity < 0) {
       return (
         <Typography 
-          sx={{ color: TALLY_COLORS.dangerRed, fontWeight: 'bold' }}
+          sx={{ color: PICKER_COLORS.dangerRed, fontWeight: 'bold' }}
           component="span"
         >
           (-) {Math.abs(quantity)} {unit}
@@ -226,14 +226,14 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
       maxWidth="lg"
       fullWidth
       PaperProps={{
-        'data-tally-picker-modal': '',
+        'data-list-picker-modal': '',
         sx: {
-          bgcolor: TALLY_COLORS.formBg,
+          bgcolor: PICKER_COLORS.formBg,
         }
       }}
     >
       <DialogTitle sx={{ 
-        bgcolor: TALLY_COLORS.headerBg, 
+        bgcolor: PICKER_COLORS.headerBg, 
         color: 'white',
         display: 'flex',
         justifyContent: 'space-between',
@@ -266,7 +266,7 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
         </Box>
 
         {/* Create New Button */}
-        <Box sx={{ p: 2, bgcolor: TALLY_COLORS.tableRowOdd }}>
+        <Box sx={{ p: 2, bgcolor: PICKER_COLORS.tableRowOdd }}>
           <Button
             variant="contained"
             startIcon={<AddIcon />}
@@ -286,7 +286,7 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
         ) : (
           <Table size="small">
             <TableHead>
-              <TableRow sx={{ bgcolor: TALLY_COLORS.tableHeaderBg }}>
+              <TableRow sx={{ bgcolor: PICKER_COLORS.tableHeaderBg }}>
                 <TableCell width="5%">#</TableCell>
                 <TableCell width="35%">Item Name</TableCell>
                 <TableCell width="20%">Item Code</TableCell>
@@ -303,12 +303,12 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
                   sx={{
                     cursor: 'pointer',
                     bgcolor: index === selectedIndex 
-                      ? TALLY_COLORS.primaryBlue + '20' 
+                      ? PICKER_COLORS.primaryBlue + '20' 
                       : index % 2 === 0 
-                        ? TALLY_COLORS.tableRowEven 
-                        : TALLY_COLORS.tableRowOdd,
+                        ? PICKER_COLORS.tableRowEven 
+                        : PICKER_COLORS.tableRowOdd,
                     '&:hover': {
-                      bgcolor: TALLY_COLORS.primaryBlue + '10',
+                      bgcolor: PICKER_COLORS.primaryBlue + '10',
                     },
                     position: 'relative',
                   }}
@@ -337,7 +337,7 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
                       {getStockStatus(item.current_stock) === 'negative' && (
                         <WarningIcon 
                           sx={{ 
-                            color: TALLY_COLORS.dangerRed, 
+                            color: PICKER_COLORS.dangerRed, 
                             fontSize: 16 
                           }} 
                           titleAccess="Negative stock - item is oversold"
@@ -366,7 +366,7 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
       </DialogContent>
 
       <DialogActions sx={{ 
-        bgcolor: TALLY_COLORS.tableHeaderBg, 
+        bgcolor: PICKER_COLORS.tableHeaderBg, 
         p: 2 
       }}>
         <Typography variant="caption" color="textSecondary">
@@ -374,7 +374,7 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
         </Typography>
         <Box sx={{ mt: 1 }}>
           <Typography variant="caption" color="textSecondary">
-            <Box component="span" sx={{ color: TALLY_COLORS.dangerRed }}>
+            <Box component="span" sx={{ color: PICKER_COLORS.dangerRed }}>
               (-) Negative Stock
             </Box>
             {' | '}

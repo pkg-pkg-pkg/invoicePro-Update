@@ -1,4 +1,4 @@
-/** Premium ERP tokens — Zoho / Linear / Stripe-inspired light mode. */
+/** Premium ERP tokens — modern enterprise light mode. */
 export const PREMIUM_ERP = {
   fontFamily: '"Inter", "Segoe UI", system-ui, sans-serif',
   navy: '#0F172A',

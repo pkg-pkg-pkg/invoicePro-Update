@@ -64,7 +64,7 @@ main form button[type='submit'].MuiButton-contained {
   }
 }
 
-/* Tally/Busy-style dense workspace (scoped via data-erp-dense on Layout main). */
+/* Dense workspace layout (scoped via data-erp-dense on Layout main). */
 [data-erp-dense] {
   font-size: 0.8125rem;
   line-height: 1.35;

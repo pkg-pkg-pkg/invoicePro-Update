@@ -46,7 +46,7 @@ const DEFAULT_MENU_ITEMS: (MenuItem | MenuGroup)[] = [
       },
       {
         id: 'import-from-erp',
-        text: 'Upload from Tally/Busy/Marg',
+        text: 'Import from accounting software',
         icon: 'CloudUpload',
         path: '/import/erp',
         enabled: true,

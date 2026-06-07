@@ -93,10 +93,13 @@ export default function SalesDocumentPage() {
   }, [rows, filters]);
 
   const handleCreate = () => {
-    if (!nav) return;
+    if (!nav || !kind) return;
     if (nav.createPath) {
       navigate(nav.createPath);
       return;
+    }
+    if (nav.supportsPipeline) {
+      navigate(`/sales/${kind}/new`);
     }
   };
 

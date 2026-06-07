@@ -94,7 +94,7 @@ export function getSemanticEscapeTarget(pathname: string, search: string): strin
   if (path === '/business-profile') return '/dashboard';
   if (path === '/connect-to-host') return '/dashboard';
 
-  // Section list roots: Esc leaves module to Dashboard (Tally-style “exit”).
+  // Section list roots: Esc leaves module to Dashboard (module exit).
   const sectionRoots = new Set([
     '/dashboard',
     '/items',

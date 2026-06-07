@@ -624,7 +624,7 @@ export function PartyFullForm({ mode, party, embedded, saving, onCancel, onSave 
           <MenuItem value="Hindi">Hindi</MenuItem>
         </TextField>
         {values.profile.portalEnabled ? (
-          <Button sx={{ ml: 2 }} variant="outlined" size="small" onClick={() => window.alert('Portal invite email queued (demo).')}>
+          <Button sx={{ ml: 2 }} variant="outlined" size="small" disabled title="Portal invites coming in a future update">
             Send Invite Email
           </Button>
         ) : null}

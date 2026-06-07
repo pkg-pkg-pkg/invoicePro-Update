@@ -1342,7 +1342,7 @@ export default function Settings() {
         {activeTab === 7 && (
           <Box sx={{ mt: 3 }}>
             <Typography variant="h6" gutterBottom>
-              LAN Multi-User (Tally-style)
+              LAN Multi-User (network mode)
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
               Multi-user access works only over LAN. Run one PC as Host server and connect other PCs as Clients.

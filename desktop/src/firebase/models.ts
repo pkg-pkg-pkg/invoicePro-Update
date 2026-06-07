@@ -18,7 +18,7 @@ export type LicenseDoc = {
   maxDevices?: number;
   /** Granted after paid LAN upgrade + admin UTR approval (Cloud Function). */
   multiUserLan?: boolean;
-  /** Updates + new features entitlement (Tally-style Gateway); license key itself may remain lifetime. */
+  /** Updates + new features entitlement (subscription gateway); license key itself may remain lifetime. */
   gatewayValidUntil?: Timestamp | null;
 };
 

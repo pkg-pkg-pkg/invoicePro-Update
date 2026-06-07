@@ -1,4 +1,4 @@
-/** Primary left-sidebar modules (Zoho-style navigation). */
+/** Primary left-sidebar modules (modern sidebar navigation). */
 
 export type ErpModuleNavItem = {
   id: string;

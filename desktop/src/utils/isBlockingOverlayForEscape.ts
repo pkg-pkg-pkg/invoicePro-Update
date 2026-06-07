@@ -20,7 +20,7 @@ export function isBlockingOverlayForEscape(): boolean {
           '[role="dialog"]',
           '[role="alertdialog"]',
           '[aria-modal="true"]',
-          '[data-tally-picker-modal]',
+          '[data-list-picker-modal]',
           '.MuiPopover-root',
           '.MuiMenu-root',
           '.MuiAutocomplete-popper',

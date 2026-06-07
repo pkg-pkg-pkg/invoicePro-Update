@@ -42,7 +42,7 @@ function normHeader(s: string): string {
     .replace(/\s+/g, '');
 }
 
-/** Non-empty string from row object using first matching key (Tally / Busy / Marg style headers). */
+/** Non-empty string from row object using first matching key (common ERP export style headers). */
 function firstCellStr(o: Record<string, unknown>, keys: string[]): string {
   for (const k of keys) {
     const v = o[k];

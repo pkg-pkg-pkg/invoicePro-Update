@@ -58,6 +58,8 @@ const TITLES: Record<string, string> = {
   quotations: 'New Quotation',
   proforma: 'New Proforma Invoice',
   'sales-orders': 'New Sales Order',
+  dispatch: 'New Dispatch Note',
+  recurring: 'New Recurring Plan',
 };
 
 function emptyLine(): SalesPipelineLineItem {

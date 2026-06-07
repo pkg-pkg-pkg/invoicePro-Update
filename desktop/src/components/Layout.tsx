@@ -152,7 +152,7 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
     '/masters/ledger-accounts': { title: 'Ledger Accounts', showBackButton: false },
     '/masters/ledger-accounts/new': { title: 'New Ledger Account', showBackButton: true },
     '/masters/ledger-accounts/edit': { title: 'Edit Ledger Account', showBackButton: true },
-    '/import/erp': { title: 'Upload from Tally/Busy/Marg', showBackButton: false },
+    '/import/erp': { title: 'Import from accounting software', showBackButton: false },
     '/approvals/pending': { title: 'Approval Pending', showBackButton: false },
   };
 
@@ -503,7 +503,7 @@ const Layout: React.FC = () => {
 
       const el = e.target as HTMLElement | null;
       if (el?.closest?.('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')) return;
-      if (el?.closest?.('[data-tally-picker-modal]')) return;
+      if (el?.closest?.('[data-list-picker-modal]')) return;
       if (el?.closest?.('.MuiPopover-root, .MuiMenu-root, .MuiAutocomplete-popper, [role="listbox"]')) return;
       // Capture runs before dialog handlers; detect open MUI layers even if focus is not on the paper yet.
       if (isBlockingOverlayForEscape()) return;
@@ -515,14 +515,14 @@ const Layout: React.FC = () => {
     return () => window.removeEventListener('keydown', onEscape, true);
   }, [location.pathname, handleBackNavigation]);
 
-  /** F1 → About & Updates (when permitted), Tally-style help entry. */
+  /** F1 → About & Updates (when permitted), standard help entry. */
   useEffect(() => {
     const isShortcutBlockedByTarget = (target: EventTarget | null) => {
       const el = target as HTMLElement | null;
       if (!el?.isConnected) return false;
       if (
         el.closest(
-          '[role="dialog"], [role="alertdialog"], [aria-modal="true"], [data-tally-picker-modal], .MuiPopover-root, .MuiMenu-root'
+          '[role="dialog"], [role="alertdialog"], [aria-modal="true"], [data-list-picker-modal], .MuiPopover-root, .MuiMenu-root'
         )
       )
         return true;

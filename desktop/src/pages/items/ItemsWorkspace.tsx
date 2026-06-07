@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Box } from '@mui/material';
+import { Alert, Box, Typography } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { itemsApi } from '../../services/items/itemsApi';
 import { useInventoryItemsChanged } from '../../hooks/useActiveInventoryItems';
@@ -11,15 +12,20 @@ import type { InventoryItem, ItemCategory, ItemHistoryEntry, UnitOfMeasure, Godo
 import type { ItemTransactionRow } from '../../services/items/itemsApi';
 import type { StockAdjustment } from '../../types/masters';
 import { ItemsListPanel } from '../../components/items/ItemsListPanel';
+import { ItemsTablePanel } from '../../components/items/ItemsTablePanel';
+import { ItemsToolbar } from '../../components/items/ItemsToolbar';
 import { ItemDetailPanel } from '../../components/items/ItemDetailPanel';
 import { ItemFormModal, formValuesToPayload, type ItemFormValues } from '../../components/items/ItemFormModal';
 import { usePermission } from '../../hooks/usePermission';
 import { ItemImportDialog } from '../../components/items/ItemImportDialog';
 import { exportItemsCsv, exportItemsExcel } from '../../services/items/itemImportService';
+import { getItemsModuleTokens } from '../../theme/itemsModuleTheme';
 
 type FilterKey = 'ALL' | 'ACTIVE' | 'INACTIVE' | string;
 
 export default function ItemsWorkspace() {
+  const theme = useTheme();
+  const tok = getItemsModuleTokens(theme);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { can } = usePermission();
@@ -40,6 +46,7 @@ export default function ItemsWorkspace() {
   const [adjustments, setAdjustments] = useState<StockAdjustment[]>([]);
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
+  const [editItemId, setEditItemId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importMessage, setImportMessage] = useState<string | null>(null);
@@ -60,8 +67,7 @@ export default function ItemsWorkspace() {
         search: search.trim() || undefined,
       });
       setItems(list);
-      if (selectedId && !list.some((i) => i.id === selectedId)) setSelectedId(list[0]?.id ?? null);
-      else if (!selectedId && list.length) setSelectedId(list[0].id);
+      if (selectedId && !list.some((i) => i.id === selectedId)) setSelectedId(null);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -107,6 +113,13 @@ export default function ItemsWorkspace() {
     [items, selectedId]
   );
 
+  const formItem = useMemo(() => {
+    if (formMode === 'edit') {
+      return items.find((i) => i.id === (editItemId ?? selectedId)) ?? selectedItem;
+    }
+    return null;
+  }, [formMode, editItemId, selectedId, selectedItem, items]);
+
   const loadDetail = useCallback(async (id: string) => {
     setDetailLoading(true);
     try {
@@ -134,8 +147,25 @@ export default function ItemsWorkspace() {
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return items;
-    return items.filter((i) => `${i.name} ${i.sku}`.toLowerCase().includes(q));
+    return items.filter((i) => `${i.name} ${i.sku} ${i.hsnCode ?? ''}`.toLowerCase().includes(q));
   }, [items, search]);
+
+  const godownLabel = useCallback(
+    (item: InventoryItem) => {
+      const stocks = item.godownStocks?.filter((s) => s.quantity > 0) ?? [];
+      if (stocks.length === 0) {
+        const def = godowns.find((g) => g.isDefault)?.name ?? godowns[0]?.name;
+        return def ?? '—';
+      }
+      return stocks
+        .map((s) => {
+          const name = godowns.find((g) => g.id === s.godownId)?.name ?? 'Godown';
+          return `${name} (${s.quantity})`;
+        })
+        .join(', ');
+    },
+    [godowns]
+  );
 
   const handleSubmit = async (values: ItemFormValues) => {
     setSaving(true);
@@ -145,10 +175,11 @@ export default function ItemsWorkspace() {
       if (formMode === 'create') {
         const created = await itemsApi.create(payload);
         setSelectedId(created.id);
-      } else if (selectedItem) {
-        await itemsApi.update(selectedItem.id, payload);
+      } else if (formItem) {
+        await itemsApi.update(formItem.id, payload);
       }
       setFormOpen(false);
+      setEditItemId(null);
       await loadItems();
       if (selectedId) await loadDetail(selectedId);
     } catch (err) {
@@ -179,8 +210,35 @@ export default function ItemsWorkspace() {
     await exportItemsCsv(exportRows, catNames, unitNames);
   };
 
+  const openEdit = (id: string) => {
+    setEditItemId(id);
+    setFormMode('edit');
+    setFormOpen(true);
+  };
+
+  const handleDuplicate = async (id: string) => {
+    const copy = await itemsApi.duplicate(id);
+    await loadItems();
+    setSelectedId(copy.id);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!canManage) return;
+    await itemsApi.remove(id);
+    if (selectedId === id) setSelectedId(null);
+    await loadItems();
+  };
+
+  const splitView = Boolean(selectedId);
+
   return (
-    <Box>
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: { lg: 'calc(100vh - 220px)' } }}>
+      {!splitView ? (
+        <Typography variant="h4" fontWeight={800} sx={{ mb: 1.5, color: tok.text }}>
+          Items
+        </Typography>
+      ) : null}
+
       {error ? <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setError(null)}>{error}</Alert> : null}
       {importMessage ? (
         <Alert severity="success" sx={{ mb: 1.5 }} onClose={() => setImportMessage(null)}>
@@ -188,85 +246,138 @@ export default function ItemsWorkspace() {
         </Alert>
       ) : null}
 
-      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', lg: 'row' }, gap: 2, alignItems: 'stretch' }}>
-        <ItemsListPanel
-          items={filteredItems}
-          categories={categories}
-          godowns={godowns}
-          unitLabel={(id) => unitMap.get(id) ?? '—'}
-          categoryLabel={(id) => (id ? categoryMap.get(id) ?? '—' : '—')}
-          godownLabel={(item) => {
-            const stocks = item.godownStocks?.filter((s) => s.quantity > 0) ?? [];
-            if (stocks.length === 0) {
-              const def = godowns.find((g) => g.isDefault)?.name ?? godowns[0]?.name;
-              return def ?? '—';
-            }
-            return stocks
-              .map((s) => {
-                const name = godowns.find((g) => g.id === s.godownId)?.name ?? 'Godown';
-                return `${name} (${s.quantity})`;
-              })
-              .join(', ');
+      <Box
+        sx={{
+          display: 'flex',
+          flex: 1,
+          minHeight: 400,
+          flexDirection: { xs: 'column', lg: 'row' },
+          border: `1px solid ${tok.border}`,
+          borderRadius: `${tok.radius}px`,
+          bgcolor: tok.surface,
+          overflow: 'hidden',
+          transition: theme.transitions.create(['box-shadow'], { duration: 250 }),
+        }}
+      >
+        <Box
+          sx={{
+            display: splitView ? { xs: 'none', lg: 'flex' } : 'flex',
+            flexDirection: 'column',
+            width: splitView ? { lg: 320 } : '100%',
+            maxWidth: splitView ? { lg: 360 } : 'none',
+            flexShrink: splitView ? 0 : 1,
+            borderRight: splitView ? { lg: `1px solid ${tok.border}` } : 'none',
+            transition: theme.transitions.create(['width', 'max-width'], { duration: 250, easing: 'ease-in-out' }),
+            minWidth: 0,
           }}
-          selectedId={selectedId}
-          selectedIds={selectedIds}
-          filter={filter}
-          search={search}
-          onFilterChange={setFilter}
-          onSearchChange={setSearch}
-          onSelect={setSelectedId}
-          onToggleSelect={(id) => {
-            setSelectedIds((prev) => {
-              const next = new Set(prev);
-              if (next.has(id)) next.delete(id);
-              else next.add(id);
-              return next;
-            });
-          }}
-          onToggleAll={() => {
-            if (selectedIds.size === filteredItems.length) setSelectedIds(new Set());
-            else setSelectedIds(new Set(filteredItems.map((i) => i.id)));
-          }}
-          onNew={() => { setFormMode('create'); setFormOpen(true); }}
-          onBulkDelete={canManage ? () => void handleBulkDelete() : undefined}
-          onExport={() => void handleExport()}
-          onExportCsv={() => void handleExportCsv()}
-          onImport={canManage ? () => setImportOpen(true) : undefined}
-        />
+        >
+          <ItemsToolbar
+            compact={splitView}
+            categories={categories}
+            filter={filter}
+            search={search}
+            onFilterChange={setFilter}
+            onSearchChange={setSearch}
+            onNew={() => { setFormMode('create'); setFormOpen(true); }}
+            onBulkDelete={canManage ? () => void handleBulkDelete() : undefined}
+            onExport={() => void handleExport()}
+            onExportCsv={() => void handleExportCsv()}
+            onImport={canManage ? () => setImportOpen(true) : undefined}
+          />
 
-        <ItemDetailPanel
-          item={selectedItem}
-          categoryName={selectedItem?.categoryId ? categoryMap.get(selectedItem.categoryId) ?? '—' : '—'}
-          godowns={godowns}
-          unitName={selectedItem ? unitMap.get(selectedItem.unitId) ?? '—' : '—'}
-          loading={detailLoading}
-          transactions={transactions}
-          history={history}
-          adjustments={adjustments}
-          canManage={canManage}
-          onEdit={() => { setFormMode('edit'); setFormOpen(true); }}
-          onClose={() => setSelectedId(null)}
-          onDuplicate={async () => {
-            if (!selectedItem) return;
-            const copy = await itemsApi.duplicate(selectedItem.id);
-            await loadItems();
-            setSelectedId(copy.id);
-          }}
-          onDelete={async () => {
-            if (!selectedItem || !canManage) return;
-            await itemsApi.remove(selectedItem.id);
-            await loadItems();
-          }}
-          onToggleStatus={async () => {
-            if (!selectedItem || !canManage) return;
-            await inventoryItemService.update(selectedItem.id, {
-              status: selectedItem.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE',
-            });
-            await loadItems();
-            await loadDetail(selectedItem.id);
-          }}
-          onAdjustStock={() => navigate(`/items/adjustments/new?itemId=${selectedItem?.id ?? ''}`)}
-        />
+          {splitView ? (
+            <ItemsListPanel
+              items={filteredItems}
+              unitLabel={(id) => unitMap.get(id) ?? '—'}
+              godownLabel={godownLabel}
+              selectedId={selectedId}
+              selectedIds={selectedIds}
+              onSelect={setSelectedId}
+              onToggleSelect={(id) => {
+                setSelectedIds((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                });
+              }}
+              onToggleAll={() => {
+                if (selectedIds.size === filteredItems.length) setSelectedIds(new Set());
+                else setSelectedIds(new Set(filteredItems.map((i) => i.id)));
+              }}
+            />
+          ) : (
+            <ItemsTablePanel
+              items={filteredItems}
+              categoryLabel={(id) => (id ? categoryMap.get(id) ?? '—' : '—')}
+              unitLabel={(id) => unitMap.get(id) ?? '—'}
+              godownLabel={godownLabel}
+              selectedId={selectedId}
+              selectedIds={selectedIds}
+              canManage={canManage}
+              onSelect={setSelectedId}
+              onToggleSelect={(id) => {
+                setSelectedIds((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                });
+              }}
+              onToggleAll={() => {
+                if (selectedIds.size === filteredItems.length) setSelectedIds(new Set());
+                else setSelectedIds(new Set(filteredItems.map((i) => i.id)));
+              }}
+              onEdit={openEdit}
+              onDuplicate={(id) => void handleDuplicate(id)}
+              onDelete={(id) => void handleDelete(id)}
+            />
+          )}
+        </Box>
+
+        {splitView ? (
+          <Box
+            sx={{
+              flex: 1,
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              minHeight: { xs: 480, lg: 0 },
+              transition: theme.transitions.create(['opacity', 'transform'], { duration: 250 }),
+            }}
+          >
+            <ItemDetailPanel
+              item={selectedItem}
+              categoryName={selectedItem?.categoryId ? categoryMap.get(selectedItem.categoryId) ?? '—' : '—'}
+              godowns={godowns}
+              unitName={selectedItem ? unitMap.get(selectedItem.unitId) ?? '—' : '—'}
+              loading={detailLoading}
+              transactions={transactions}
+              history={history}
+              adjustments={adjustments}
+              canManage={canManage}
+              onEdit={() => selectedItem && openEdit(selectedItem.id)}
+              onClose={() => setSelectedId(null)}
+              onDuplicate={async () => {
+                if (!selectedItem) return;
+                await handleDuplicate(selectedItem.id);
+              }}
+              onDelete={async () => {
+                if (!selectedItem) return;
+                await handleDelete(selectedItem.id);
+              }}
+              onToggleStatus={async () => {
+                if (!selectedItem || !canManage) return;
+                await inventoryItemService.update(selectedItem.id, {
+                  status: selectedItem.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE',
+                });
+                await loadItems();
+                await loadDetail(selectedItem.id);
+              }}
+              onAdjustStock={() => navigate(`/items/adjustments/new?itemId=${selectedItem?.id ?? ''}`)}
+            />
+          </Box>
+        ) : null}
       </Box>
 
       <ItemImportDialog
@@ -287,12 +398,12 @@ export default function ItemsWorkspace() {
       <ItemFormModal
         open={formOpen}
         mode={formMode}
-        item={formMode === 'edit' ? selectedItem : null}
+        item={formItem}
         units={units}
         categories={categories}
         godowns={godowns}
         saving={saving}
-        onClose={() => setFormOpen(false)}
+        onClose={() => { setFormOpen(false); setEditItemId(null); }}
         onSubmit={(v) => void handleSubmit(v)}
         onCategoriesChange={() => void reloadCategories()}
       />

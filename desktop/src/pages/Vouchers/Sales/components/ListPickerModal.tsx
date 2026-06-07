@@ -19,7 +19,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-export type TallyPickerColumn<T> = {
+export type ListPickerColumn<T> = {
   id: string;
   header: string;
   width?: number | string;
@@ -27,7 +27,7 @@ export type TallyPickerColumn<T> = {
   render: (row: T) => React.ReactNode;
 };
 
-export type TallyListPickerModalProps<T> = {
+export type ListPickerModalProps<T> = {
   open: boolean;
   onClose: () => void;
   title: string;
@@ -36,7 +36,7 @@ export type TallyListPickerModalProps<T> = {
   rows: T[];
   getRowKey: (row: T) => string;
   filterRow: (row: T, query: string) => boolean;
-  columns: TallyPickerColumn<T>[];
+  columns: ListPickerColumn<T>[];
   onSelect: (row: T) => void;
   onCreateNew?: () => void;
   createNewLabel?: string;
@@ -50,7 +50,7 @@ export type TallyListPickerModalProps<T> = {
 
 const HEADER_BG = 'primary.dark';
 
-export function TallyListPickerModal<T>({
+export function ListPickerModal<T>({
   open,
   onClose,
   title,
@@ -67,7 +67,7 @@ export function TallyListPickerModal<T>({
   footerHint = '↑ ↓ Navigate | Enter Select | Escape Close' + (onCreateNew ? ' | Ctrl+N Create New' : ''),
   sessionKey,
   initialQuery = '',
-}: TallyListPickerModalProps<T>) {
+}: ListPickerModalProps<T>) {
   const theme = useTheme();
   const [query, setQuery] = useState('');
   const [highlight, setHighlight] = useState(0);
@@ -209,7 +209,7 @@ export function TallyListPickerModal<T>({
       }}
       PaperProps={{
         elevation: 12,
-        'data-tally-picker-modal': '',
+        'data-list-picker-modal': '',
         sx: {
           borderRadius: 2,
           overflow: 'hidden',

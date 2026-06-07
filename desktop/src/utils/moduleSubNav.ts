@@ -43,3 +43,28 @@ export function purchaseModuleExpanded(pathname: string): boolean {
     normalized.startsWith('/expenses')
   );
 }
+
+export function itemsSubNavActive(itemId: string, pathname: string): boolean {
+  const normalized = pathname.replace(/\/+$/, '') || '/';
+  if (itemId === 'list') return normalized === '/items';
+  if (itemId === 'price-lists') {
+    return normalized.startsWith('/items/price-lists') || normalized.startsWith('/masters/price-lists');
+  }
+  if (itemId === 'adjustments') {
+    return normalized.startsWith('/items/adjustments') || normalized.startsWith('/masters/stock-adjustments');
+  }
+  if (itemId === 'godowns') return normalized.startsWith('/masters/godowns');
+  return false;
+}
+
+export function itemsModuleExpanded(pathname: string): boolean {
+  const normalized = pathname.replace(/\/+$/, '') || '/';
+  return (
+    normalized === '/items' ||
+    normalized.startsWith('/items/') ||
+    normalized.startsWith('/masters/inventory-items') ||
+    normalized.startsWith('/masters/godowns') ||
+    normalized.startsWith('/masters/price-lists') ||
+    normalized.startsWith('/masters/stock-adjustments')
+  );
+}

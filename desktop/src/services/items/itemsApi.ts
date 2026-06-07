@@ -9,6 +9,8 @@ import { voucherService } from '../vouchers/voucherService';
 import type { InventoryItem } from '../../types/masters';
 import type { InventoryItemFilters } from '../masters/inventoryItemService';
 import type { Voucher } from '../../types/vouchers';
+import { ledgerAccountService } from '../masters/ledgerAccountService';
+import { mapVoucherTxStatus, type TxDisplayStatus } from '../../utils/itemDisplayHelpers';
 
 export type ItemTransactionRow = {
   id: string;
@@ -17,6 +19,10 @@ export type ItemTransactionRow = {
   number: string;
   quantity: number;
   voucherId: string;
+  customer: string;
+  rate: number;
+  amount: number;
+  status: TxDisplayStatus;
 };
 
 export const itemsApi = {
@@ -71,18 +77,28 @@ export const itemsApi = {
   },
 
   async getTransactions(itemId: string): Promise<ItemTransactionRow[]> {
-    const vouchers = await voucherService.list();
+    const [vouchers, ledgers] = await Promise.all([voucherService.list(), ledgerAccountService.list()]);
+    const ledgerName = new Map(ledgers.map((l) => [l.id, l.name]));
     const rows: ItemTransactionRow[] = [];
     for (const v of vouchers as Voucher[]) {
+      const partyLine = v.lines.find((line) => !line.itemId && (line.credit > 0 || line.debit > 0));
+      const customer = partyLine?.ledgerId ? ledgerName.get(partyLine.ledgerId) ?? '—' : '—';
       v.lines.forEach((line, idx) => {
         if (line.itemId !== itemId || line.quantity === undefined) return;
+        const qty = Number(line.quantity);
+        const amount = Math.max(Number(line.debit ?? 0), Number(line.credit ?? 0));
+        const rate = qty > 0 ? amount / qty : 0;
         rows.push({
           id: `${v.id}-${idx}`,
           date: v.date.slice(0, 10),
           type: v.type,
           number: v.number,
-          quantity: Number(line.quantity),
+          quantity: qty,
           voucherId: v.id,
+          customer,
+          rate,
+          amount,
+          status: mapVoucherTxStatus(v.status, v.type),
         });
       });
     }

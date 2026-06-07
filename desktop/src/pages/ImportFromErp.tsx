@@ -7,7 +7,7 @@ import GroupsIcon from '@mui/icons-material/Groups';
 import { APP_DISPLAY_NAME } from '@/constants/appBranding';
 
 /**
- * Hub for Tally / Busy / Marg style data migration.
+ * Hub for accounting software data migration.
  * Bulk Excel flows live on Inventory Items and (optional) party tools — this page routes users there.
  */
 export default function ImportFromErp(): JSX.Element {
@@ -18,7 +18,7 @@ export default function ImportFromErp(): JSX.Element {
       <Paper sx={{ p: 3 }}>
         <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <UploadFileIcon color="primary" />
-          Import from Tally / Busy / Marg
+          Import from accounting software
         </Typography>
         <Typography color="text.secondary" sx={{ mb: 2 }}>
           Export ledgers / stock items to <strong>.xlsx</strong> from your ERP, then use {APP_DISPLAY_NAME} bulk import on
@@ -34,7 +34,7 @@ export default function ImportFromErp(): JSX.Element {
           <Button
             variant="contained"
             startIcon={<Inventory2Icon />}
-            onClick={() => navigate('/masters/inventory-items')}
+            onClick={() => navigate('/items?import=1')}
           >
             Inventory items (bulk Excel)
           </Button>
@@ -48,10 +48,10 @@ export default function ImportFromErp(): JSX.Element {
         </Typography>
         <List dense>
           <ListItem>
-            <ListItemText primary="1. Export item / stock list from Tally/Busy/Marg as Excel." />
+            <ListItemText primary="1. Export item / stock list from your accounting software as Excel." />
           </ListItem>
           <ListItem>
-            <ListItemText primary="2. Open Inventory Items → use bulk upload to create/update items and opening stock." />
+            <ListItemText primary="2. Open Items → use Import Items to create/update items and opening stock." />
           </ListItem>
           <ListItem>
             <ListItemText primary="3. Export party / ledger list if needed; maintain party master in Parties." />

@@ -72,7 +72,7 @@ export function DashboardModuleGrid() {
         Business modules
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-        Same auto-accounting — cleaner menus like Zoho Books. Pick a module to start.
+        Same auto-accounting — clean modern menus. Pick a module to start.
       </Typography>
       <Grid container spacing={1.5}>
         {MODULES.map((mod) => {

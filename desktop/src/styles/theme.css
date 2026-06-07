@@ -45,7 +45,7 @@
   --chip-text: #334155;
 }
 
-/* ----- Dark (Enterprise ERP — Zoho / Notion / Linear) ----- */
+/* ----- Dark (Enterprise ERP — modern dark theme) ----- */
 :root[data-ui-theme='premium-dark'] {
   color-scheme: dark;
 

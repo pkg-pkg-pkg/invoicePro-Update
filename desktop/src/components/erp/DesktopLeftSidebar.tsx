@@ -18,9 +18,12 @@ import ChevronRightOutlinedIcon from '@mui/icons-material/ChevronRightOutlined';
 import { ERP_PRIMARY_MODULES, moduleMatchesPath, type ErpModuleNavItem } from '../../config/erpModuleNav';
 import { SALES_NAV_ITEMS } from '../../config/salesModuleNav';
 import { PURCHASE_NAV_ITEMS } from '../../config/purchaseModuleNav';
+import { ITEMS_NAV_ITEMS } from '../../config/itemsModuleNav';
 import { getErpChromeColors } from '../../theme/erpColors';
 import { useHeaderCompanyName } from './DesktopErpChrome';
 import {
+  itemsModuleExpanded,
+  itemsSubNavActive,
   purchaseModuleExpanded,
   purchaseSubNavActive,
   salesModuleExpanded,
@@ -51,9 +54,9 @@ const ICON_MAP = {
   CardGiftcard: CardGiftcardOutlinedIcon,
 } as const;
 
-const MODULES_WITH_SUBNAV = new Set(['sales', 'purchase']);
+const MODULES_WITH_SUBNAV = new Set(['items', 'sales', 'purchase']);
 
-type ExpandedParent = 'sales' | 'purchase' | null;
+type ExpandedParent = 'items' | 'sales' | 'purchase' | null;
 
 function readExpanded(): boolean {
   try {
@@ -64,6 +67,7 @@ function readExpanded(): boolean {
 }
 
 function detectExpandedParent(pathname: string): ExpandedParent {
+  if (itemsModuleExpanded(pathname)) return 'items';
   if (salesModuleExpanded(pathname)) return 'sales';
   if (purchaseModuleExpanded(pathname)) return 'purchase';
   return null;
@@ -122,7 +126,9 @@ export function DesktopLeftSidebar({ canAccessFeature, gstEnabled }: Props) {
     }
     setExpandedParent((prev) => {
       if (prev === parent) return null;
-      if (parent === 'sales' && !salesModuleExpanded(location.pathname)) {
+      if (parent === 'items' && !itemsModuleExpanded(location.pathname)) {
+        navigate(defaultPath);
+      } else if (parent === 'sales' && !salesModuleExpanded(location.pathname)) {
         navigate(defaultPath);
       } else if (parent === 'purchase' && !purchaseModuleExpanded(location.pathname)) {
         navigate(defaultPath);
@@ -131,30 +137,54 @@ export function DesktopLeftSidebar({ canAccessFeature, gstEnabled }: Props) {
     });
   };
 
-  const renderSubItem = (label: string, path: string, active: boolean) => (
+  const renderSubItem = (
+    label: string,
+    path: string,
+    active: boolean,
+    variant: 'default' | 'items' = 'default'
+  ) => (
     <Box
       key={path}
       component="button"
       type="button"
       onClick={() => navigate(path)}
       aria-current={active ? 'page' : undefined}
-      sx={{
-        display: 'block',
-        width: '100%',
-        border: 'none',
-        cursor: 'pointer',
-        textAlign: 'left',
-        fontSize: 13,
-        padding: '8px 16px 8px 40px',
-        bgcolor: active ? '#1e40af' : 'transparent',
-        color: active ? '#fff' : '#94a3b8',
-        borderLeft: active ? '3px solid #60a5fa' : '3px solid transparent',
-        transition: 'background-color 0.2s ease, color 0.2s ease',
-        '&:hover': {
-          bgcolor: active ? '#1e40af' : 'rgba(255,255,255,0.08)',
-          color: active ? '#fff' : '#cbd5e1',
-        },
-      }}
+      sx={
+        variant === 'items'
+          ? {
+              display: 'block',
+              width: '100%',
+              border: 'none',
+              cursor: 'pointer',
+              textAlign: 'left',
+              fontSize: 12,
+              fontWeight: active ? 600 : 400,
+              padding: '6px 16px 6px 40px',
+              bgcolor: 'transparent',
+              color: active ? '#185FA5' : '#94a3b8',
+              transition: 'color 0.2s ease',
+              '&:hover': {
+                color: active ? '#185FA5' : '#cbd5e1',
+              },
+            }
+          : {
+              display: 'block',
+              width: '100%',
+              border: 'none',
+              cursor: 'pointer',
+              textAlign: 'left',
+              fontSize: 13,
+              padding: '8px 16px 8px 40px',
+              bgcolor: active ? '#1e40af' : 'transparent',
+              color: active ? '#fff' : '#94a3b8',
+              borderLeft: active ? '3px solid #60a5fa' : '3px solid transparent',
+              transition: 'background-color 0.2s ease, color 0.2s ease',
+              '&:hover': {
+                bgcolor: active ? '#1e40af' : 'rgba(255,255,255,0.08)',
+                color: active ? '#fff' : '#cbd5e1',
+              },
+            }
+      }
     >
       {label}
     </Box>
@@ -223,6 +253,31 @@ export function DesktopLeftSidebar({ canAccessFeature, gstEnabled }: Props) {
     const hasChildren = MODULES_WITH_SUBNAV.has(mod.id);
     const parentActive = moduleMatchesPath(mod, location.pathname);
     const isParentOpen = expandedParent === mod.id;
+
+    if (mod.id === 'items' && hasChildren) {
+      const btn = renderParentButton(mod, {
+        hasChildren: true,
+        isParentOpen,
+        parentActive,
+        onClick: () => toggleParent('items', '/items'),
+      });
+      return (
+        <Box key={mod.id}>
+          {sidebarExpanded ? btn : (
+            <Tooltip title={mod.label} placement="right" arrow>
+              {btn}
+            </Tooltip>
+          )}
+          <Collapse in={sidebarExpanded && isParentOpen} timeout={200} unmountOnExit>
+            <Box sx={{ overflow: 'hidden', pb: 0.5 }}>
+              {ITEMS_NAV_ITEMS.map((item) =>
+                renderSubItem(item.label, item.path, itemsSubNavActive(item.id, location.pathname), 'items')
+              )}
+            </Box>
+          </Collapse>
+        </Box>
+      );
+    }
 
     if (mod.id === 'sales' && hasChildren) {
       const btn = renderParentButton(mod, {

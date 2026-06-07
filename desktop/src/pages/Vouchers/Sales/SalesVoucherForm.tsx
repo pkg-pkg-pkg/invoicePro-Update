@@ -64,7 +64,7 @@ import { autoLedgerService } from '../../../services/masters/autoLedgerService';
 import QuickCreateLedgerDialog from '../../../components/QuickCreateLedgerDialog';
 import PartyMasterDialog from '../../../components/PartyMasterDialog';
 import InventoryItemMasterDialog from '../../../components/InventoryItemMasterDialog';
-import { TallyListPickerModal } from './components/TallyListPickerModal';
+import { ListPickerModal } from './components/ListPickerModal';
 import { rateMemory } from '../../../services/reports/rateMemory';
 import { priceListService } from '../../../services/masters/priceListService';
 import { partyProfileService } from '../../../services/masters/partyProfileService';
@@ -331,7 +331,7 @@ const SalesVoucherForm = () => {
       if (blockEscapeBackRef.current) return;
       const el = e.target as HTMLElement | null;
       if (!el?.isConnected) return;
-      if (el.closest?.('[role="dialog"], [data-tally-picker-modal]')) return;
+      if (el.closest?.('[role="dialog"], [data-list-picker-modal]')) return;
       e.preventDefault();
       navigate(listPath);
     };
@@ -911,7 +911,7 @@ const SalesVoucherForm = () => {
     const shouldIgnoreTarget = (target: EventTarget | null) => {
       const el = target as HTMLElement | null;
       if (!el?.isConnected) return true;
-      if (el.closest('[role="dialog"], [data-tally-picker-modal], .MuiMenu-root, .MuiPopover-root')) return true;
+      if (el.closest('[role="dialog"], [data-list-picker-modal], .MuiMenu-root, .MuiPopover-root')) return true;
       return false;
     };
 
@@ -2218,7 +2218,7 @@ const SalesVoucherForm = () => {
           onSaved={handleInventoryMasterSaved}
         />
 
-        <TallyListPickerModal<Party>
+        <ListPickerModal<Party>
           open={partyPickerOpen}
           onClose={() => {
             suppressNextPartyFocusOpenRef.current = true;
@@ -2291,7 +2291,7 @@ const SalesVoucherForm = () => {
           emptyMessage="No parties found."
         />
 
-        <TallyListPickerModal<InventoryItem>
+        <ListPickerModal<InventoryItem>
           sessionKey={itemPickerLineId}
           open={itemPickerLineId !== null}
           onClose={() => {

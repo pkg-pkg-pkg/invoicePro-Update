@@ -8,7 +8,8 @@ export const PURCHASE_NAV_ITEMS: PurchaseNavItem[] = [
     description: 'Supplier orders before billing',
     icon: 'ShoppingCart',
     createLabel: 'New Purchase Order',
-    supportsPipeline: true,
+    createPath: '/vouchers/purchase/new',
+    supportsPipeline: false,
   },
   {
     kind: 'purchase-bills',
@@ -57,7 +58,8 @@ export const PURCHASE_NAV_ITEMS: PurchaseNavItem[] = [
     description: 'Repeat supplier bills & subscriptions',
     icon: 'Autorenew',
     createLabel: 'New Recurring Bill',
-    supportsPipeline: true,
+    createPath: '/vouchers/purchase/new',
+    supportsPipeline: false,
   },
 ];
 

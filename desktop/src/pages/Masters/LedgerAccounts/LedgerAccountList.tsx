@@ -62,7 +62,7 @@ const ROLE_COLOR_MAP: Record<LedgerRole, 'primary' | 'secondary' | 'success' | '
   Overdraft: 'warning',
 };
 
-/** Auto / Tally-style “Cash & Bank” subgroup: show Bank vs Cash from stored bank fields. */
+/** Auto “Cash & Bank” subgroup: show Bank vs Cash from stored bank fields. */
 const GROUP_CASH_BANK = 'grp-cash-bank';
 
 function displayRoleForLedger(account: LedgerAccount, groupRole: LedgerRole | null): LedgerRole | null {

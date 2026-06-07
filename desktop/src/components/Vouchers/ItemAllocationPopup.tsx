@@ -54,7 +54,7 @@ interface AllocationRow {
   orderItemId?: number;
 }
 
-const TALLY_COLORS = {
+const PICKER_COLORS = {
   headerBg: '#1F3864',
   formBg: '#FFFFFF',
   tableHeaderBg: '#E8E8E8',
@@ -222,12 +222,12 @@ const ItemAllocationPopup: React.FC<ItemAllocationPopupProps> = ({
       fullWidth
       PaperProps={{
         sx: {
-          bgcolor: TALLY_COLORS.formBg,
+          bgcolor: PICKER_COLORS.formBg,
         }
       }}
     >
       <DialogTitle sx={{ 
-        bgcolor: TALLY_COLORS.headerBg, 
+        bgcolor: PICKER_COLORS.headerBg, 
         color: 'white',
         display: 'flex',
         justifyContent: 'space-between',
@@ -243,7 +243,7 @@ const ItemAllocationPopup: React.FC<ItemAllocationPopupProps> = ({
       
       <DialogContent sx={{ p: 2 }}>
         {warning && (
-          <Box sx={{ mb: 2, p: 2, bgcolor: TALLY_COLORS.warningYellow + '20' }}>
+          <Box sx={{ mb: 2, p: 2, bgcolor: PICKER_COLORS.warningYellow + '20' }}>
             <Typography color="warning.main" fontWeight="bold">
               {warning}
             </Typography>
@@ -253,7 +253,7 @@ const ItemAllocationPopup: React.FC<ItemAllocationPopupProps> = ({
         {/* Allocation Table */}
         <Table size="small" sx={{ mb: 2 }}>
           <TableHead>
-            <TableRow sx={{ bgcolor: TALLY_COLORS.tableHeaderBg }}>
+            <TableRow sx={{ bgcolor: PICKER_COLORS.tableHeaderBg }}>
               <TableCell width="15%">Order No.</TableCell>
               <TableCell width="20%">Quantity</TableCell>
               <TableCell width="15%">Rate (Incl. of Tax)</TableCell>
@@ -269,7 +269,7 @@ const ItemAllocationPopup: React.FC<ItemAllocationPopupProps> = ({
               <TableRow
                 key={allocation.id}
                 sx={{
-                  bgcolor: index % 2 === 0 ? TALLY_COLORS.tableRowEven : TALLY_COLORS.tableRowOdd,
+                  bgcolor: index % 2 === 0 ? PICKER_COLORS.tableRowEven : PICKER_COLORS.tableRowOdd,
                 }}
               >
                 <TableCell>
@@ -346,7 +346,7 @@ const ItemAllocationPopup: React.FC<ItemAllocationPopupProps> = ({
             ))}
             
             {/* Summary Row */}
-            <TableRow sx={{ bgcolor: TALLY_COLORS.tableHeaderBg, fontWeight: 'bold' }}>
+            <TableRow sx={{ bgcolor: PICKER_COLORS.tableHeaderBg, fontWeight: 'bold' }}>
               <TableCell colSpan={2}>
                 <Typography fontWeight="bold">
                   Total Quantity: {totals.totalQuantity} {item?.unit}
@@ -369,7 +369,7 @@ const ItemAllocationPopup: React.FC<ItemAllocationPopupProps> = ({
         {/* Required Quantity Info */}
         <Box sx={{ 
           p: 2, 
-          bgcolor: totals.quantityMatch ? TALLY_COLORS.successGreen + '10' : TALLY_COLORS.warningYellow + '10',
+          bgcolor: totals.quantityMatch ? PICKER_COLORS.successGreen + '10' : PICKER_COLORS.warningYellow + '10',
           borderRadius: 1,
           mb: 2
         }}>
@@ -388,7 +388,7 @@ const ItemAllocationPopup: React.FC<ItemAllocationPopupProps> = ({
       </DialogContent>
 
       <DialogActions sx={{ 
-        bgcolor: TALLY_COLORS.tableHeaderBg, 
+        bgcolor: PICKER_COLORS.tableHeaderBg, 
         p: 2 
       }}>
         <Button
