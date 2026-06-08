@@ -2,6 +2,8 @@ import { store } from '../../store';
 import { setSyncStatus } from '../../store/slices/syncSlice';
 import { readOutbox, readSyncConfig, writeOutbox, writeSyncConfig } from './storage';
 import { MobileSyncConfig, MobileSyncEnvelope, MobileSyncEntityType } from './types';
+import { getMobileDeviceId } from '../deviceService';
+import { fetchDesktopSnapshot } from '../mobileDesktopAuthService';
 
 type WorkerState = {
   timer: ReturnType<typeof setInterval> | null;
@@ -21,6 +23,9 @@ function buildAuthHeaders(config: MobileSyncConfig) {
     headers.Authorization = `Bearer ${config.token.trim()}`;
     headers['X-Sync-Token'] = config.token.trim();
   }
+  if (config.sessionToken?.trim()) {
+    headers['X-Mobile-Session'] = config.sessionToken.trim();
+  }
   return headers;
 }
 
@@ -33,12 +38,19 @@ function generateId(prefix: string) {
 }
 
 async function syncUpload(config: MobileSyncConfig, pending: MobileSyncEnvelope[]) {
-  if (pending.length === 0) return { accepted: 0 };
+  if (pending.length === 0) {
+    return {
+      acceptedKeys: new Set<string>(),
+      duplicateKeys: new Set<string>(),
+      rejectedKeys: new Map<string, string>(),
+    };
+  }
+  const deviceId = config.deviceId || (await getMobileDeviceId());
   const response = await fetch(`${config.endpointBase}/upload`, {
     method: 'POST',
     headers: buildAuthHeaders(config),
     body: JSON.stringify({
-      deviceId: 'mobile-app',
+      deviceId,
       events: pending.map((event) => ({
         idempotencyKey: event.idempotencyKey,
         entityType: event.entityType,
@@ -118,6 +130,11 @@ async function flushOnce() {
   const nextCursor = Number(downloadPayload?.nextCursor || config.cursor || 0);
   await writeSyncConfig({ ...config, cursor: nextCursor });
 
+  let snapshot: Record<string, unknown> | null = null;
+  if (config.sessionToken?.trim()) {
+    snapshot = await fetchDesktopSnapshot();
+  }
+
   const pending = afterUpload.filter((event) => event.status !== 'synced').length;
   store.dispatch(
     setSyncStatus({
@@ -126,6 +143,7 @@ async function flushOnce() {
       pendingChanges: pending,
       lastError: null,
       endpointBase: config.endpointBase,
+      snapshot: snapshot ?? undefined,
     })
   );
 }
@@ -165,6 +183,8 @@ export const mobileSyncWorker = {
       endpointBase: configPatch.endpointBase || current.endpointBase,
       token: configPatch.token ?? current.token,
       cursor: typeof configPatch.cursor === 'number' ? configPatch.cursor : current.cursor,
+      sessionToken: configPatch.sessionToken ?? current.sessionToken,
+      deviceId: configPatch.deviceId ?? current.deviceId,
     };
     await writeSyncConfig(next);
     store.dispatch(setSyncStatus({ endpointBase: next.endpointBase }));

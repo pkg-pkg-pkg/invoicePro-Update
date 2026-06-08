@@ -6,9 +6,13 @@ const Database = require('better-sqlite3');
 const { createDesktopMobileSyncMiddleware } = require('./mobileSyncMiddleware');
 const { startDesktopSyncTunnel, stopDesktopSyncTunnel } = require('./mobileSyncTunnel');
 const companyRegistry = require('./companyRegistry.cjs');
+const dataPathManager = require('./dataPathManager.cjs');
+const profileDebug = require('./profilePersistenceDebug.cjs');
+const companyProfileDb = require('./companyProfileDb.cjs');
 const { registerSessionIpc } = require('./registerSessionIpc.cjs');
 const { registerPincodeIpc } = require('./registerPincodeIpc.cjs');
 const { execFile } = require('child_process');
+const https = require('https');
 const os = require('os');
 const whatsappBridge = require('./whatsappBridge.cjs');
 
@@ -321,13 +325,30 @@ function initDatabase(companyId) {
         companyRegistry.ensureInitialized(app, null);
         const id = companyId || companyRegistry.readActiveId(app);
         const dbPath = companyRegistry.getCompanyDbPath(app, id);
-        console.log('Initializing database at:', dbPath);
+        const legacyDbPath = dataPathManager.getLegacyDbPath(app);
+        const companyLegacyDb = path.join(path.dirname(dbPath), 'gst-billing.db');
+        if (!fs.existsSync(dbPath) && fs.existsSync(companyLegacyDb) && companyLegacyDb !== dbPath) {
+            fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+            fs.copyFileSync(companyLegacyDb, dbPath);
+            profileDebug.appendLog(app, 'db_reuse_company_legacy', { from: companyLegacyDb, to: dbPath, companyId: id });
+        }
+        else if (!fs.existsSync(dbPath) && fs.existsSync(legacyDbPath)) {
+            fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+            fs.copyFileSync(legacyDbPath, dbPath);
+            profileDebug.appendLog(app, 'db_reuse_legacy', { from: legacyDbPath, to: dbPath, companyId: id });
+            console.log('[profile-debug] Reused legacy SQLite at', dbPath);
+        }
+        console.log('[profile-debug] Initializing SQLite at:', dbPath, 'userData:', app.getPath('userData'));
         db = new Database(dbPath);
-        db.prepare('CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)').run();
-        console.log('Database initialized successfully for', id);
+        companyProfileDb.ensureSchema(db);
+        const migration = companyProfileDb.migrateFromLocalJsonIfNeeded(app, db, companyRegistry, dataPathManager);
+        profileDebug.appendLog(app, 'profile_db_migration', migration);
+        console.log('[profile-debug] SQLite ready for company', id);
+        profileDebug.appendLog(app, 'db_init', { companyId: id, dbPath, userDataPath: app.getPath('userData'), exists: fs.existsSync(dbPath) });
     }
     catch (error) {
-        console.error('Database initialization failed:', error);
+        console.error('[profile-debug] Database initialization failed:', error);
+        profileDebug.appendLog(app, 'db_init_failed', { error: error?.message || String(error) });
     }
 }
 function readKvSyncState(key, fallback) {
@@ -372,6 +393,12 @@ function startEmbeddedMobileSync() {
         authTokenProvider: () => mobileSyncToken(),
         loadState: () => readKvSyncState('mobile_sync_state', {}),
         persistState: (state) => writeKvSyncState('mobile_sync_state', state),
+        getEntitlements: () => readKvSyncState('mobile_user_entitlements_v1', { users: [] }),
+        persistEntitlements: (value) => writeKvSyncState('mobile_user_entitlements_v1', value),
+        getSnapshot: () => readKvSyncState('mobile_data_snapshot_v1', null),
+        onDeviceBind: (payload) => {
+            broadcastUpdate('mobile-device-bound', payload);
+        },
         onStatus: (status) => {
             broadcastUpdate('mobile-sync-status', status);
         },
@@ -422,6 +449,76 @@ ipcMain.handle('kv-remove', (_event, key) => {
         return false;
     db.prepare('DELETE FROM kv_store WHERE key = ?').run(key);
     return true;
+});
+ipcMain.handle('company-profile-get-active', () => {
+    try {
+        if (!db)
+            return { success: false, error: 'Database not initialized' };
+        const companyCode = companyRegistry.readActiveId(app);
+        const profile = companyProfileDb.getProfileByCode(db, companyCode);
+        return { success: true, companyCode, profile };
+    }
+    catch (err) {
+        return { success: false, error: err?.message || String(err) };
+    }
+});
+ipcMain.handle('company-profile-upsert', (_event, payload) => {
+    try {
+        if (!db)
+            return { success: false, error: 'Database not initialized' };
+        const companyCode = String((payload === null || payload === void 0 ? void 0 : payload.companyCode) || companyRegistry.readActiveId(app) || '');
+        if (!companyCode)
+            return { success: false, error: 'No active company' };
+        const profile = companyProfileDb.upsertProfile(db, companyCode, payload || {});
+        return { success: true, companyCode, profile };
+    }
+    catch (err) {
+        return { success: false, error: err?.message || String(err) };
+    }
+});
+ipcMain.handle('company-profile-mark-completed', (_event, payload) => {
+    try {
+        if (!db)
+            return { success: false, error: 'Database not initialized' };
+        const companyCode = String((payload === null || payload === void 0 ? void 0 : payload.companyCode) || companyRegistry.readActiveId(app) || '');
+        const companyName = String((payload === null || payload === void 0 ? void 0 : payload.companyName) || '');
+        const result = companyProfileDb.markProfileCompleted(db, companyCode, companyName);
+        return { ...result, companyCode };
+    }
+    catch (err) {
+        return { success: false, error: err?.message || String(err) };
+    }
+});
+ipcMain.handle('company-profile-completion-status', () => {
+    try {
+        if (!db) {
+            return {
+                success: true,
+                profileCompleted: false,
+                companyExists: false,
+                reason: 'no_database',
+                migrationStatus: 'pending',
+                databasePath: dataPathManager.getDatabasePath(app),
+            };
+        }
+        const companyCode = companyRegistry.readActiveId(app);
+        const diagnostics = companyProfileDb.getStartupDiagnostics(app, db, companyRegistry, dataPathManager, companyCode);
+        return { success: true, ...diagnostics };
+    }
+    catch (err) {
+        return { success: false, error: err?.message || String(err) };
+    }
+});
+ipcMain.handle('company-profile-run-migration', () => {
+    try {
+        if (!db)
+            return { success: false, error: 'Database not initialized' };
+        const result = companyProfileDb.migrateFromLocalJsonIfNeeded(app, db, companyRegistry, dataPathManager);
+        return { success: true, ...result };
+    }
+    catch (err) {
+        return { success: false, error: err?.message || String(err) };
+    }
 });
 ipcMain.handle('companies-ensure-initialized', (_event, localData) => {
     const res = companyRegistry.ensureInitialized(app, localData || {});
@@ -494,11 +591,121 @@ ipcMain.handle('company-local-data-persist', (_event, localData) => {
         const id = companyRegistry.readActiveId(app);
         if (!id)
             return { success: false, error: 'No active company' };
-        return companyRegistry.persistCompanyLocalData(app, id, localData || {});
+        const result = companyRegistry.persistCompanyLocalData(app, id, localData || {});
+        profileDebug.logPersistResult(app, result);
+        return result;
     }
     catch (err) {
         console.error('[company-local-data-persist] failed', err);
+        profileDebug.logPersistResult(app, { success: false, error: err && err.message ? err.message : String(err) });
         return { success: false, error: err && err.message ? err.message : String(err) };
+    }
+});
+ipcMain.handle('profile-debug-scan', () => {
+    try {
+        return profileDebug.scanProfilePersistence(app, companyRegistry);
+    }
+    catch (err) {
+        return { error: err?.message || String(err) };
+    }
+});
+ipcMain.handle('profile-debug-log', (_event, payload) => {
+    try {
+        profileDebug.logRendererEvent(app, payload || {});
+        return { success: true };
+    }
+    catch (err) {
+        return { success: false, error: err?.message || String(err) };
+    }
+});
+ipcMain.handle('profile-debug-log-path', () => {
+    try {
+        return { path: profileDebug.getLogPath(app) };
+    }
+    catch (err) {
+        return { error: err?.message || String(err) };
+    }
+});
+ipcMain.handle('data-storage-get-config', () => {
+    try {
+        dataPathManager.init(app, companyRegistry);
+        return { success: true, config: dataPathManager.getPublicConfig(app) };
+    }
+    catch (err) {
+        return { success: false, error: err?.message || String(err) };
+    }
+});
+ipcMain.handle('data-storage-get-diagnostics', () => {
+    try {
+        dataPathManager.init(app, companyRegistry);
+        return { success: true, diagnostics: dataPathManager.getStartupDiagnostics(app, companyRegistry) };
+    }
+    catch (err) {
+        return { success: false, error: err?.message || String(err) };
+    }
+});
+ipcMain.handle('data-storage-scan-locations', () => {
+    try {
+        return { success: true, locations: dataPathManager.scanKnownLocations(app) };
+    }
+    catch (err) {
+        return { success: false, error: err?.message || String(err) };
+    }
+});
+ipcMain.handle('data-storage-set-location', (_event, payload) => {
+    try {
+        return dataPathManager.setDataLocation(app, companyRegistry, payload || {});
+    }
+    catch (err) {
+        return { success: false, error: err?.message || String(err) };
+    }
+});
+ipcMain.handle('data-storage-complete-first-run', (_event, payload) => {
+    try {
+        return dataPathManager.completeFirstRun(app, companyRegistry, payload || {});
+    }
+    catch (err) {
+        return { success: false, error: err?.message || String(err) };
+    }
+});
+ipcMain.handle('data-storage-restore-detected', (_event, sourceRoot) => {
+    try {
+        return dataPathManager.restoreFromDetectedLocation(app, companyRegistry, sourceRoot);
+    }
+    catch (err) {
+        return { success: false, error: err?.message || String(err) };
+    }
+});
+ipcMain.handle('data-storage-check-write', (_event, targetDir) => {
+    try {
+        return dataPathManager.checkWritePermission(String(targetDir || ''));
+    }
+    catch (err) {
+        return { ok: false, error: err?.message || String(err) };
+    }
+});
+ipcMain.handle('data-storage-open-path', (_event, targetPath) => {
+    try {
+        const p = String(targetPath || '').trim();
+        if (!p)
+            return { success: false };
+        shell.openPath(p);
+        return { success: true };
+    }
+    catch (err) {
+        return { success: false, error: err?.message || String(err) };
+    }
+});
+ipcMain.handle('data-storage-show-in-folder', (_event, targetPath) => {
+    try {
+        const p = String(targetPath || '').trim();
+        if (!p)
+            return { success: false };
+        shell.showItemInFolder(p);
+        return { success: true };
+    }
+    catch (err) {
+        return { success: false, error: err?.message || String(err) };
     }
 });
 ipcMain.handle('sync-status', async () => {
@@ -537,6 +744,19 @@ ipcMain.handle('mobile-sync-publish-change', async (_event, change) => {
     (_a = mobileSyncMiddleware === null || mobileSyncMiddleware === void 0 ? void 0 : mobileSyncMiddleware.publishDesktopChange) === null || _a === void 0 ? void 0 : _a.call(mobileSyncMiddleware, change);
     return true;
 });
+ipcMain.handle('mobile-entitlements-sync', async (_event, payload) => {
+    writeKvSyncState('mobile_user_entitlements_v1', payload);
+    return true;
+});
+ipcMain.handle('mobile-snapshot-publish', async (_event, snapshot) => {
+    var _a;
+    writeKvSyncState('mobile_data_snapshot_v1', {
+        ...(typeof snapshot === 'object' && snapshot ? snapshot : {}),
+        publishedAt: new Date().toISOString(),
+    });
+    (_a = mobileSyncMiddleware === null || mobileSyncMiddleware === void 0 ? void 0 : mobileSyncMiddleware.publishDesktopChange) === null || _a === void 0 ? void 0 : _a.call(mobileSyncMiddleware, { kind: 'snapshot_updated' });
+    return true;
+});
 function broadcastUpdate(channel, payload) {
     BrowserWindow.getAllWindows().forEach((win) => {
         if (!win.isDestroyed())
@@ -552,6 +772,60 @@ function formatReleaseNotes(info) {
     return undefined;
 }
 function configureAutoUpdater() {
+    let lastUpdateInfo = null;
+
+    const resolveGitHubRepo = () => {
+        try {
+            const pkg = require('../package.json');
+            const raw = String(pkg?.repository?.url ?? '').trim();
+            const m = raw.match(/github\.com[/:]([^/]+)\/([^/.]+)(?:\.git)?$/i);
+            if (!m) return null;
+            return { owner: m[1], repo: m[2] };
+        }
+        catch {
+            return null;
+        }
+    };
+
+    const urlExists = (url) => new Promise((resolve) => {
+        const req = https.request(url, { method: 'HEAD' }, (res) => {
+            const code = Number(res?.statusCode ?? 0);
+            resolve(code >= 200 && code < 400);
+        });
+        req.on('error', () => resolve(false));
+        req.end();
+    });
+
+    const buildFallbackAssetUrls = (version) => {
+        const repo = resolveGitHubRepo();
+        if (!repo || !version) return [];
+        const ver = String(version).replace(/^v/i, '');
+        const tags = [`v${ver}`, `V${ver}`, ver];
+        const rawNames = [
+            `PVE-InvoicePro-360-Setup-${ver}.exe`,
+            `PVE InvoicePro 360-Setup-${ver}.exe`,
+            `PVE-InvoicePro-360-${ver}.exe`,
+            `PVE InvoicePro 360-${ver}.exe`,
+            `GST Billing Software-Setup-${ver}.exe`,
+        ];
+        return tags.flatMap((tag) => {
+            const base = `https://github.com/${repo.owner}/${repo.repo}/releases/download/${tag}/`;
+            return rawNames.flatMap((n) => [base + n, base + encodeURIComponent(n)]);
+        });
+    };
+
+    const tryFallbackManualDownload = async (version) => {
+        const candidates = buildFallbackAssetUrls(version);
+        for (const url of candidates) {
+            // eslint-disable-next-line no-await-in-loop
+            if (await urlExists(url)) {
+                await shell.openExternal(url);
+                return url;
+            }
+        }
+        return null;
+    };
+
     if (!app.isPackaged) {
         ipcMain.handle('check-for-updates', async () => ({
             updateAvailable: false,
@@ -564,6 +838,7 @@ function configureAutoUpdater() {
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.on('update-available', (info) => {
+        lastUpdateInfo = info;
         broadcastUpdate('update-available', info);
         if (Notification.isSupported()) {
             try {
@@ -597,6 +872,7 @@ function configureAutoUpdater() {
             const result = await autoUpdater.checkForUpdates();
             const cur = app.getVersion();
             if (result?.updateInfo) {
+                lastUpdateInfo = result.updateInfo;
                 return {
                     updateAvailable: Boolean(result.isUpdateAvailable),
                     currentVersion: cur,
@@ -613,8 +889,25 @@ function configureAutoUpdater() {
         }
     });
     ipcMain.handle('download-update', async () => {
-        await autoUpdater.downloadUpdate();
-        return true;
+        try {
+            await autoUpdater.downloadUpdate();
+            return true;
+        }
+        catch (e) {
+            const message = String(e?.message || e || '');
+            const isNotFound = /status\s*404/i.test(message) || /Not Found/i.test(message);
+            if (!isNotFound)
+                throw e;
+            const targetVersion = String(lastUpdateInfo?.version ?? '').trim();
+            if (targetVersion) {
+                const fallbackUrl = await tryFallbackManualDownload(targetVersion);
+                if (fallbackUrl) {
+                    throw new Error(`Auto-update asset mismatch (404). Manual installer opened: ${fallbackUrl}. ` +
+                        'Please upload latest.yml + setup exe for seamless in-app updates.');
+                }
+            }
+            throw new Error('Auto-update asset not found on release (404). Please upload latest.yml and matching setup exe to the tagged release.');
+        }
     });
     ipcMain.handle('install-update', async () => {
         autoUpdater.quitAndInstall(false, true);
@@ -914,6 +1207,7 @@ ipcMain.handle('print:direct', async (_event, payload) => {
     }
 });
 app.whenReady().then(() => {
+    dataPathManager.init(app, companyRegistry);
     console.log('App is ready, initializing...');
     registerSessionIpc(app, sessionStore, companyRegistry);
     if (process.platform !== 'darwin') {

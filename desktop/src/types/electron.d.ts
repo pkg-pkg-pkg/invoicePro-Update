@@ -1,4 +1,52 @@
 // src/types/electron.d.ts
+export interface CompanyProfileRow {
+  id?: number;
+  company_code: string;
+  company_name?: string;
+  business_type?: string;
+  owner_name?: string;
+  mobile?: string;
+  email?: string;
+  gstin?: string;
+  pan?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  country?: string;
+  website?: string;
+  financial_year?: string;
+  logo_path?: string;
+  signature_path?: string;
+  stamp_path?: string;
+  bank_name?: string;
+  bank_account_number?: string;
+  bank_ifsc?: string;
+  bank_branch?: string;
+  is_profile_completed?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CompanyProfileCompletionStatus {
+  success?: boolean;
+  profileCompleted?: boolean;
+  companyExists?: boolean;
+  companyCode?: string;
+  companyName?: string;
+  reason?: string;
+  migrationStatus?: 'completed' | 'pending' | string;
+  databasePath?: string;
+  DATABASE_PATH?: string;
+  COMPANY_EXISTS?: boolean;
+  COMPANY_NAME?: string;
+  COMPANY_CODE?: string;
+  PROFILE_COMPLETED?: boolean;
+  MIGRATION_STATUS?: string;
+  REASON?: string;
+  error?: string;
+}
+
 export interface ElectronAPI {
   /** `process.platform` from main; custom title bar only on win32/linux */
   electronPlatform?: string;
@@ -60,7 +108,54 @@ export interface ElectronAPI {
     error?: string;
     path?: string;
   }>;
-  companyLocalDataPersist?: (localData: Record<string, string>) => Promise<{ success: boolean; error?: string }>;
+  companyLocalDataPersist?: (localData: Record<string, string>) => Promise<{
+    success: boolean;
+    error?: string;
+    companyId?: string;
+    userDataPath?: string;
+    savePath?: string;
+    readPath?: string;
+    profilePath?: string;
+    dbPath?: string;
+    payloadKeyCount?: number;
+    onDiskKeyCount?: number;
+    setupCompleted?: boolean;
+    profileComplete?: boolean;
+    writeVerified?: boolean;
+    commitOk?: boolean;
+  }>;
+  companyProfileGetActive?: () => Promise<{
+    success: boolean;
+    companyCode?: string;
+    profile?: CompanyProfileRow | null;
+    error?: string;
+  }>;
+  companyProfileUpsert?: (payload: Record<string, unknown>) => Promise<{
+    success: boolean;
+    companyCode?: string;
+    profile?: CompanyProfileRow | null;
+    error?: string;
+  }>;
+  companyProfileMarkCompleted?: (payload?: Record<string, unknown>) => Promise<{
+    success: boolean;
+    companyCode?: string;
+    profile?: CompanyProfileRow | null;
+    error?: string;
+  }>;
+  companyProfileCompletionStatus?: () => Promise<CompanyProfileCompletionStatus>;
+  companyProfileRunMigration?: () => Promise<Record<string, unknown>>;
+  profileDebugScan?: () => Promise<Record<string, unknown>>;
+  profileDebugLog?: (payload: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>;
+  profileDebugLogPath?: () => Promise<{ path?: string; error?: string }>;
+  dataStorageGetConfig?: () => Promise<{ success: boolean; config?: Record<string, unknown>; error?: string }>;
+  dataStorageGetDiagnostics?: () => Promise<{ success: boolean; diagnostics?: Record<string, unknown>; error?: string }>;
+  dataStorageScanLocations?: () => Promise<{ success: boolean; locations?: unknown[]; error?: string }>;
+  dataStorageSetLocation?: (payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  dataStorageCompleteFirstRun?: (payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  dataStorageRestoreDetected?: (sourceRoot: string) => Promise<Record<string, unknown>>;
+  dataStorageCheckWrite?: (targetDir: string) => Promise<{ ok: boolean; error?: string; path?: string }>;
+  dataStorageOpenPath?: (targetPath: string) => Promise<{ success: boolean; error?: string }>;
+  dataStorageShowInFolder?: (targetPath: string) => Promise<{ success: boolean; error?: string }>;
 
   sessionValidate?: () => Promise<{
     valid: boolean;
@@ -103,6 +198,9 @@ export interface ElectronAPI {
   mobileSyncStatus?: () => Promise<any>;
   mobileSyncRetry?: () => Promise<any>;
   mobileSyncPublishChange?: (change: unknown) => Promise<boolean>;
+  mobileEntitlementsSync?: (payload: unknown) => Promise<boolean>;
+  mobileSnapshotPublish?: (snapshot: unknown) => Promise<boolean>;
+  onMobileDeviceBound?: (callback: (data: unknown) => void) => () => void;
   onSyncUpdate: (callback: (data: any) => void) => void;
   onMobileSyncStatus?: (callback: (data: any) => void) => void;
 

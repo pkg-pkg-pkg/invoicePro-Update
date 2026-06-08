@@ -45,6 +45,7 @@ import InventoryItemMasterDialog from '../../../components/InventoryItemMasterDi
 import { decideGSTType } from '../../../services/vouchers/gstDecisionEngine';
 import { bifurcateTax } from '../../../services/vouchers/gstBifurcationEngine';
 import { normalizeStateToCode } from '../../../utils/stateMapping';
+import { getNormalizedCompanyProfile } from '../../../utils/companyProfile';
 import { rateMemory } from '../../../services/reports/rateMemory';
 import { usePincodeAutofill } from '../../../hooks/usePincodeAutofill';
 import PincodeTextField from '../../../components/PincodeTextField';
@@ -144,25 +145,9 @@ const PurchaseVoucherForm = () => {
   }, []);
 
   useEffect(() => {
-    // Load company state from localStorage
-    const savedCompanyState = localStorage.getItem('companyState');
-    if (savedCompanyState) {
-      // Normalize company state to state code for proper comparison
-      const normalized = normalizeStateToCode(savedCompanyState);
-      setCompanyState(normalized);
-    } else {
-      // Try from company-info as fallback
-      try {
-        const companyInfoRaw = localStorage.getItem('company-info');
-        if (companyInfoRaw) {
-          const parsed = JSON.parse(companyInfoRaw);
-          const rawState = parsed.state || '';
-          const normalized = normalizeStateToCode(rawState);
-          if (normalized) {
-            setCompanyState(normalized);
-          }
-        }
-      } catch {}
+    const rawState = getNormalizedCompanyProfile().state || '';
+    if (rawState) {
+      setCompanyState(normalizeStateToCode(rawState));
     }
 
     // Load parties for purchase (SUPPLIER + BOTH types)

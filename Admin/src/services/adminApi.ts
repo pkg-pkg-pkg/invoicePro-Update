@@ -217,3 +217,43 @@ export async function approveGatewayRenewalRequest(requestId: string): Promise<{
 export async function rejectGatewayRenewalRequest(requestId: string, reason?: string): Promise<{ ok: boolean }> {
   return call('rejectGatewayRenewalRequest', { requestId, reason });
 }
+
+export async function listMobileUserRequests(status = ''): Promise<Array<{ id: string; [k: string]: unknown }>> {
+  try {
+    const res = await call<{ ok: boolean; items: Array<{ id: string; [k: string]: unknown }> }>(
+      'listMobileUserRequests',
+      status ? { status } : {}
+    );
+    return res.items ?? [];
+  } catch {
+    const capped = 200;
+    const qs = await getDocs(query(collection(db, 'mobile_user_requests'), limit(capped)));
+    let items: Array<{ id: string; [k: string]: unknown }> = qs.docs.map((d) => ({
+      id: d.id,
+      ...(serializeValue(d.data()) as Record<string, unknown>),
+    }));
+    if (status) items = items.filter((r) => String(r.status ?? '') === status);
+    items.sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0));
+    return items;
+  }
+}
+
+export async function listMobileUsersAdmin(): Promise<Array<{ id: string; [k: string]: unknown }>> {
+  const res = await call<{ ok: boolean; items: Array<{ id: string; [k: string]: unknown }> }>(
+    'listMobileUsersAdmin',
+    {}
+  );
+  return res.items ?? [];
+}
+
+export async function approveMobileUserRequest(requestId: string): Promise<{ ok: boolean; initialPin?: string }> {
+  return call('approveMobileUserRequest', { requestId });
+}
+
+export async function rejectMobileUserRequest(requestId: string, reason?: string): Promise<{ ok: boolean }> {
+  return call('rejectMobileUserRequest', { requestId, reason });
+}
+
+export async function transferMobileUserDevice(userId: string): Promise<{ ok: boolean }> {
+  return call('transferMobileUserDevice', { userId });
+}

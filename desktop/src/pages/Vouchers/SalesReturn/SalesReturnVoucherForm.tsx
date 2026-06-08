@@ -16,6 +16,7 @@ import schemeService, { Scheme } from '../../../services/schemeService';
 import { getBestScheme } from '../../../services/schemeResolutionEngine';
 
 import { VoucherTotals } from '../../../types/VoucherTotals';
+import { getNormalizedCompanyProfile } from '../../../utils/companyProfile';
 
 const SalesReturnVoucherForm = () => {
   const navigate = useNavigate();
@@ -60,11 +61,8 @@ const SalesReturnVoucherForm = () => {
   }, []);
 
   useEffect(() => {
-    // Load company state from localStorage
-    const savedCompanyState = localStorage.getItem('companyState');
-    if (savedCompanyState) {
-      setCompanyState(savedCompanyState);
-    }
+    const rawState = getNormalizedCompanyProfile().state || '';
+    if (rawState) setCompanyState(rawState);
   }, []);
 
   const handleInvoiceSearch = async () => {

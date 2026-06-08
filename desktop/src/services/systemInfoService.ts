@@ -6,6 +6,7 @@ import { getAppSettings } from './appSettingsService';
 import { backupService } from './backupService';
 import { refreshMultiUserLanInCache } from './licenseService';
 import { networkService } from './networkService';
+import { getNormalizedCompanyProfile } from '../utils/companyProfile';
 
 export interface ElectronSystemInfo {
   appVersion?: string;
@@ -58,7 +59,7 @@ function maskLicenseKey(key: string | null | undefined): string {
 
 function getCompanyDisplayName(): string {
   try {
-    return String(localStorage.getItem('companyName') ?? '').trim();
+    return String(getNormalizedCompanyProfile().businessName ?? '').trim();
   } catch {
     return '';
   }

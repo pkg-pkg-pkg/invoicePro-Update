@@ -3,6 +3,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const dataPathManager = require('./dataPathManager.cjs');
 
 const INDEX_FILE = 'companies_index.json';
 const ACTIVE_FILE = 'active_company.json';
@@ -14,23 +15,24 @@ const DB_FILE = 'gst-billing.db';
 const BACKUPS_DIR = 'backups';
 
 function getAppDataRoot(app) {
-  return app.getPath('userData');
+  dataPathManager.init(app, module.exports);
+  return dataPathManager.getDataRoot(app);
 }
 
 function getCompaniesRoot(app) {
-  return path.join(getAppDataRoot(app), 'companies');
+  return dataPathManager.getCompaniesRoot(app);
 }
 
 function getIndexPath(app) {
-  return path.join(getAppDataRoot(app), INDEX_FILE);
+  return dataPathManager.getIndexPath(app);
 }
 
 function getActivePath(app) {
-  return path.join(getAppDataRoot(app), ACTIVE_FILE);
+  return dataPathManager.getActivePath(app);
 }
 
 function getLegacyDbPath(app) {
-  return path.join(getAppDataRoot(app), DB_FILE);
+  return dataPathManager.getLegacyDbPath(app);
 }
 
 function readJsonFile(filePath, fallback) {
@@ -344,9 +346,64 @@ function persistCompanyLocalData(app, companyId, localData) {
   if (!id) throw new Error('Company id required');
   ensureCompanyDirs(app, id);
   const payload = localData && typeof localData === 'object' ? localData : {};
+  const localDataPath = path.join(getCompanyDir(app, id), LOCAL_DATA_FILE);
+  const profilePath = path.join(getCompanyDir(app, id), PROFILE_FILE);
+  const dbPath = getCompanyDbPath(app, id);
+
   writeCompanyLocalData(app, id, payload);
   syncProfileFromLocalData(app, id, payload);
-  return { success: true };
+
+  let profileComplete = false;
+  try {
+    const raw = payload['company-info'];
+    const info = raw ? JSON.parse(raw) : {};
+    const businessName = String(info.businessName || info.name || payload.companyName || '').trim();
+    const address = String(info.address || payload.companyAddress || '').trim();
+    const phone = String(info.phone || payload.companyPhone || '').trim();
+    profileComplete = payload.setupCompleted === 'true' || Boolean(businessName && address && phone);
+  } catch {
+    profileComplete = payload.setupCompleted === 'true';
+  }
+
+  const onDisk = readCompanyLocalData(app, id);
+  const writeVerified = fs.existsSync(localDataPath) && Object.keys(onDisk).length > 0;
+
+  console.log('[profile-debug] persistCompanyLocalData', {
+    companyId: id,
+    userDataRoot: getAppDataRoot(app),
+    savePath: localDataPath,
+    profilePath,
+    dbPath,
+    payloadKeyCount: Object.keys(payload).length,
+    onDiskKeyCount: Object.keys(onDisk).length,
+    setupCompleted: payload.setupCompleted === 'true',
+    profileComplete,
+    writeVerified,
+  });
+
+  try {
+    dataPathManager.markProfileCompleted(app, profileComplete ? (JSON.parse(payload['company-info'] || '{}').businessName || '') : '');
+  } catch {
+    /* ignore */
+  }
+
+  return {
+    success: true,
+    companyId: id,
+    userDataPath: getAppDataRoot(app),
+    dataRoot: dataPathManager.getDataRoot(app),
+    configDatabasePath: dataPathManager.getDatabasePath(app),
+    savePath: localDataPath,
+    readPath: localDataPath,
+    profilePath,
+    dbPath,
+    payloadKeyCount: Object.keys(payload).length,
+    onDiskKeyCount: Object.keys(onDisk).length,
+    setupCompleted: payload.setupCompleted === 'true',
+    profileComplete,
+    writeVerified,
+    commitOk: writeVerified,
+  };
 }
 
 function ensureCompanySettingsFile(app, companyId) {
@@ -367,10 +424,16 @@ function writeCompanyLocalData(app, companyId, localData) {
 }
 
 function getCompanyDbPath(app, companyId) {
-  return path.join(ensureCompanyDirs(app, companyId), DB_FILE);
+  const id = String(companyId || '').trim();
+  const activeId = readActiveId(app);
+  if (!id || id === activeId) {
+    return dataPathManager.getDatabasePath(app);
+  }
+  return path.join(ensureCompanyDirs(app, id), DB_FILE);
 }
 
 function ensureInitialized(app, localDataFromRenderer) {
+  dataPathManager.init(app, module.exports);
   const indexPath = getIndexPath(app);
   const companiesRoot = getCompaniesRoot(app);
   fs.mkdirSync(companiesRoot, { recursive: true });
@@ -456,6 +519,11 @@ function enrichCompany(app, record, defaultId) {
   const state = String(profile?.state || fromLocal.state || '').trim();
   const name = String(profile?.name || fromLocal.name || record.name || '').trim();
   const dbPath = getCompanyDbPath(app, record.id);
+  const companyDir = getCompanyDir(app, record.id);
+  const localDataPath = path.join(companyDir, LOCAL_DATA_FILE);
+  const folderOk =
+    fs.existsSync(companyDir) &&
+    (fs.existsSync(dbPath) || fs.existsSync(localDataPath) || fs.existsSync(path.join(companyDir, PROFILE_FILE)));
   return {
     ...record,
     name,
@@ -466,8 +534,8 @@ function enrichCompany(app, record, defaultId) {
     fy: formatFyLabel(fyStartYear),
     fyStartYear,
     is_default: record.id === defaultId || Boolean(record.is_default),
-    data_folder: getCompanyDir(app, record.id),
-    folderOk: fs.existsSync(dbPath),
+    data_folder: companyDir,
+    folderOk,
   };
 }
 
@@ -625,6 +693,7 @@ function deleteCompany(app, companyId, currentLocalData) {
 
 module.exports = {
   BACKUPS_DIR,
+  getAppDataRoot,
   ensureInitialized,
   listCompanies,
   listCompaniesEnriched,
@@ -640,6 +709,7 @@ module.exports = {
   formatFyLabel,
   readCompanySettings,
   writeCompanySettings,
+  readCompanyLocalData,
   persistCompanyLocalData,
   SETTINGS_FILE,
   DEFAULT_COMPANY_SETTINGS,

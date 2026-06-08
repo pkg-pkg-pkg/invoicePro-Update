@@ -8,11 +8,13 @@ import PrintIcon from '@mui/icons-material/Print';
 import PeopleIcon from '@mui/icons-material/People';
 import InfoIcon from '@mui/icons-material/Info';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import StorageIcon from '@mui/icons-material/Storage';
 
 export type SettingsSectionId =
   | 'company'
   | 'security'
   | 'backup'
+  | 'data-storage'
   | 'network'
   | 'whatsapp'
   | 'print'
@@ -49,6 +51,13 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     icon: BackupIcon,
     emoji: '💾',
     keywords: ['backup', 'restore', 'snapshot', 'folder', 'auto backup'],
+  },
+  {
+    id: 'data-storage',
+    label: 'Data Storage',
+    icon: StorageIcon,
+    emoji: '🗄️',
+    keywords: ['data', 'storage', 'database', 'path', 'folder', 'location', 'appdata', 'custom', 'install'],
   },
   {
     id: 'network',

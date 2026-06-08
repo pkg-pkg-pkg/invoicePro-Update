@@ -13,6 +13,7 @@ import { fetchOriginalInvoice, calculateReturnTotals, validateReturnQuantities, 
 import { decideGSTType } from '../../../services/vouchers/gstDecisionEngine';
 import { bifurcateTax } from '../../../services/vouchers/gstBifurcationEngine';
 import { VoucherTotals } from '../../../types/VoucherTotals';
+import { getNormalizedCompanyProfile } from '../../../utils/companyProfile';
 
 const PurchaseReturnVoucherForm = () => {
   const navigate = useNavigate();
@@ -35,11 +36,8 @@ const PurchaseReturnVoucherForm = () => {
   const [enableRoundOff, setEnableRoundOff] = useState(true);
 
   useEffect(() => {
-    // Load company state from localStorage
-    const savedCompanyState = localStorage.getItem('companyState');
-    if (savedCompanyState) {
-      setCompanyState(savedCompanyState);
-    }
+    const rawState = getNormalizedCompanyProfile().state || '';
+    if (rawState) setCompanyState(rawState);
   }, []);
 
   const handleInvoiceSearch = async () => {

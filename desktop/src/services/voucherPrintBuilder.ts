@@ -10,6 +10,7 @@ import {
 } from './printService';
 import type { InvoiceTemplateId } from '../templates/invoice/invoiceTemplatesConfig';
 import { buildEwayPrintBlock } from './ewayBillService';
+import { getNormalizedCompanyProfile } from '../utils/companyProfile';
 
 export const amountToWordsINR = (amount: number): string => {
   const n = Math.round(Number(amount || 0));
@@ -84,24 +85,21 @@ export const resolvePrintFormatFromSettings = (): {
 };
 
 export const loadCompanyForPrint = (): CompanyInfo => {
-  const companyInfoRaw = localStorage.getItem('company-info');
-  const companyLogo = localStorage.getItem('companyLogo') || '';
-  const companySignature = localStorage.getItem('companySignature') || '';
-  const companyParsed = companyInfoRaw ? JSON.parse(companyInfoRaw) : {};
+  const p = getNormalizedCompanyProfile();
   return {
-    name: String(companyParsed?.name || companyParsed?.businessName || localStorage.getItem('companyName') || 'Company'),
-    address: String(companyParsed?.address || ''),
-    gstin: String(companyParsed?.gstin || ''),
-    phone: String(companyParsed?.phone || ''),
-    email: String(companyParsed?.email || ''),
-    website: String(companyParsed?.website || ''),
-    city: String(companyParsed?.city || ''),
-    pinCode: String(companyParsed?.pinCode || ''),
-    bank: String(companyParsed?.bank || ''),
-    accountNo: String(companyParsed?.accountNo || ''),
-    ifsc: String(companyParsed?.ifsc || ''),
-    logo: companyLogo || undefined,
-    signature: companySignature || undefined,
+    name: p.businessName || p.name || 'Company',
+    address: p.address,
+    gstin: p.gstin,
+    phone: p.phone,
+    email: p.email,
+    website: p.website,
+    city: p.city,
+    pinCode: p.pinCode,
+    bank: p.bank,
+    accountNo: p.accountNo,
+    ifsc: p.ifsc,
+    logo: p.logo || undefined,
+    signature: p.signature || undefined,
   };
 };
 

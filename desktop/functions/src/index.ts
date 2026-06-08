@@ -1728,3 +1728,485 @@ export const rejectGatewayRenewalRequest = functions
 
     return { ok: true };
   });
+
+/** Mobile ERP user seat — ₹599/year; works while desktop is online (no cloud DB). */
+const MOBILE_USER_ANNUAL_INR = 599;
+const MOBILE_USER_PERIOD_MS = 365 * 24 * 60 * 60 * 1000;
+const MOBILE_PIN_SALT = "pve_mobile_user_pin_v1";
+
+type MobileUserRequestDoc = {
+  licenseKey: string;
+  ownerEmail: string;
+  ownerUid: string;
+  userEmail: string;
+  mobileNumber: string;
+  displayName?: string;
+  utr: string;
+  amountInr: number;
+  upiPayee: string;
+  status: "pending" | "approved" | "rejected";
+  createdAt: admin.firestore.Timestamp | admin.firestore.FieldValue;
+  reviewedAt?: admin.firestore.Timestamp | admin.firestore.FieldValue;
+  reviewedByUid?: string;
+  rejectReason?: string;
+};
+
+type MobileUserDoc = {
+  licenseKey: string;
+  ownerEmail: string;
+  userEmail: string;
+  mobileNumber: string;
+  displayName: string;
+  pinHash: string;
+  status: "active" | "suspended";
+  validFrom: admin.firestore.Timestamp | admin.firestore.FieldValue;
+  validUntil: admin.firestore.Timestamp | admin.firestore.FieldValue;
+  deviceId?: string | null;
+  deviceKey?: string | null;
+  deviceBoundAt?: admin.firestore.Timestamp | admin.firestore.FieldValue | null;
+  transferPending?: boolean;
+  createdAt: admin.firestore.Timestamp | admin.firestore.FieldValue;
+  approvedAt?: admin.firestore.Timestamp | admin.firestore.FieldValue;
+  approvedByUid?: string;
+  lastRequestId?: string;
+};
+
+function normalizeMobileNumber(raw: string): string {
+  const digits = String(raw ?? "").replace(/\D/g, "");
+  if (digits.length === 10) return `+91${digits}`;
+  if (digits.length === 12 && digits.startsWith("91")) return `+${digits}`;
+  return String(raw ?? "").trim();
+}
+
+function mobileUserId(licenseKey: string, userEmail: string): string {
+  const lic = String(licenseKey ?? "").trim().toUpperCase();
+  const em = String(userEmail ?? "").trim().toLowerCase();
+  return `${lic}__${em}`;
+}
+
+function hashMobilePin(pin: string): string {
+  return crypto
+    .createHash("sha256")
+    .update(`${MOBILE_PIN_SALT}:${String(pin ?? "").trim()}`, "utf8")
+    .digest("hex");
+}
+
+function generateMobilePin(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+export const submitMobileUserSubscription = functions
+  .runWith({ maxInstances: 10 })
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    requireAuth(context);
+    const ownerEmail = requireEmail(context);
+    const ownerUid = String(context.auth?.uid ?? "");
+    const clientKey = String(data?.licenseKey ?? "").trim().toUpperCase();
+    const userEmail = String(data?.userEmail ?? "").trim().toLowerCase();
+    const mobileNumber = normalizeMobileNumber(String(data?.mobileNumber ?? ""));
+    const displayName = String(data?.displayName ?? "").trim().slice(0, 120);
+    const utr = normalizeUtr(String(data?.utr ?? ""));
+
+    if (!userEmail || !userEmail.includes("@")) {
+      throw new functions.https.HttpsError("invalid-argument", "Valid employee email is required");
+    }
+    if (!mobileNumber || mobileNumber.replace(/\D/g, "").length < 10) {
+      throw new functions.https.HttpsError("invalid-argument", "Valid mobile number is required");
+    }
+    if (!utr || utr.length < 8 || utr.length > 32) {
+      throw new functions.https.HttpsError("invalid-argument", "Enter a valid UTR (8–32 characters)");
+    }
+
+    const profileKey = await userLicenseKeyForEmail(ownerEmail);
+    if (!profileKey) {
+      throw new functions.https.HttpsError("failed-precondition", "No license on profile.");
+    }
+    if (clientKey && clientKey !== profileKey) {
+      throw new functions.https.HttpsError("permission-denied", "License key does not match your account");
+    }
+    const licenseKey = profileKey;
+
+    const userRef = admin.firestore().doc(`mobile_users/${mobileUserId(licenseKey, userEmail)}`);
+    const existingUser = await userRef.get();
+    if (existingUser.exists) {
+      const u = existingUser.data() as any;
+      const until = u?.validUntil as admin.firestore.Timestamp | undefined;
+      if (u?.status === "active" && until && until.toMillis() > Date.now()) {
+        throw new functions.https.HttpsError(
+          "failed-precondition",
+          "This mobile user already has an active subscription. Use renew or device transfer."
+        );
+      }
+    }
+
+    const pendingSnap = await admin
+      .firestore()
+      .collection("mobile_user_requests")
+      .where("licenseKey", "==", licenseKey)
+      .where("userEmail", "==", userEmail)
+      .where("status", "==", "pending")
+      .limit(1)
+      .get();
+    if (!pendingSnap.empty) {
+      throw new functions.https.HttpsError("failed-precondition", "A purchase request is already pending for this user");
+    }
+
+    const doc: MobileUserRequestDoc = {
+      licenseKey,
+      ownerEmail,
+      ownerUid,
+      userEmail,
+      mobileNumber,
+      displayName: displayName || userEmail,
+      utr,
+      amountInr: MOBILE_USER_ANNUAL_INR,
+      upiPayee: GATEWAY_UPI_PAYEE,
+      status: "pending",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    const ref = await admin.firestore().collection("mobile_user_requests").add(doc);
+    await writeAudit({
+      type: "mobile_user_submit",
+      licenseKey,
+      email: ownerEmail,
+      uid: ownerUid,
+      ok: true,
+      meta: { requestId: ref.id, userEmail, mobileNumber },
+    });
+    return { ok: true, requestId: ref.id };
+  });
+
+export const getMyMobileUserRequests = functions
+  .runWith({ maxInstances: 20 })
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    requireAuth(context);
+    const ownerEmail = requireEmail(context);
+    const clientKey = String(data?.licenseKey ?? "").trim().toUpperCase();
+    const profileKey = await userLicenseKeyForEmail(ownerEmail);
+    if (!profileKey) return { ok: true, items: [] as any[] };
+    if (clientKey && clientKey !== profileKey) {
+      throw new functions.https.HttpsError("permission-denied", "License key does not match your account");
+    }
+
+    const q = await admin
+      .firestore()
+      .collection("mobile_user_requests")
+      .where("licenseKey", "==", profileKey)
+      .orderBy("createdAt", "desc")
+      .limit(20)
+      .get();
+
+    const items = q.docs.map((d) => ({ id: d.id, ...(serializeFirestoreValue(d.data()) as any) }));
+    return { ok: true, items };
+  });
+
+export const listMobileUsersForLicense = functions
+  .runWith({ maxInstances: 20 })
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    requireAuth(context);
+    const ownerEmail = requireEmail(context);
+    const clientKey = String(data?.licenseKey ?? "").trim().toUpperCase();
+    const profileKey = await userLicenseKeyForEmail(ownerEmail);
+    if (!profileKey) return { ok: true, items: [] as any[] };
+    if (clientKey && clientKey !== profileKey) {
+      throw new functions.https.HttpsError("permission-denied", "License key does not match your account");
+    }
+
+    const q = await admin
+      .firestore()
+      .collection("mobile_users")
+      .where("licenseKey", "==", profileKey)
+      .limit(100)
+      .get();
+
+    const items = q.docs.map((d) => {
+      const raw = d.data() as any;
+      return {
+        id: d.id,
+        ...(serializeFirestoreValue(raw) as any),
+        pinHash: String(raw?.pinHash ?? ""),
+      };
+    });
+    return { ok: true, items };
+  });
+
+export const listMobileUserRequests = functions
+  .runWith({ maxInstances: 5 })
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    try {
+      await requireAdmin(context);
+      const statusFilter = data?.status != null ? String(data.status) : "";
+      const limitN = Math.min(Math.max(Number(data?.limit ?? 50), 1), 200);
+
+      let snap: admin.firestore.QuerySnapshot;
+      if (statusFilter === "pending" || statusFilter === "approved" || statusFilter === "rejected") {
+        snap = await queryWithCreatedAtFallback(
+          () =>
+            admin
+              .firestore()
+              .collection("mobile_user_requests")
+              .where("status", "==", statusFilter)
+              .orderBy("createdAt", "desc")
+              .limit(limitN)
+              .get(),
+          () =>
+            admin
+              .firestore()
+              .collection("mobile_user_requests")
+              .where("status", "==", statusFilter)
+              .limit(limitN * 3)
+              .get(),
+          "listMobileUserRequests"
+        );
+      } else {
+        snap = await queryWithCreatedAtFallback(
+          () =>
+            admin
+              .firestore()
+              .collection("mobile_user_requests")
+              .orderBy("createdAt", "desc")
+              .limit(limitN)
+              .get(),
+          () => admin.firestore().collection("mobile_user_requests").limit(limitN * 3).get(),
+          "listMobileUserRequests"
+        );
+      }
+
+      const items = snap.docs.map((d) => ({
+        id: d.id,
+        ...(serializeFirestoreValue(d.data()) as any),
+      }));
+      return { ok: true, items: sortByCreatedAtDesc(items).slice(0, limitN) };
+    } catch (err: any) {
+      if (err instanceof functions.https.HttpsError) throw err;
+      logger.error("listMobileUserRequests_failed", err);
+      return { ok: true, items: [] };
+    }
+  });
+
+export const listMobileUsersAdmin = functions
+  .runWith({ maxInstances: 5 })
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    await requireAdmin(context);
+    const limitN = Math.min(Math.max(Number(data?.limit ?? 100), 1), 300);
+    const snap = await admin.firestore().collection("mobile_users").limit(limitN * 2).get();
+    const items = snap.docs
+      .map((d) => ({
+        id: d.id,
+        ...(serializeFirestoreValue(d.data()) as any),
+        pinHash: undefined,
+      }))
+      .slice(0, limitN);
+    return { ok: true, items };
+  });
+
+export const approveMobileUserRequest = functions
+  .runWith({ maxInstances: 5 })
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    await requireAdmin(context);
+    const adminUid = String(context.auth?.uid ?? "");
+    const requestId = String(data?.requestId ?? "").trim();
+    if (!requestId) {
+      throw new functions.https.HttpsError("invalid-argument", "requestId required");
+    }
+
+    const reqRef = admin.firestore().doc(`mobile_user_requests/${requestId}`);
+    let initialPin = "";
+    let userDocId = "";
+
+    await admin.firestore().runTransaction(async (tx) => {
+      const reqSnap = await tx.get(reqRef);
+      if (!reqSnap.exists) {
+        throw new functions.https.HttpsError("not-found", "Request not found");
+      }
+      const req = reqSnap.data() as MobileUserRequestDoc;
+      if (String(req?.status ?? "") !== "pending") {
+        throw new functions.https.HttpsError("failed-precondition", "Request is not pending");
+      }
+
+      const licenseKey = String(req.licenseKey ?? "").trim().toUpperCase();
+      const userEmail = String(req.userEmail ?? "").trim().toLowerCase();
+      userDocId = mobileUserId(licenseKey, userEmail);
+      initialPin = generateMobilePin();
+      const now = admin.firestore.FieldValue.serverTimestamp();
+      const validUntil = admin.firestore.Timestamp.fromMillis(Date.now() + MOBILE_USER_PERIOD_MS);
+
+      const userRef = admin.firestore().doc(`mobile_users/${userDocId}`);
+      const userDoc: MobileUserDoc = {
+        licenseKey,
+        ownerEmail: String(req.ownerEmail ?? "").toLowerCase(),
+        userEmail,
+        mobileNumber: normalizeMobileNumber(req.mobileNumber),
+        displayName: String(req.displayName || userEmail),
+        pinHash: hashMobilePin(initialPin),
+        status: "active",
+        validFrom: now,
+        validUntil,
+        deviceId: null,
+        deviceKey: null,
+        deviceBoundAt: null,
+        transferPending: false,
+        createdAt: now,
+        approvedAt: now,
+        approvedByUid: adminUid,
+        lastRequestId: requestId,
+      };
+      tx.set(userRef, userDoc, { merge: true });
+
+      tx.set(
+        reqRef,
+        {
+          status: "approved",
+          reviewedAt: now,
+          reviewedByUid: adminUid,
+        },
+        { merge: true }
+      );
+    });
+
+    await writeAudit({
+      type: "mobile_user_approve",
+      licenseKey: userDocId.split("__")[0] || "",
+      uid: adminUid,
+      ok: true,
+      meta: { requestId, userDocId },
+    });
+
+    return { ok: true, userId: userDocId, initialPin };
+  });
+
+export const rejectMobileUserRequest = functions
+  .runWith({ maxInstances: 5 })
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    await requireAdmin(context);
+    const adminUid = String(context.auth?.uid ?? "");
+    const requestId = String(data?.requestId ?? "").trim();
+    const reason = String(data?.reason ?? "").trim().slice(0, 500);
+    if (!requestId) {
+      throw new functions.https.HttpsError("invalid-argument", "requestId required");
+    }
+
+    const reqRef = admin.firestore().doc(`mobile_user_requests/${requestId}`);
+    await admin.firestore().runTransaction(async (tx) => {
+      const reqSnap = await tx.get(reqRef);
+      if (!reqSnap.exists) {
+        throw new functions.https.HttpsError("not-found", "Request not found");
+      }
+      const req = reqSnap.data() as any;
+      if (String(req?.status ?? "") !== "pending") {
+        throw new functions.https.HttpsError("failed-precondition", "Request is not pending");
+      }
+      tx.set(
+        reqRef,
+        {
+          status: "rejected",
+          reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
+          reviewedByUid: adminUid,
+          rejectReason: reason || undefined,
+        },
+        { merge: true }
+      );
+    });
+    return { ok: true };
+  });
+
+export const transferMobileUserDevice = functions
+  .runWith({ maxInstances: 10 })
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    const userId = String(data?.userId ?? "").trim();
+    if (!userId) {
+      throw new functions.https.HttpsError("invalid-argument", "userId required");
+    }
+
+    let isAdmin = false;
+    try {
+      await requireAdmin(context);
+      isAdmin = true;
+    } catch {
+      requireAuth(context);
+      const ownerEmail = requireEmail(context);
+      const profileKey = await userLicenseKeyForEmail(ownerEmail);
+      if (!profileKey) {
+        throw new functions.https.HttpsError("permission-denied", "Not allowed");
+      }
+      const userRef = admin.firestore().doc(`mobile_users/${userId}`);
+      const snap = await userRef.get();
+      if (!snap.exists) {
+        throw new functions.https.HttpsError("not-found", "Mobile user not found");
+      }
+      const u = snap.data() as any;
+      if (String(u?.licenseKey ?? "").toUpperCase() !== profileKey) {
+        throw new functions.https.HttpsError("permission-denied", "Not your license");
+      }
+      if (String(u?.ownerEmail ?? "").toLowerCase() !== ownerEmail) {
+        throw new functions.https.HttpsError("permission-denied", "Not allowed");
+      }
+    }
+
+    const userRef = admin.firestore().doc(`mobile_users/${userId}`);
+    await userRef.set(
+      {
+        deviceId: null,
+        deviceKey: null,
+        deviceBoundAt: null,
+        transferPending: true,
+        transferRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
+        transferByUid: String(context.auth?.uid ?? ""),
+        transferByAdmin: isAdmin,
+      },
+      { merge: true }
+    );
+
+    await writeAudit({
+      type: "mobile_user_device_transfer",
+      licenseKey: userId.split("__")[0] || "",
+      uid: String(context.auth?.uid ?? ""),
+      ok: true,
+      meta: { userId, isAdmin },
+    });
+    return { ok: true };
+  });
+
+export const registerMobileUserDevice = functions
+  .runWith({ maxInstances: 20 })
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    requireAuth(context);
+    const ownerEmail = requireEmail(context);
+    const userId = String(data?.userId ?? "").trim();
+    const deviceId = String(data?.deviceId ?? "").trim();
+    if (!userId || !deviceId) {
+      throw new functions.https.HttpsError("invalid-argument", "userId and deviceId required");
+    }
+
+    const profileKey = await userLicenseKeyForEmail(ownerEmail);
+    if (!profileKey) {
+      throw new functions.https.HttpsError("failed-precondition", "No license on profile.");
+    }
+
+    const userRef = admin.firestore().doc(`mobile_users/${userId}`);
+    const snap = await userRef.get();
+    if (!snap.exists) {
+      throw new functions.https.HttpsError("not-found", "Mobile user not found");
+    }
+    const u = snap.data() as any;
+    if (String(u?.licenseKey ?? "").toUpperCase() !== profileKey) {
+      throw new functions.https.HttpsError("permission-denied", "Not your license");
+    }
+
+    const dKey = deviceKey(deviceId);
+    if (u?.deviceId && u?.deviceKey && u.deviceKey !== dKey && !u?.transferPending) {
+      throw new functions.https.HttpsError("failed-precondition", "Device already bound. Request transfer first.");
+    }
+
+    await userRef.set(
+      {
+        deviceId,
+        deviceKey: dKey,
+        deviceBoundAt: admin.firestore.FieldValue.serverTimestamp(),
+        transferPending: false,
+      },
+      { merge: true }
+    );
+    return { ok: true };
+  });

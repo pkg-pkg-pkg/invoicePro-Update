@@ -14,6 +14,12 @@ import { invoke } from '@tauri-apps/api/core';
 import { usePermissions } from '../hooks/usePermissions';
 import { isTauriRuntime, isElectronRuntime } from '../utils/runtime';
 import { persistActiveCompanyLocalData } from '../services/companyRegistryService';
+import {
+  getActiveCompanyProfileRow,
+  normalizedToUpsertPayload,
+  preloadCompanyProfile,
+  upsertCompanyProfile,
+} from '../services/companyProfileDbService';
 import { auth } from '../firebase/firebase';
 import {
   callSubmitMultiUserUpgrade,
@@ -43,6 +49,7 @@ import { getActiveCompanyId } from '../utils/companyStorage';
 import { getSessionSettings, setSessionSettings } from '../services/sessionManager';
 import SettingsShell, { SettingsSectionBlock } from '../components/settings/SettingsShell';
 import GstEwayBillSettings from '../components/settings/GstEwayBillSettings';
+import DataStorageSettings from '../components/settings/DataStorageSettings';
 import type { SettingsSectionId } from '../components/settings/settingsNavConfig';
 
 // Password Change Form Component
@@ -259,6 +266,8 @@ export default function Settings() {
       setActiveSection('security');
     } else if (t === 'backup') {
       setActiveSection('backup');
+    } else if (t === 'data-storage' || t === 'storage' || t === 'data') {
+      setActiveSection('data-storage');
     } else if (t === 'whatsapp') {
       setActiveSection('whatsapp');
     } else if (t === 'print') {
@@ -291,20 +300,7 @@ export default function Settings() {
     });
   }, [activeSection]);
 
-  const loadCompanyMedia = (): CompanyMediaInfo => {
-    try {
-      const raw = localStorage.getItem('company-info');
-      if (!raw) return {};
-      const parsed = JSON.parse(raw);
-      return {
-        logo: String(parsed?.logo ?? '').trim() || undefined,
-        signature: String(parsed?.signature ?? '').trim() || undefined,
-      };
-    } catch {
-      return {};
-    }
-  };
-  const [companyMedia, setCompanyMedia] = useState<CompanyMediaInfo>(loadCompanyMedia());
+  const [companyMedia, setCompanyMedia] = useState<CompanyMediaInfo>({});
 
   const [licenseState, setLicenseState] = useState<any>(null);
   const [licenseLoading, setLicenseLoading] = useState(false);
@@ -330,19 +326,19 @@ export default function Settings() {
   const [gatewayRenewRequest, setGatewayRenewRequest] = useState<any | null>(null);
 
 
-  const loadCompanyProfile = (): CompanyProfile => ({
-    name: localStorage.getItem('companyName')?.trim() || APP_DISPLAY_NAME,
-    address: localStorage.getItem('companyAddress')?.trim() || '',
-    statePin: localStorage.getItem('companyStatePin')?.trim() || '',
-    mobiles: localStorage.getItem('companyMobiles')?.trim() || '',
-    email: localStorage.getItem('companyEmail')?.trim() || '',
-    website: localStorage.getItem('companyWebsite')?.trim() || '',
-    upiId: localStorage.getItem('companyUpiId')?.trim() || '',
-    gstin: localStorage.getItem('companyGSTIN')?.trim() || '',
+  const emptyCompanyProfile = (): CompanyProfile => ({
+    name: APP_DISPLAY_NAME,
+    address: '',
+    statePin: '',
+    mobiles: '',
+    email: '',
+    website: '',
+    upiId: '',
+    gstin: '',
   });
 
-  const [companyProfile, setCompanyProfile] = useState<CompanyProfile>(loadCompanyProfile());
-  const [originalProfile, setOriginalProfile] = useState<CompanyProfile>(loadCompanyProfile());
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile>(emptyCompanyProfile());
+  const [originalProfile, setOriginalProfile] = useState<CompanyProfile>(emptyCompanyProfile());
   const [isEditing, setIsEditing] = useState(false);
   const [saved, setSaved] = useState(false);
   const [errors, setErrors] = useState<Partial<CompanyProfile>>({});
@@ -408,31 +404,45 @@ export default function Settings() {
   };
 
   const upsertCompanyInfo = (partial: Record<string, any>) => {
-    try {
-      const raw = localStorage.getItem('company-info');
-      const prev = raw ? JSON.parse(raw) : {};
-      const merged = { ...prev, ...partial };
-      const normalizedName = String(merged?.name || merged?.businessName || localStorage.getItem('companyName') || '').trim();
-      const next = { ...merged, name: normalizedName, businessName: normalizedName };
-      localStorage.setItem('company-info', JSON.stringify(next));
-      if (Object.prototype.hasOwnProperty.call(partial, 'logo')) {
-        localStorage.setItem('companyLogo', String(partial.logo ?? ''));
-      }
-      if (Object.prototype.hasOwnProperty.call(partial, 'signature')) {
-        localStorage.setItem('companySignature', String(partial.signature ?? ''));
-      }
-      window.dispatchEvent(new Event('companyProfileUpdated'));
-      return true;
-    } catch (e: any) {
-      const msg = String(e?.message ?? '').trim();
-      if (msg.toLowerCase().includes('quota')) {
-        setLicenseError('Storage full. Please upload a smaller image (try a smaller PNG/JPG/WebP).');
-      } else {
-        setLicenseError(msg || 'Failed to save company profile to this device');
-      }
-      return false;
-    }
+    void upsertCompanyProfile(normalizedToUpsertPayload(partial))
+      .then((res) => {
+        if (!res.success) {
+          setLicenseError(res.error || 'Failed to save company profile to database');
+          return;
+        }
+        void preloadCompanyProfile();
+        window.dispatchEvent(new Event('companyProfileUpdated'));
+      })
+      .catch((e: unknown) => {
+        const msg = String((e as Error)?.message ?? '').trim();
+        setLicenseError(msg || 'Failed to save company profile to database');
+      });
+    return true;
   };
+
+  useEffect(() => {
+    void (async () => {
+      const row = await getActiveCompanyProfileRow();
+      if (!row) return;
+      const statePin = [row.city, row.state, row.pincode].filter(Boolean).join(', ');
+      const loaded: CompanyProfile = {
+        name: String(row.company_name || APP_DISPLAY_NAME).trim(),
+        address: String(row.address || '').trim(),
+        statePin,
+        mobiles: String(row.mobile || '').trim(),
+        email: String(row.email || '').trim(),
+        website: String(row.website || '').trim(),
+        upiId: '',
+        gstin: String(row.gstin || '').trim(),
+      };
+      setCompanyProfile(loaded);
+      setOriginalProfile(loaded);
+      setCompanyMedia({
+        logo: String(row.logo_path || '').trim() || undefined,
+        signature: String(row.signature_path || '').trim() || undefined,
+      });
+    })();
+  }, []);
 
   const readFileAsDataUrl = (file: File) =>
     new Promise<string>((resolve, reject) => {
@@ -606,7 +616,14 @@ export default function Settings() {
   }, []);
 
   useEffect(() => {
-    setCompanyMedia(loadCompanyMedia());
+    if (!saved) return;
+    void getActiveCompanyProfileRow().then((row) => {
+      if (!row) return;
+      setCompanyMedia({
+        logo: String(row.logo_path || '').trim() || undefined,
+        signature: String(row.signature_path || '').trim() || undefined,
+      });
+    });
   }, [saved]);
 
   useEffect(() => {
@@ -797,43 +814,33 @@ export default function Settings() {
     const parsedCity = statePinParts[0] || '';
     const parsedState = (statePinParts[1] || '').replace(/\s*-?\s*\d{6}$/, '').trim();
 
-    // Save to localStorage
-    localStorage.setItem('companyName', companyProfile.name.trim());
-    localStorage.setItem('companyAddress', companyProfile.address.trim());
-    localStorage.setItem('companyStatePin', statePin);
-    localStorage.setItem('companyMobiles', companyProfile.mobiles.trim());
-    localStorage.setItem('companyEmail', companyProfile.email.trim());
-    localStorage.setItem('companyWebsite', companyProfile.website.trim());
-    localStorage.setItem('companyUpiId', companyProfile.upiId.trim());
-    localStorage.setItem('companyGSTIN', companyProfile.gstin.trim());
-
-    upsertCompanyInfo({
-      name: companyProfile.name.trim(),
-      businessName: companyProfile.name.trim(),
-      address: companyProfile.address.trim(),
-      phone: companyProfile.mobiles.trim(),
-      email: companyProfile.email.trim(),
-      upiId: companyProfile.upiId.trim(),
-      gstin: companyProfile.gstin.trim(),
-      city: parsedCity,
-      state: parsedState,
-      statePin,
-      logo: companyMedia.logo ?? '',
-      signature: companyMedia.signature ?? '',
-    });
-
     void (async () => {
-      const persisted = await persistActiveCompanyLocalData();
-      if (!persisted.success && persisted.error) {
-        console.warn('[Settings] company disk sync failed', persisted.error);
+      const res = await upsertCompanyProfile(
+        normalizedToUpsertPayload({
+          name: companyProfile.name.trim(),
+          businessName: companyProfile.name.trim(),
+          address: companyProfile.address.trim(),
+          phone: companyProfile.mobiles.trim(),
+          email: companyProfile.email.trim(),
+          gstin: companyProfile.gstin.trim(),
+          website: companyProfile.website.trim(),
+          city: parsedCity,
+          state: parsedState,
+          pinCode: statePin.replace(/^[^,]+,\s*/, '').match(/\d{6}/)?.[0] || '',
+          logo: companyMedia.logo ?? '',
+          signature: companyMedia.signature ?? '',
+        })
+      );
+      if (!res.success) {
+        setLicenseError(res.error || 'Failed to save company profile');
+        return;
       }
+      await preloadCompanyProfile();
+      window.dispatchEvent(new Event('companyProfileUpdated'));
+      setSaved(true);
+      setErrors({});
+      setIsEditing(false);
     })();
-
-    // Dispatch event for other components to update
-    window.dispatchEvent(new Event('companyProfileUpdated'));
-    setSaved(true);
-    setErrors({});
-    setIsEditing(false);
   };
 
   return (
@@ -1487,6 +1494,12 @@ export default function Settings() {
 
         {activeSection === 'backup' && (
           canBackup || canRestore ? <BackupRestore /> : <Alert severity="error" sx={{ mt: 3 }}>You do not have permission to backup/restore</Alert>
+        )}
+
+        {activeSection === 'data-storage' && (
+          <SettingsSectionBlock title="Data Storage" subtitle="Database path, backups, and custom data location">
+            <DataStorageSettings />
+          </SettingsSectionBlock>
         )}
 
       </SettingsShell>

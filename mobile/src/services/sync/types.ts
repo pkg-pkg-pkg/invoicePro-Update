@@ -17,4 +17,6 @@ export interface MobileSyncConfig {
   endpointBase: string;
   token: string;
   cursor: number;
+  sessionToken?: string;
+  deviceId?: string;
 }

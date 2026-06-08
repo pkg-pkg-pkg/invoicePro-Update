@@ -30,6 +30,8 @@ export async function readSyncConfig(): Promise<MobileSyncConfig> {
     endpointBase: String(data.endpointBase || 'http://localhost:3399/mobile-sync'),
     token: String(data.token || ''),
     cursor: Number(data.cursor || 0),
+    sessionToken: String(data.sessionToken || ''),
+    deviceId: String(data.deviceId || ''),
   };
 }
 

@@ -1,5 +1,6 @@
 import type { SalesPipelineLineItem } from '../../types/salesDocuments';
 import { amountToWordsINR } from '../voucherPrintBuilder';
+import { getNormalizedCompanyProfile } from '../../utils/companyProfile';
 
 export type SalesLineCalc = {
   discount: number;
@@ -36,16 +37,7 @@ export type SalesDocTotals = {
 };
 
 function readCompanyState(): string {
-  try {
-    const raw = localStorage.getItem('company-info');
-    if (raw) {
-      const p = JSON.parse(raw) as { state?: string };
-      if (p.state?.trim()) return p.state.trim();
-    }
-    return localStorage.getItem('companyState')?.trim() || '';
-  } catch {
-    return '';
-  }
+  return getNormalizedCompanyProfile().state.trim();
 }
 
 function isInterState(placeOfSupply: string, companyState: string): boolean {

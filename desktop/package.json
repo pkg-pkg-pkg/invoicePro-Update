@@ -14,7 +14,7 @@
     "build": "tsc && vite build",
     "build:prod": "cross-env NODE_ENV=production VITE_ENV=production tsc && vite build",
     "build:ui": "tsc && vite build",
-    "build:win": "cross-env NODE_ENV=production VITE_ENV=production tsc && vite build && npm run build:icons && electron-builder --win",
+    "build:win": "npm run electron:kill && cross-env NODE_ENV=production VITE_ENV=production tsc && vite build && npm run build:icons && node scripts/prepare-electron-release.cjs && node scripts/run-electron-builder-win.cjs",
     "preview": "vite preview",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",

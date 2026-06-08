@@ -28,6 +28,7 @@ import AppUpdateTab from './tabs/AppUpdateTab';
 import ActivityTab from './tabs/ActivityTab';
 import LanUpgradesTab from './tabs/LanUpgradesTab';
 import GatewayRenewalsTab from './tabs/GatewayRenewalsTab';
+import MobileUsersTab from './tabs/MobileUsersTab';
 import RiskTab from './tabs/RiskTab';
 
 const TAB_PATHS = [
@@ -37,6 +38,7 @@ const TAB_PATHS = [
   'app-update',
   'lan-upgrades',
   'gateway-renewals',
+  'mobile-users',
   'risk',
 ] as const;
 
@@ -47,6 +49,7 @@ const TAB_LABELS = [
   'App update',
   'LAN upgrades',
   'Gateway renewals',
+  'Mobile users',
   'Risk',
 ] as const;
 
@@ -194,6 +197,7 @@ export default function AdminDashboard() {
           <Route path="app-update" element={<AppUpdateTab />} />
           <Route path="lan-upgrades" element={<LanUpgradesTab />} />
           <Route path="gateway-renewals" element={<GatewayRenewalsTab />} />
+          <Route path="mobile-users" element={<MobileUsersTab />} />
           <Route path="risk" element={<RiskTab />} />
           <Route path="" element={<Navigate to="/admin/licenses" replace />} />
         </Routes>

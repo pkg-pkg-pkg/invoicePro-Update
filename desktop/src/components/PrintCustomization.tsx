@@ -18,6 +18,7 @@ import {
 } from '@mui/icons-material';
 import { usePrintCustomization } from '../hooks/usePrintCustomization';
 import { getNormalizedCompanyProfile } from '../utils/companyProfile';
+import { normalizedToUpsertPayload, upsertCompanyProfile } from '../services/companyProfileDbService';
 
 const sampleInvoice = {
   invoiceNumber: 'INV-PREVIEW-001',
@@ -89,21 +90,9 @@ export default function PrintCustomization() {
   const [saveStatus, setSaveStatus] = useState('');
 
   const upsertCompanyInfo = (partial: Record<string, any>) => {
-    try {
-      const raw = localStorage.getItem('company-info');
-      const prev = raw ? JSON.parse(raw) : {};
-      const next = { ...prev, ...partial };
-      localStorage.setItem('company-info', JSON.stringify(next));
-      if (Object.prototype.hasOwnProperty.call(partial, 'logo')) {
-        localStorage.setItem('companyLogo', String(partial.logo ?? ''));
-      }
-      if (Object.prototype.hasOwnProperty.call(partial, 'signature')) {
-        localStorage.setItem('companySignature', String(partial.signature ?? ''));
-      }
+    void upsertCompanyProfile(normalizedToUpsertPayload(partial)).then(() => {
       window.dispatchEvent(new Event('companyProfileUpdated'));
-    } catch {
-      // ignore
-    }
+    });
   };
 
   useEffect(() => {
@@ -203,11 +192,18 @@ export default function PrintCustomization() {
     try {
       const normalizedName = String(companyInfo.name || '').trim();
       localStorage.setItem('invoice-settings', JSON.stringify(settings));
-      localStorage.setItem('company-info', JSON.stringify({ ...companyInfo, name: normalizedName, businessName: normalizedName }));
-      localStorage.setItem('companyLogo', String((companyInfo as any)?.logo ?? ''));
-      localStorage.setItem('companySignature', String((companyInfo as any)?.signature ?? ''));
       localStorage.setItem('selected-format', selectedFormat);
-      window.dispatchEvent(new Event('companyProfileUpdated'));
+      upsertCompanyInfo({
+        name: normalizedName,
+        businessName: normalizedName,
+        address: companyInfo.address,
+        phone: companyInfo.phone,
+        email: companyInfo.email,
+        gstin: companyInfo.gstin,
+        logo: (companyInfo as { logo?: string }).logo,
+        signature: (companyInfo as { signature?: string }).signature,
+        termsAndConditions: companyInfo.termsAndConditions,
+      });
       setSaveStatus('Settings saved successfully!');
       setTimeout(() => setSaveStatus(''), 3000);
     } catch (e) {

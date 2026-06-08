@@ -11,8 +11,8 @@ import {
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/auth';
-import { saveCompanyDetailsToCloud } from '../services/companyDetailsCloudService';
-import { getNormalizedCompanyProfile } from '../utils/companyProfile';
+import { finalizeBusinessProfileSave } from '../services/businessProfileService';
+import { getActiveCompanyProfileRow } from '../services/companyProfileDbService';
 import { usePincodeAutofill } from '../hooks/usePincodeAutofill';
 import PincodeTextField from '../components/PincodeTextField';
 
@@ -77,34 +77,25 @@ export default function BusinessProfile(): JSX.Element {
       try {
         setLoading(true);
         setError(null);
-        const p: any = (() => {
-          const normalized = getNormalizedCompanyProfile();
-          try {
-            const raw = localStorage.getItem('company-info');
-            const parsed = raw ? JSON.parse(raw) : {};
-            return { ...parsed, ...normalized };
-          } catch {
-            return normalized;
-          }
-        })();
+        const row = await getActiveCompanyProfileRow();
 
         if (!cancelled) {
           setForm({
-            businessName: String(p?.businessName ?? p?.name ?? '').trim(),
-            ownerName: String(p?.name ?? '').trim(),
-            address: String(p?.address ?? '').trim(),
-            city: String(p?.city ?? '').trim(),
-            district: String(p?.district ?? '').trim(),
-            state: String(p?.state ?? '').trim(),
-            pinCode: String(p?.pinCode ?? '').trim(),
-            phone: String(p?.phone ?? '').trim(),
-            email: String(p?.email ?? '').trim(),
-            gstNumber: String(p?.gstNumber ?? '').trim(),
-            panNumber: String(p?.panNumber ?? '').trim(),
-            bankName: String(p?.bankName ?? '').trim(),
-            bankAccountNumber: String(p?.bankAccountNumber ?? '').trim(),
-            bankIfsc: String(p?.bankIfsc ?? '').trim(),
-            bankBranch: String(p?.bankBranch ?? '').trim(),
+            businessName: String(row?.company_name ?? '').trim(),
+            ownerName: String(row?.owner_name ?? '').trim(),
+            address: String(row?.address ?? '').trim(),
+            city: String(row?.city ?? '').trim(),
+            district: '',
+            state: String(row?.state ?? '').trim(),
+            pinCode: String(row?.pincode ?? '').trim(),
+            phone: String(row?.mobile ?? '').trim(),
+            email: String(row?.email ?? '').trim(),
+            gstNumber: String(row?.gstin ?? '').trim(),
+            panNumber: String(row?.pan ?? '').trim(),
+            bankName: String(row?.bank_name ?? '').trim(),
+            bankAccountNumber: String(row?.bank_account_number ?? '').trim(),
+            bankIfsc: String(row?.bank_ifsc ?? '').trim(),
+            bankBranch: String(row?.bank_branch ?? '').trim(),
           });
         }
       } catch (e: any) {
@@ -148,10 +139,7 @@ export default function BusinessProfile(): JSX.Element {
 
     try {
       setSaving(true);
-      const raw = localStorage.getItem('company-info');
-      const prev = raw ? JSON.parse(raw) : {};
-      const next = {
-        ...prev,
+      const companyInfo = {
         businessName,
         name: businessName,
         ownerName,
@@ -169,46 +157,20 @@ export default function BusinessProfile(): JSX.Element {
         bankIfsc,
         bankBranch,
       };
-      localStorage.setItem('company-info', JSON.stringify(next));
 
-      localStorage.setItem('companyName', businessName);
-      localStorage.setItem('companyAddress', address);
-      localStorage.setItem('companyCity', city);
-      localStorage.setItem('companyStatePin', `${state}, ${pinCode}`);
-      localStorage.setItem('companyPhone', phone);
-      localStorage.setItem('companyEmail', email);
-      localStorage.setItem('companyGSTIN', gstNumber);
-      localStorage.setItem('companyPAN', panNumber);
-      localStorage.setItem('companyBankName', bankName);
-      localStorage.setItem('companyBankAccount', bankAccountNumber);
-      localStorage.setItem('companyBankIFSC', bankIfsc);
-      localStorage.setItem('companyBankBranch', bankBranch);
-      localStorage.setItem('setupCompleted', 'true');
-      window.dispatchEvent(new Event('companyProfileUpdated'));
+      await finalizeBusinessProfileSave({
+        email,
+        companyName: businessName,
+        phone,
+        address,
+        companyInfo,
+      });
 
-      // Sync company profile to Firestore for cloud restore/device switch
-      try {
-        await saveCompanyDetailsToCloud({
-          email,
-          companyName: businessName,
-          phone,
-          address,
-          extra: next,
-        });
-      } catch (cloudError) {
-        console.error('Failed to sync company profile to cloud:', cloudError);
-      }
-
-      try {
-        if (user && token) {
-          await login(token, { ...(user as any), completedBusinessProfile: true } as any);
-        }
-      } catch {
-        // ignore
+      if (user && token) {
+        await login(token, { ...(user as any), completedBusinessProfile: true } as any);
       }
 
       navigate('/dashboard', { replace: true });
-      window.setTimeout(() => window.location.reload(), 50);
     } catch (e: any) {
       setError(e?.message ?? 'Failed to save profile');
     } finally {

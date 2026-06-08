@@ -21,6 +21,7 @@ import { autoLedgerService } from '../../../services/masters/autoLedgerService';
 import { determineTaxType, bifurcateTax } from '../../../services/vouchers/gstBifurcationEngine';
 import { normalizeStateToCode, statesMatch } from '../../../utils/stateMapping';
 import { getNormalizedCompanyProfile } from '../../../utils/companyProfile';
+import { loadCompanyForPrint } from '../../../services/voucherPrintBuilder';
 
 type ItemLineState = ItemDetailFormValues;
 
@@ -174,18 +175,9 @@ const SalesVoucherFormNew = () => {
   const [drawerValues, setDrawerValues] = useState<ItemDetailFormValues | null>(null);
   const [showDrawerValidation, setShowDrawerValidation] = useState(false);
 
-  // Get company state from localStorage
   const companyState = useMemo(() => {
-    try {
-      const companyInfoRaw = localStorage.getItem('company-info');
-      if (companyInfoRaw) {
-        const parsed = JSON.parse(companyInfoRaw);
-        // Normalize company state to state code for proper comparison
-        const rawState = parsed.state || '';
-        return normalizeStateToCode(rawState);
-      }
-    } catch {}
-    return '';
+    const rawState = getNormalizedCompanyProfile().state || '';
+    return rawState ? normalizeStateToCode(rawState) : '';
   }, []);
 
   const totals = useMemo(() => {
@@ -598,17 +590,7 @@ const SalesVoucherFormNew = () => {
           onSaveAndPrint={() => {
             saveVoucher();
             try {
-              const companyInfoRaw = localStorage.getItem('company-info');
-              const companyLogo = localStorage.getItem('companyLogo') || '';
-              const companySignature = localStorage.getItem('companySignature') || '';
-              const companyInfo = companyInfoRaw ? JSON.parse(companyInfoRaw) : {};
-              const company = {
-                name: String(companyInfo?.name || companyInfo?.businessName || localStorage.getItem('companyName') || 'Company'),
-                address: String(companyInfo?.address || ''),
-                gstin: String(companyInfo?.gstin || ''),
-                logo: companyLogo || undefined,
-                signature: companySignature || undefined,
-              };
+              const company = loadCompanyForPrint();
 
               // Load print UI settings (page size, signature toggle, etc.)
               const uiSettingsRaw = localStorage.getItem('invoice-settings');
@@ -676,17 +658,7 @@ const SalesVoucherFormNew = () => {
           onDownloadPDF={async () => {
             try {
               const { buildInvoiceHTML, downloadPDF } = require('../../../services/printService');
-              const companyInfoRaw = localStorage.getItem('company-info');
-              const companyLogo = localStorage.getItem('companyLogo') || '';
-              const companySignature = localStorage.getItem('companySignature') || '';
-              const companyInfo = companyInfoRaw ? JSON.parse(companyInfoRaw) : {};
-              const company = {
-                name: String(companyInfo?.name || companyInfo?.businessName || localStorage.getItem('companyName') || 'Company'),
-                address: String(companyInfo?.address || ''),
-                gstin: String(companyInfo?.gstin || ''),
-                logo: companyLogo || undefined,
-                signature: companySignature || undefined,
-              };
+              const company = loadCompanyForPrint();
               const uiSettingsRaw = localStorage.getItem('invoice-settings');
               const uiSettings = uiSettingsRaw ? JSON.parse(uiSettingsRaw) : {};
               const pageSize: string = uiSettings?.pageSize || 'A4';
@@ -787,17 +759,7 @@ const SalesVoucherFormNew = () => {
         }}
         onPrint={() => {
           try {
-            const companyInfoRaw = localStorage.getItem('company-info');
-            const companyLogo = localStorage.getItem('companyLogo') || '';
-            const companySignature = localStorage.getItem('companySignature') || '';
-            const companyInfo = companyInfoRaw ? JSON.parse(companyInfoRaw) : {};
-            const company = {
-              name: String(companyInfo?.name || companyInfo?.businessName || localStorage.getItem('companyName') || 'Company'),
-              address: String(companyInfo?.address || ''),
-              gstin: String(companyInfo?.gstin || ''),
-              logo: companyLogo || undefined,
-              signature: companySignature || undefined,
-            };
+            const company = loadCompanyForPrint();
             const uiSettingsRaw = localStorage.getItem('invoice-settings');
             const uiSettings = uiSettingsRaw ? JSON.parse(uiSettingsRaw) : {};
             const pageSize: string = uiSettings?.pageSize || 'A4';
@@ -858,17 +820,7 @@ const SalesVoucherFormNew = () => {
         onDownloadPDF={async () => {
           try {
             const { buildInvoiceHTML, downloadPDF } = require('../../../services/printService');
-            const companyInfoRaw = localStorage.getItem('company-info');
-            const companyLogo = localStorage.getItem('companyLogo') || '';
-            const companySignature = localStorage.getItem('companySignature') || '';
-            const companyInfo = companyInfoRaw ? JSON.parse(companyInfoRaw) : {};
-            const company = {
-              name: String(companyInfo?.name || companyInfo?.businessName || localStorage.getItem('companyName') || 'Company'),
-              address: String(companyInfo?.address || ''),
-              gstin: String(companyInfo?.gstin || ''),
-              logo: companyLogo || undefined,
-              signature: companySignature || undefined,
-            };
+            const company = loadCompanyForPrint();
             const uiSettingsRaw = localStorage.getItem('invoice-settings');
             const uiSettings = uiSettingsRaw ? JSON.parse(uiSettingsRaw) : {};
             const pageSize: string = uiSettings?.pageSize || 'A4';

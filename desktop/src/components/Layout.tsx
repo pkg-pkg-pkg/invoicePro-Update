@@ -44,6 +44,7 @@ import FeedbackDialog from "./FeedbackDialog";
 import { checkForAppUpdate, resolveDownloadUrl, type AppReleaseInfo } from "../services/appUpdateService";
 import { openExternalUrl } from "../services/printService";
 import { isElectronRuntime } from "../utils/runtime";
+import { getNormalizedCompanyProfile } from "../utils/companyProfile";
 import { isBlockingOverlayForEscape } from "../utils/isBlockingOverlayForEscape";
 import { resolveEscapeBackAction } from "../utils/escapeBackNavigation";
 import { APP_QUIT_REQUEST_EVENT, quitApplication, requestAppQuit } from "../utils/appQuit";
@@ -154,6 +155,7 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
     '/schemes/edit': { title: 'Edit Scheme', showBackButton: true },
     '/reports': { title: 'Reports', showBackButton: false },
     '/settings': { title: 'Settings', showBackButton: false },
+    '/store': { title: 'PVE Store', showBackButton: false },
     '/masters/ledger-accounts': { title: 'Ledger Accounts', showBackButton: false },
     '/masters/ledger-accounts/new': { title: 'New Ledger Account', showBackButton: true },
     '/masters/ledger-accounts/edit': { title: 'Edit Ledger Account', showBackButton: true },
@@ -240,12 +242,10 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
 
 function readCompanyOwnerName(): string {
   try {
-    const raw = localStorage.getItem("company-info");
-    if (!raw) return "";
-    const p = JSON.parse(raw) as { name?: string; businessName?: string };
-    return String(p?.name ?? p?.businessName ?? localStorage.getItem('companyName') ?? "").trim();
+    const p = getNormalizedCompanyProfile();
+    return String(p.businessName || p.name || '').trim();
   } catch {
-    return "";
+    return '';
   }
 }
 

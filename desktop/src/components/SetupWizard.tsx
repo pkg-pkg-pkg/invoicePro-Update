@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -28,6 +28,13 @@ import { restoreCompanyDetailsFromCloud, saveCompanyDetailsToCloud, archiveCompa
 import { APP_DISPLAY_NAME, APP_TAGLINE } from '../constants/appBranding';
 import { usePincodeAutofill } from '../hooks/usePincodeAutofill';
 import PincodeTextField from './PincodeTextField';
+import {
+  getActiveCompanyProfileRow,
+  markCompanyProfileCompleted,
+  normalizedToUpsertPayload,
+  upsertCompanyProfile,
+} from '../services/companyProfileDbService';
+import { applyCloudCompanyDetailsToDb } from '../services/businessProfileService';
 
 interface CompanyData {
   name: string;
@@ -91,12 +98,13 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ open, onComplete, onRestoreBa
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [oldEmailForArchive, setOldEmailForArchive] = useState('');
 
-  const hasLocalCompany = useMemo(() => {
-    try {
-      return !!localStorage.getItem('company-info');
-    } catch {
-      return false;
-    }
+  const [hasLocalCompany, setHasLocalCompany] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      const row = await getActiveCompanyProfileRow();
+      setHasLocalCompany(Boolean(row?.company_name && row?.is_profile_completed));
+    })();
   }, []);
 
   const [companyData, setCompanyData] = useState<CompanyData>({
@@ -224,31 +232,49 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ open, onComplete, onRestoreBa
   };
 
   const handleComplete = () => {
-    if (validateCurrentStep()) {
-      // Save company data to localStorage
-      Object.entries(companyData).forEach(([key, value]) => {
-        if (value) {
-          localStorage.setItem(`company${key.charAt(0).toUpperCase() + key.slice(1)}`, value);
-        }
-      });
-      localStorage.setItem('setupCompleted', 'true');
-      localStorage.setItem('setupCompletedDate', new Date().toISOString());
-
+    if (!validateCurrentStep()) return;
+    void (async () => {
+      const address = `${companyData.addressLine1} ${companyData.addressLine2}`.trim();
+      await upsertCompanyProfile(
+        normalizedToUpsertPayload(
+          {
+            businessName: companyData.name,
+            name: companyData.name,
+            ownerName: companyData.legalName,
+            address,
+            city: companyData.city,
+            state: companyData.state,
+            pinCode: companyData.pincode,
+            phone: companyData.phone || companyData.mobile,
+            email: companyData.email,
+            gstin: companyData.gstin,
+            pan: companyData.pan,
+            website: companyData.website,
+            bank: companyData.bankName,
+            accountNo: companyData.accountNo,
+            ifsc: companyData.ifscCode,
+            bankBranch: companyData.branch,
+            logo: companyData.logo,
+          },
+          { markCompleted: true }
+        )
+      );
+      await markCompanyProfileCompleted(companyData.name);
+      window.dispatchEvent(new Event('companyProfileUpdated'));
       onComplete(companyData);
 
-      // Also push basic company details to Firestore if we have an email
       if (companyData.email && companyData.name) {
         saveCompanyDetailsToCloud({
           email: companyData.email,
           companyName: companyData.name,
           phone: companyData.phone,
-          address: `${companyData.addressLine1} ${companyData.addressLine2}`.trim(),
+          address,
           extra: companyData,
         }).catch((err) => {
           console.error('Failed to sync setup wizard company details to cloud:', err);
         });
       }
-    }
+    })();
   };
 
   const updateCompanyData = (field: keyof CompanyData, value: string) => {
@@ -356,17 +382,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ open, onComplete, onRestoreBa
                   if (!cloud) {
                     setRestoreError('No company found with this email. Please check or set up as new.');
                   } else {
-                    const companyInfo = {
-                      businessName: cloud.companyName,
-                      address: cloud.address ?? '',
-                      phone: cloud.phone ?? '',
-                      licenseKey: cloud.licenseKey ?? '',
-                      ...cloud,
-                    };
-                    localStorage.setItem('company-info', JSON.stringify(companyInfo));
-                    localStorage.setItem('companyName', cloud.companyName);
-                    localStorage.setItem('setupCompleted', 'true');
-                    window.dispatchEvent(new Event('companyProfileUpdated'));
+                    await applyCloudCompanyDetailsToDb(cloud);
                     onComplete({
                       ...companyData,
                       name: cloud.companyName,

@@ -21,6 +21,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     companySettingsRead: () => ipcRenderer.invoke('company-settings-read'),
     companySettingsWrite: (partial) => ipcRenderer.invoke('company-settings-write', partial),
     companyLocalDataPersist: (localData) => ipcRenderer.invoke('company-local-data-persist', localData),
+    companyProfileGetActive: () => ipcRenderer.invoke('company-profile-get-active'),
+    companyProfileUpsert: (payload) => ipcRenderer.invoke('company-profile-upsert', payload),
+    companyProfileMarkCompleted: (payload) => ipcRenderer.invoke('company-profile-mark-completed', payload || {}),
+    companyProfileCompletionStatus: () => ipcRenderer.invoke('company-profile-completion-status'),
+    companyProfileRunMigration: () => ipcRenderer.invoke('company-profile-run-migration'),
+    profileDebugScan: () => ipcRenderer.invoke('profile-debug-scan'),
+    profileDebugLog: (payload) => ipcRenderer.invoke('profile-debug-log', payload),
+    profileDebugLogPath: () => ipcRenderer.invoke('profile-debug-log-path'),
+    dataStorageGetConfig: () => ipcRenderer.invoke('data-storage-get-config'),
+    dataStorageGetDiagnostics: () => ipcRenderer.invoke('data-storage-get-diagnostics'),
+    dataStorageScanLocations: () => ipcRenderer.invoke('data-storage-scan-locations'),
+    dataStorageSetLocation: (payload) => ipcRenderer.invoke('data-storage-set-location', payload),
+    dataStorageCompleteFirstRun: (payload) => ipcRenderer.invoke('data-storage-complete-first-run', payload),
+    dataStorageRestoreDetected: (sourceRoot) => ipcRenderer.invoke('data-storage-restore-detected', sourceRoot),
+    dataStorageCheckWrite: (targetDir) => ipcRenderer.invoke('data-storage-check-write', targetDir),
+    dataStorageOpenPath: (targetPath) => ipcRenderer.invoke('data-storage-open-path', targetPath),
+    dataStorageShowInFolder: (targetPath) => ipcRenderer.invoke('data-storage-show-in-folder', targetPath),
     sessionValidate: () => ipcRenderer.invoke('session-validate'),
     sessionCheck: () => ipcRenderer.invoke('session-check'),
     sessionLogin: (payload) => ipcRenderer.invoke('session-login', payload),
@@ -41,6 +58,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   mobileSyncStatus: () => ipcRenderer.invoke('mobile-sync-status'),
   mobileSyncRetry: () => ipcRenderer.invoke('mobile-sync-retry'),
   mobileSyncPublishChange: (change) => ipcRenderer.invoke('mobile-sync-publish-change', change),
+  mobileEntitlementsSync: (payload) => ipcRenderer.invoke('mobile-entitlements-sync', payload),
+  mobileSnapshotPublish: (snapshot) => ipcRenderer.invoke('mobile-snapshot-publish', snapshot),
+  onMobileDeviceBound: (callback) => {
+    const handler = (_, data) => callback(data);
+    ipcRenderer.on('mobile-device-bound', handler);
+    return () => ipcRenderer.removeListener('mobile-device-bound', handler);
+  },
   onSyncUpdate: (callback) => {
     ipcRenderer.on('sync-update', (_, data) => callback(data));
   },

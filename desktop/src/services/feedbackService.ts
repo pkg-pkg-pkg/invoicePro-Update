@@ -1,6 +1,7 @@
 import api from './api';
 import { APP_DISPLAY_NAME, APP_VERSION } from '@/constants/appBranding';
 import { whatsAppService } from './whatsappService';
+import { getNormalizedCompanyProfile } from '../utils/companyProfile';
 
 const FEEDBACK_RECIPIENT_EMAIL = 'pve.2020@hotmail.com';
 
@@ -40,7 +41,7 @@ class FeedbackService {
       String(user?.fullName ?? user?.name ?? user?.username ?? '').trim() ||
       localStorage.getItem('userName') ||
       'Unknown';
-    const companyName = localStorage.getItem('companyName') || 'Unknown Company';
+    const companyName = getNormalizedCompanyProfile().businessName || 'Unknown Company';
     return { userEmail, userName, companyName };
   }
 

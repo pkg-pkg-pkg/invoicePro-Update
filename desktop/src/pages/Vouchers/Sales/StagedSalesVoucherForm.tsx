@@ -32,6 +32,7 @@ import {
 import { enhancedVoucherService } from '../../../services/vouchers/enhancedVoucherService';
 import { usePermission } from '../../../hooks/usePermission';
 import { normalizeStateToCode } from '../../../utils/stateMapping';
+import { getNormalizedCompanyProfile } from '../../../utils/companyProfile';
 import { usePincodeAutofill } from '../../../hooks/usePincodeAutofill';
 import PincodeTextField from '../../../components/PincodeTextField';
 
@@ -148,7 +149,7 @@ const StagedSalesVoucherForm: React.FC = () => {
   const [allocTotalQty, setAllocTotalQty] = useState(1);
   const [showAllocPopup, setShowAllocPopup] = useState(false);
 
-  const companyState = typeof localStorage !== 'undefined' ? localStorage.getItem('companyState') || '' : '';
+  const companyState = getNormalizedCompanyProfile().state || '';
   const isInterstate = useMemo(() => {
     const c = normalizeStateToCode(companyState);
     const p = normalizeStateToCode(partyDraft.state || party?.state);

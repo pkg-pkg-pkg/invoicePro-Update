@@ -20,6 +20,8 @@ import {
 import { subscribeUserDisplayName } from "../../services/userDisplayNameService";
 import { isElectronRuntime } from "../../utils/runtime";
 import { withTimeout } from "../../utils/withTimeout";
+import { syncBusinessProfileOnLogin } from "../../services/businessProfileService";
+import { getCachedCompanyProfile } from "../../services/companyProfileDbService";
 
 interface Company {
   id: string;
@@ -52,8 +54,30 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+function enrichCompletedBusinessProfile(user: User): User {
+  const dbProfile = isElectronRuntime() ? getCachedCompanyProfile() : null;
+  const dbComplete = Boolean(
+    dbProfile?.businessName && dbProfile?.address && dbProfile?.phone
+  );
+  if (user.completedBusinessProfile || dbComplete) {
+    return { ...user, completedBusinessProfile: true };
+  }
+  try {
+    const savedUser = localStorage.getItem('user');
+    if (savedUser) {
+      const parsed = JSON.parse(savedUser) as User;
+      if (parsed.completedBusinessProfile) {
+        return { ...user, completedBusinessProfile: true };
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return user;
+}
+
 function sessionUserToAuthUser(u: SessionUser): User {
-  return {
+  return enrichCompletedBusinessProfile({
     id: u.id,
     username: u.username,
     email: u.email,
@@ -62,7 +86,7 @@ function sessionUserToAuthUser(u: SessionUser): User {
     companyId: u.companyId || '',
     company: null,
     completedBusinessProfile: u.completedBusinessProfile,
-  };
+  });
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
@@ -87,6 +111,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             localStorage.setItem('token', session.sessionToken);
             localStorage.setItem('user', JSON.stringify(authUser));
             setLoading(false);
+            void syncBusinessProfileOnLogin(authUser.email).then((completed) => {
+              if (!completed) return;
+              setUser((prev) => {
+                if (!prev || prev.completedBusinessProfile) return prev;
+                const next = { ...prev, completedBusinessProfile: true };
+                try {
+                  localStorage.setItem('user', JSON.stringify(next));
+                } catch {
+                  // ignore
+                }
+                return next;
+              });
+            });
             return;
           }
         }
@@ -115,7 +152,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           }
           if (!cancelled) {
             setToken(savedToken);
-            setUser(parsedUser);
+            setUser(enrichCompletedBusinessProfile(parsedUser));
           }
         }
       } catch (err) {

@@ -43,6 +43,9 @@ lerna-debug.log*
 *.sqlite3
 data/
 
+# Oracle wallet (never commit credentials)
+Oracle/
+
 # Mobile
 mobile/android/app/build/
 mobile/android/.gradle/
@@ -56,6 +59,7 @@ desktop/dist/
 desktop/out/
 desktop/.vite/
 desktop/releases/
+desktop/.electron-builder-output.txt
 
 # Admin
 Admin/dist/

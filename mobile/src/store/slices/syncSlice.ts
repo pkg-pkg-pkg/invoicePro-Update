@@ -7,6 +7,16 @@ interface SyncState {
   error: string | null;
   endpointBase: string;
   lastError: string | null;
+  snapshot?: {
+    todaySales?: number;
+    todayReceipts?: number;
+    outstanding?: number;
+    stockValue?: number;
+    companyName?: string;
+    recentInvoices?: Array<{ id: string; number: string; customer: string; amount: number; date: string }>;
+    topCustomers?: Array<{ name: string; amount: number }>;
+    publishedAt?: string;
+  } | null;
 }
 
 const initialState: SyncState = {

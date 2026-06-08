@@ -30,24 +30,10 @@ export async function resolveActiveCompanyDisplayName(): Promise<string> {
     }
   }
 
-  if (!name || COMPANY_ID_PATTERN.test(name)) {
-    const legacy = String(localStorage.getItem('companyName') || '').trim();
-    if (legacy && !COMPANY_ID_PATTERN.test(legacy)) {
-      name = legacy;
-    }
-  }
-
   return name;
 }
 
 export function resolveActiveCompanyDisplayNameSync(): string {
   const profile = getNormalizedCompanyProfile();
-  let name = String(profile.businessName || profile.name || '').trim();
-  if (!name || COMPANY_ID_PATTERN.test(name)) {
-    const legacy = String(localStorage.getItem('companyName') || '').trim();
-    if (legacy && !COMPANY_ID_PATTERN.test(legacy)) {
-      name = legacy;
-    }
-  }
-  return name;
+  return String(profile.businessName || profile.name || '').trim();
 }

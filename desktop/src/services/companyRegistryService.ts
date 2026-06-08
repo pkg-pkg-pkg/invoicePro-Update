@@ -4,7 +4,10 @@ import {
   applyCompanyProfileToLocalStorage,
   exportCompanyLocalStorage,
   importCompanyLocalStorage,
+  PROFILE_LOCAL_STORAGE_KEYS,
 } from '../utils/companyLocalStorage';
+import { logProfileDebugEvent } from './businessProfileDebugService';
+import { preloadCompanyProfile } from './companyProfileDbService';
 
 export type CompanyRecord = {
   id: string;
@@ -58,9 +61,17 @@ type ActivePayload = {
 const api = (): ElectronAPI | undefined =>
   isElectronRuntime() ? window.electronAPI : undefined;
 
+function stripProfileKeys(data: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (!PROFILE_LOCAL_STORAGE_KEYS.has(k)) out[k] = v;
+  }
+  return out;
+}
+
 export async function ensureCompaniesInitialized(): Promise<void> {
   if (!isElectronRuntime() || !api()?.companiesEnsureInitialized) return;
-  const localData = exportCompanyLocalStorage();
+  const localData = stripProfileKeys(exportCompanyLocalStorage());
   const res = (await api()!.companiesEnsureInitialized!(localData)) as {
     activeId?: string;
     migrated?: boolean;
@@ -69,6 +80,7 @@ export async function ensureCompaniesInitialized(): Promise<void> {
   localStorage.setItem('pve_companies_bootstrapped', '1');
   const { loadCompanySettingsFromDisk } = await import('./companySettingsService');
   await loadCompanySettingsFromDisk();
+  await preloadCompanyProfile();
 }
 
 export async function listCompanies(): Promise<{
@@ -127,7 +139,7 @@ export async function deleteCompany(companyId: string): Promise<{
   if (!isElectronRuntime() || !api()?.companiesDelete) {
     throw new Error('Delete company is only available in the desktop app.');
   }
-  const localData = exportCompanyLocalStorage();
+  const localData = stripProfileKeys(exportCompanyLocalStorage());
   const res = (await api()!.companiesDelete!({
     companyId,
     currentLocalData: localData,
@@ -155,7 +167,7 @@ export async function createCompany(input: CreateCompanyInput): Promise<ActivePa
   if (!isElectronRuntime() || !api()?.companiesCreate) {
     throw new Error('Multi-company is only available in the desktop app.');
   }
-  const localData = exportCompanyLocalStorage();
+  const localData = stripProfileKeys(exportCompanyLocalStorage());
   const res = (await api()!.companiesCreate!({ ...input, currentLocalData: localData })) as ActivePayload & {
     activeId: string;
   };
@@ -167,7 +179,7 @@ export async function switchCompany(targetId: string): Promise<ActivePayload> {
   if (!isElectronRuntime() || !api()?.companiesSwitch) {
     throw new Error('Multi-company is only available in the desktop app.');
   }
-  const localData = exportCompanyLocalStorage();
+  const localData = stripProfileKeys(exportCompanyLocalStorage());
   const res = (await api()!.companiesSwitch!({ targetId, currentLocalData: localData })) as ActivePayload & {
     activeId: string;
   };
@@ -177,12 +189,23 @@ export async function switchCompany(targetId: string): Promise<ActivePayload> {
 
 export async function applyCompanySwitch(payload: ActivePayload & { activeId?: string }) {
   if (payload.activeId) localStorage.setItem('pve_active_company_id', payload.activeId);
-  importCompanyLocalStorage(payload.localData || {});
-  applyCompanyProfileToLocalStorage(
-    (payload.profile as Parameters<typeof applyCompanyProfileToLocalStorage>[0]) || {
-      name: payload.company?.name,
-    }
-  );
+  const incoming = stripProfileKeys(payload.localData || {});
+  importCompanyLocalStorage(incoming);
+
+  if (payload.profile) {
+    applyCompanyProfileToLocalStorage(
+      (payload.profile as Parameters<typeof applyCompanyProfileToLocalStorage>[0]) || {
+        name: payload.company?.name,
+      }
+    );
+  }
+
+  await preloadCompanyProfile();
+  await logProfileDebugEvent('apply_company_switch', {
+    activeId: payload.activeId || payload.company?.id,
+    incomingKeyCount: Object.keys(incoming).length,
+    profileSource: 'sqlite',
+  });
   const { loadCompanySettingsFromDisk } = await import('./companySettingsService');
   await loadCompanySettingsFromDisk();
 }
@@ -192,13 +215,13 @@ export function reloadAfterCompanySwitch() {
   window.location.reload();
 }
 
-/** Persist localStorage snapshot + sync company_profile.json and registry index. */
+/** Persist non-profile localStorage snapshot to company disk. Profile lives in SQLite only. */
 export async function persistActiveCompanyLocalData(): Promise<{ success: boolean; error?: string }> {
   if (!isElectronRuntime() || !api()?.companyLocalDataPersist) {
     return { success: true };
   }
   try {
-    const localData = exportCompanyLocalStorage();
+    const localData = stripProfileKeys(exportCompanyLocalStorage());
     const res = await api()!.companyLocalDataPersist!(localData);
     return { success: Boolean(res?.success), error: res?.error };
   } catch (e) {

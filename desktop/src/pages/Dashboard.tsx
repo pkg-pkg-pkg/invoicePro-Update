@@ -1,3 +1,5 @@
+import { publishMobileDataSnapshot } from '../services/mobileSnapshotPublisher';
+import { getNormalizedCompanyProfile } from '../utils/companyProfile';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
@@ -31,6 +33,7 @@ import {
   PointOfSale as PointOfSaleIcon,
   ReceiptLong as ReceiptLongIcon,
   ShoppingCart as ShoppingCartIcon,
+  Storefront as StorefrontIcon,
   WhatsApp as WhatsAppIcon,
 } from '@mui/icons-material';
 import { AppDispatch, RootState } from '../store';
@@ -235,6 +238,35 @@ export default function Dashboard() {
     ]
   );
 
+  useEffect(() => {
+    void publishMobileDataSnapshot({
+      todaySales: Number(overview?.totalSales || 0),
+      todayReceipts: todayReceiptsTotal,
+      outstanding: Number(overview?.totalOutstanding || agingTotal || 0),
+      stockValue,
+      companyName: getNormalizedCompanyProfile().businessName || undefined,
+      recentInvoices: (recentTransactions?.invoices ?? []).slice(0, 8).map((inv: any) => ({
+        id: String(inv.id || inv._id || ''),
+        number: String(inv.invoiceNumber || inv.number || inv.id || ''),
+        customer: String(inv.customerName || inv.partyName || '—'),
+        amount: Number(inv.total || inv.grandTotal || 0),
+        date: String(inv.date || inv.invoiceDate || ''),
+      })),
+      topCustomers: (outstandingSummary?.customers ?? []).slice(0, 5).map((c: any) => ({
+        name: String(c.name || c.partyName || 'Customer'),
+        amount: Number(c.outstanding || c.balance || 0),
+      })),
+    });
+  }, [
+    overview?.totalSales,
+    overview?.totalOutstanding,
+    todayReceiptsTotal,
+    stockValue,
+    agingTotal,
+    recentTransactions?.invoices,
+    outstandingSummary?.customers,
+  ]);
+
   const totalSalesM = Number(monthly?.totalSales || 0);
   const totalPurchaseM = Number(monthly?.totalPurchase || 0);
   const grossProfitM = totalSalesM - totalPurchaseM;
@@ -392,6 +424,7 @@ export default function Dashboard() {
       { label: 'E-Way Bill', icon: <LocalShippingIcon fontSize="small" />, to: '/gst/e-way-bill' },
       { label: 'Reports', icon: <BarChartIcon fontSize="small" />, to: '/reports' },
       { label: 'Customer Ledger', icon: <Groups2Icon fontSize="small" />, to: '/customers/ledger-report' },
+      { label: 'PVE Store', icon: <StorefrontIcon fontSize="small" />, to: '/store' },
     ],
     [handleWhatsAppReminder]
   );

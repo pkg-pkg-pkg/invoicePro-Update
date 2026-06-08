@@ -3,40 +3,68 @@ import { View, StyleSheet } from 'react-native';
 import { TextInput, Button, Text, Surface, HelperText } from 'react-native-paper';
 import { useDispatch } from 'react-redux';
 import { setCredentials } from '../store/slices/authSlice';
-import { mobileLogin } from '../services/mobileAuthService';
-import { setMobileAuthToken } from '../services/api';
+import { loginViaDesktopSync } from '../services/mobileDesktopAuthService';
+import { readSyncConfig } from '../services/sync/storage';
 import { saveAuthSession } from '../services/authStorage';
+import { mobileSyncWorker } from '../services/sync/mobileSyncWorker';
 
 export default function LoginScreen() {
   const dispatch = useDispatch();
-  const [usernameOrMobile, setUsernameOrMobile] = useState('');
-  const [password, setPassword] = useState('');
+  const [loginId, setLoginId] = useState('');
+  const [pin, setPin] = useState('');
+  const [syncEndpoint, setSyncEndpoint] = useState('');
+  const [syncToken, setSyncToken] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  React.useEffect(() => {
+    void (async () => {
+      const cfg = await readSyncConfig();
+      setSyncEndpoint(cfg.endpointBase);
+      setSyncToken(cfg.token);
+    })();
+  }, []);
+
   const handleLogin = async () => {
-    if (!usernameOrMobile.trim() || !password.trim()) {
-      setError('Username/mobile and password are required.');
+    if (!loginId.trim() || !pin.trim()) {
+      setError('Email/mobile and PIN are required.');
+      return;
+    }
+    if (!syncEndpoint.trim() || !syncToken.trim()) {
+      setError('Set Desktop Sync URL and token first (ask admin / desktop About → Mobile Sync).');
       return;
     }
     try {
       setLoading(true);
       setError('');
-      const data = await mobileLogin(usernameOrMobile.trim(), password);
-      setMobileAuthToken(data.token);
+      await mobileSyncWorker.configure({
+        endpointBase: syncEndpoint.trim(),
+        token: syncToken.trim(),
+      });
+      const data = await loginViaDesktopSync({ loginId: loginId.trim(), pin: pin.trim() });
+      const user = {
+        id: data.user.id,
+        username: data.user.email,
+        fullName: data.user.displayName || data.user.email,
+        email: data.user.email,
+        mobile: data.user.mobile,
+        role: 'MOBILE_USER',
+        companyId: 'desktop',
+        validUntilMs: data.user.validUntilMs,
+      };
       await saveAuthSession({
-        token: data.token,
-        user: data.user,
+        token: data.sessionToken,
+        user,
       });
       dispatch(
         setCredentials({
-          user: data.user,
-          token: data.token,
+          user,
+          token: data.sessionToken,
         })
       );
-    } catch (e: any) {
-      const msg = String(e?.response?.data?.error || e?.message || 'Login failed');
-      setError(msg);
+      await mobileSyncWorker.retryNow();
+    } catch (e: unknown) {
+      setError(String((e as Error)?.message || 'Login failed'));
     } finally {
       setLoading(false);
     }
@@ -49,30 +77,42 @@ export default function LoginScreen() {
           PVE InvoicePro 360
         </Text>
         <Text variant="bodyMedium" style={styles.subtitle}>
-          Sign in to your account
+          Mobile — connects to your desktop while it is running
         </Text>
         <TextInput
-          label="Username or Mobile"
-          value={usernameOrMobile}
-          onChangeText={setUsernameOrMobile}
+          label="Desktop Sync URL"
+          value={syncEndpoint}
+          onChangeText={setSyncEndpoint}
           mode="outlined"
           style={styles.input}
+          autoCapitalize="none"
         />
         <TextInput
-          label="Password"
-          value={password}
-          onChangeText={setPassword}
+          label="Sync Token"
+          value={syncToken}
+          onChangeText={setSyncToken}
+          mode="outlined"
+          style={styles.input}
+          autoCapitalize="none"
+        />
+        <TextInput
+          label="Email or mobile"
+          value={loginId}
+          onChangeText={setLoginId}
+          mode="outlined"
+          style={styles.input}
+          autoCapitalize="none"
+        />
+        <TextInput
+          label="PIN (from admin)"
+          value={pin}
+          onChangeText={setPin}
           mode="outlined"
           secureTextEntry
+          keyboardType="number-pad"
           style={styles.input}
         />
-        <Button
-          mode="contained"
-          onPress={handleLogin}
-          style={styles.button}
-          loading={loading}
-          disabled={loading}
-        >
+        <Button mode="contained" onPress={handleLogin} style={styles.button} loading={loading} disabled={loading}>
           Sign In
         </Button>
         {!!error && <HelperText type="error">{error}</HelperText>}
@@ -109,4 +149,3 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
 });
-

@@ -50,6 +50,10 @@ import {
   fetchUserDisplayName,
   pickBestDisplayName,
 } from "../services/userDisplayNameService";
+import {
+  isBusinessProfileCompleteOnDb,
+  syncBusinessProfileOnLogin,
+} from "../services/businessProfileService";
 
 const LOCAL_LICENSE_CACHE_KEY = "enc_license_cache_v1";
 
@@ -127,14 +131,20 @@ const Login: React.FC = () => {
     },
     plainPassword: string
   ) => {
+    await syncBusinessProfileOnLogin(userPayload.email);
+    const mergedPayload = {
+      ...userPayload,
+      completedBusinessProfile: await isBusinessProfileCompleteOnDb(),
+    };
+
     let sessionToken = "local";
     if (isElectronRuntime()) {
       try {
         const sess = await registerDesktopSession({
-          userId: userPayload.id,
-          username: userPayload.username,
-          email: userPayload.email,
-          fullName: userPayload.fullName,
+          userId: mergedPayload.id,
+          username: mergedPayload.username,
+          email: mergedPayload.email,
+          fullName: mergedPayload.fullName,
           password: plainPassword,
           rememberMe,
         });
@@ -147,7 +157,7 @@ const Login: React.FC = () => {
       }
     }
     localStorage.setItem("remember_me", rememberMe ? "1" : "0");
-    await login(sessionToken, userPayload);
+    await login(sessionToken, mergedPayload);
     await navigateAfterAuth();
   };
 
@@ -394,7 +404,8 @@ const Login: React.FC = () => {
           role: 'admin',
           companyId: '',
           company: null,
-          completedBusinessProfile: Boolean(fromProfile.profile?.completedBusinessProfile),
+          completedBusinessProfile:
+            Boolean(fromProfile.profile?.completedBusinessProfile) || Boolean(gate.completedBusinessProfile),
         },
         password
       );

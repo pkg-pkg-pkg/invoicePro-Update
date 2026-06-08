@@ -55,15 +55,6 @@ export async function buildUpiQrHtmlBlock(options: {
 }
 
 export const readCompanyUpiId = (): string => {
-  try {
-    const raw = localStorage.getItem('company-info');
-    if (raw) {
-      const p = JSON.parse(raw);
-      const fromInfo = String(p?.upiId || p?.upi || '').trim();
-      if (fromInfo) return fromInfo;
-    }
-  } catch {
-    // ignore
-  }
-  return String(localStorage.getItem('companyUpiId') || '').trim();
+  // UPI is optional; core profile is SQLite-backed (no localStorage profile reads).
+  return '';
 };

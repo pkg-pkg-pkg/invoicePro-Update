@@ -78,7 +78,7 @@ import PrintExportSetupDialog, {
   type PrintExportAction,
   type PrintExportBuildInput,
 } from '../../../components/invoice/PrintExportSetupDialog';
-import { resolvePrintFormatFromLayout } from '../../../services/voucherPrintBuilder';
+import { loadCompanyForPrint, resolvePrintFormatFromLayout } from '../../../services/voucherPrintBuilder';
 import { runInvoicePrintExportAction } from '../../../services/invoicePrintFlow';
 import { salesPipelineService } from '../../../services/sales/salesDocumentService';
 import { PIPELINE_PREFILL_KEY } from '../../../components/listActions/documentRowActionsHandlers';
@@ -536,9 +536,9 @@ const SalesVoucherForm = () => {
 
   useEffect(() => {
     // Load company state from localStorage
-    const savedCompanyState = localStorage.getItem('companyState');
-    if (savedCompanyState) {
-      setCompanyState(savedCompanyState);
+    const rawState = getNormalizedCompanyProfile().state || '';
+    if (rawState) {
+      setCompanyState(rawState);
     }
 
     // Load parties for sales (BUYER + BOTH types)
@@ -1347,10 +1347,7 @@ const SalesVoucherForm = () => {
       }));
 
     // Get company state (for now, from localStorage or default)
-    const companyStateValue = 
-      companyState || 
-      localStorage.getItem('companyState') || 
-      'IN'; // Fallback
+    const companyStateValue = companyState || getNormalizedCompanyProfile().state || 'IN';
 
     // Create party object from draft for GST decision
     const partyFromDraft: Party = {
@@ -1425,24 +1422,20 @@ const SalesVoucherForm = () => {
   const buildCurrentInvoiceHtml = async (
     opts?: PrintExportBuildInput
   ): Promise<{ html: string; fileName: string; landscape: boolean }> => {
-    const companyInfoRaw = localStorage.getItem('company-info');
-    const companyLogo = localStorage.getItem('companyLogo') || '';
-    const companySignature = localStorage.getItem('companySignature') || '';
-    const companyParsed = companyInfoRaw ? JSON.parse(companyInfoRaw) : {};
+    const printed = loadCompanyForPrint();
     const company = {
-      name: String(companyParsed?.name || companyParsed?.businessName || companyInfo.name || localStorage.getItem('companyName') || 'Company'),
-      address: String(companyParsed?.address || companyInfo.address || ''),
-      gstin: String(companyParsed?.gstin || companyInfo.gstin || ''),
-      phone: String(companyParsed?.phone || companyInfo.phone || ''),
-      email: String(companyParsed?.email || companyInfo.email || ''),
-      website: String(companyParsed?.website || companyInfo.website || ''),
-      city: String(companyParsed?.city || companyInfo.city || ''),
-      pinCode: String(companyParsed?.pinCode || companyInfo.pinCode || ''),
-      bank: String(companyParsed?.bank || companyInfo.bank || ''),
-      accountNo: String(companyParsed?.accountNo || companyInfo.accountNo || ''),
-      ifsc: String(companyParsed?.ifsc || companyInfo.ifsc || ''),
-      logo: companyLogo || undefined,
-      signature: companySignature || undefined,
+      ...printed,
+      name: printed.name || companyInfo.name || 'Company',
+      address: printed.address || companyInfo.address || '',
+      gstin: printed.gstin || companyInfo.gstin || '',
+      phone: printed.phone || companyInfo.phone || '',
+      email: printed.email || companyInfo.email || '',
+      website: printed.website || companyInfo.website || '',
+      city: printed.city || companyInfo.city || '',
+      pinCode: printed.pinCode || companyInfo.pinCode || '',
+      bank: printed.bank || companyInfo.bank || '',
+      accountNo: printed.accountNo || companyInfo.accountNo || '',
+      ifsc: printed.ifsc || companyInfo.ifsc || '',
     };
     const pageSize = opts?.pageSize || getInvoicePrintLayout().pageSize;
     const orientation = opts?.orientation || getInvoicePrintLayout().orientation;

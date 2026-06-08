@@ -16,6 +16,7 @@ import {
 import { APP_DISPLAY_NAME } from "@/constants/appBranding";
 
 import Layout from "./components/Layout";
+import MobileEntitlementBootstrap from "./components/MobileEntitlementBootstrap";
 import RequirePermission from "./components/RequirePermission";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -29,6 +30,7 @@ import PurchaseInvoices from "./pages/PurchaseInvoices";
 import DebitNotes from "./pages/DebitNotes";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
+import StorePage from "./pages/Store/StorePage";
 import GSTReports from "./pages/GST/GSTReports";
 import GSTR1Report from "./pages/GST/GSTR1Report";
 import GSTR2Report from "./pages/GST/GSTR2Report";
@@ -117,20 +119,19 @@ import {
 } from "./services/companyRegistryService";
 import CompanySelectScreen from "./components/CompanySelectScreen";
 import { withTimeout } from "./utils/withTimeout";
-
-const isBusinessProfileSavedLocally = () => {
-  try {
-    const setupCompleted = localStorage.getItem('setupCompleted') === 'true';
-    const raw = localStorage.getItem('company-info');
-    const parsed = raw ? JSON.parse(raw) : {};
-    const businessName = String(parsed?.businessName || parsed?.name || localStorage.getItem('companyName') || '').trim();
-    const address = String(parsed?.address || localStorage.getItem('companyAddress') || '').trim();
-    const phone = String(parsed?.phone || localStorage.getItem('companyPhone') || '').trim();
-    return setupCompleted || Boolean(businessName && address && phone);
-  } catch {
-    return localStorage.getItem('setupCompleted') === 'true';
-  }
-};
+import {
+  evaluateOnboardingDecision,
+  logProfileDebugEvent,
+  runStartupProfileDiagnostics,
+} from "./services/businessProfileDebugService";
+import {
+  getProfileCompletionStatus,
+  preloadCompanyProfile,
+  runProfileMigration,
+} from "./services/companyProfileDbService";
+import DataLocationFirstRunDialog, {
+  needsDataLocationFirstRun,
+} from "./components/DataLocationFirstRunDialog";
 
 function App() {
   console.log("📱 App (AuthContext version) rendering...");
@@ -143,13 +144,18 @@ function App() {
     return () => window.removeEventListener('companyGateReady', onCompanyReady);
   }, []);
   const [showSetupWizard, setShowSetupWizard] = useState(false);
-  const [setupCompleted, setSetupCompleted] = useState(false);
+  const [profileGate, setProfileGate] = useState<'loading' | 'complete' | 'incomplete'>('loading');
   const [deviceCheckDone, setDeviceCheckDone] = useState(false);
   const [licenseCheckDone, setLicenseCheckDone] = useState(false);
   const [licenseValid, setLicenseValid] = useState(false);
   const [licenseCheckReason, setLicenseCheckReason] = useState<string>('');
-  const [profileCompletedLocal, setProfileCompletedLocal] = useState<boolean>(isBusinessProfileSavedLocally());
-  const profileCompleted = Boolean((user as any)?.completedBusinessProfile || profileCompletedLocal);
+  const profileCompleted = profileGate === 'complete';
+  const setupCompleted = profileGate === 'complete';
+
+  useEffect(() => {
+    if (!isAuthenticated || loading) return;
+    evaluateOnboardingDecision(profileGate === 'complete');
+  }, [isAuthenticated, loading, user, profileGate]);
   const [hostCheck, setHostCheck] = useState<{ checking: boolean; ok: boolean; serverUrl?: string; error?: string }>({
     checking: false,
     ok: true,
@@ -159,13 +165,21 @@ function App() {
   const [adminPopupReleaseNotes, setAdminPopupReleaseNotes] = useState('');
   const licenseCheckGeneration = useRef(0);
   const [companyGate, setCompanyGate] = useState<'loading' | 'select' | 'ready'>('loading');
+  const [dataLocationSetupOpen, setDataLocationSetupOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isElectronRuntime()) return;
+    void needsDataLocationFirstRun().then((need) => {
+      if (need) setDataLocationSetupOpen(true);
+    });
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated) {
       setLicenseCheckDone(false);
       setLicenseValid(false);
       setLicenseCheckReason('');
-      setProfileCompletedLocal(isBusinessProfileSavedLocally());
+      setProfileGate('loading');
       setCompanyGate('loading');
     }
   }, [isAuthenticated]);
@@ -206,31 +220,50 @@ function App() {
   }, [isAuthenticated, licenseValid, licenseCheckDone]);
 
   useEffect(() => {
-    if (!isAuthenticated || !isElectronRuntime()) return;
+    if (!isAuthenticated) return;
+    if (!isElectronRuntime()) {
+      setProfileGate(Boolean((user as any)?.completedBusinessProfile) ? 'complete' : 'incomplete');
+      return;
+    }
     let cancelled = false;
     void (async () => {
       try {
+        await runStartupProfileDiagnostics(user?.email);
         await ensureCompaniesInitialized();
         const active = await getActiveCompanyPayload();
-        if (cancelled || !active) return;
-        await applyCompanySwitch(active);
+        if (cancelled) return;
+        if (active) await applyCompanySwitch(active);
+        await runProfileMigration();
+        const status = await getProfileCompletionStatus();
+        await preloadCompanyProfile();
+        if (cancelled) return;
+        const completed = Boolean(status.profileCompleted ?? status.PROFILE_COMPLETED);
+        setProfileGate(completed ? 'complete' : 'incomplete');
+        setShowSetupWizard(false);
+        await logProfileDebugEvent('onboarding_gate_db', { ...status });
+        evaluateOnboardingDecision(completed);
       } catch (e) {
-        console.warn('[companies] bootstrap failed', e);
+        console.warn('[companies] profile gate failed', e);
+        if (!cancelled) setProfileGate('incomplete');
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, user?.email, companyGate]);
 
   useEffect(() => {
-    const syncProfileFlag = () => setProfileCompletedLocal(isBusinessProfileSavedLocally());
-    syncProfileFlag();
+    const syncProfileFlag = async () => {
+      if (!isElectronRuntime()) return;
+      const status = await getProfileCompletionStatus();
+      await preloadCompanyProfile();
+      setProfileGate(
+        status.profileCompleted ?? status.PROFILE_COMPLETED ? 'complete' : 'incomplete'
+      );
+    };
     window.addEventListener('companyProfileUpdated', syncProfileFlag as EventListener);
-    window.addEventListener('storage', syncProfileFlag as EventListener);
     return () => {
       window.removeEventListener('companyProfileUpdated', syncProfileFlag as EventListener);
-      window.removeEventListener('storage', syncProfileFlag as EventListener);
     };
   }, []);
 
@@ -550,18 +583,6 @@ function App() {
     };
   }, [isAuthenticated, logout]);
 
-  // Check if setup is completed
-  useEffect(() => {
-    const isSetupCompleted = localStorage.getItem('setupCompleted') === 'true';
-    const hasCompanyName = !!localStorage.getItem('companyName');
-
-    if (!isSetupCompleted && !hasCompanyName && isAuthenticated && profileCompleted) {
-      setShowSetupWizard(true);
-    } else {
-      setSetupCompleted(true);
-    }
-  }, [isAuthenticated, profileCompleted]);
-
   useEffect(() => {
     if (!loading && isTauriRuntime()) {
       invoke('close_splashscreen').catch(() => {
@@ -647,27 +668,24 @@ function App() {
   }, [isAuthenticated, setupCompleted]);
 
   // Setup wizard handlers
-  const handleSetupComplete = (companyData: any) => {
-    console.log('Setup completed with data:', companyData);
+  const handleSetupComplete = (_companyData: unknown) => {
     setShowSetupWizard(false);
-    setSetupCompleted(true);
-    // Force a reload to ensure all components get the updated data
-    window.location.reload();
+    setProfileGate('complete');
+    window.dispatchEvent(new Event('companyProfileUpdated'));
   };
 
-  const handleRestoreBackup = (backupPath: string) => {
-    console.log('Restoring backup from:', backupPath);
+  const handleRestoreBackup = (_backupPath: string) => {
     setShowSetupWizard(false);
-    setSetupCompleted(true);
-    // In a real implementation, you would restore the backup here
-    // For now, just mark setup as completed
-    localStorage.setItem('setupCompleted', 'true');
-    localStorage.setItem('setupCompletedDate', new Date().toISOString());
-    window.location.reload();
+    setProfileGate('complete');
+    window.dispatchEvent(new Event('companyProfileUpdated'));
   };
 
   // AuthProvider jab localStorage se state load kar raha// Show loading while checking authentication and license
-  if (loading || (!licenseCheckDone && isAuthenticated)) {
+  if (
+    loading ||
+    (!licenseCheckDone && isAuthenticated) ||
+    (isAuthenticated && isElectronRuntime() && profileGate === 'loading')
+  ) {
     return (
         <Box sx={{
           display: 'flex', 
@@ -832,6 +850,7 @@ function App() {
           <div>loading={String(loading)}</div>
           <div>license={String(licenseValid)}</div>
           <div>licenseDone={String(licenseCheckDone)}</div>
+          <div>profileGate={profileGate}</div>
           <div>profile={String(profileCompleted)}</div>
           <div>setup={String(setupCompleted)}</div>
           <div>hostOk={String(hostCheck.ok)}</div>
@@ -871,6 +890,10 @@ function App() {
             }}
           />
         )}
+      <DataLocationFirstRunDialog
+        open={dataLocationSetupOpen}
+        onComplete={() => setDataLocationSetupOpen(false)}
+      />
       <FocusProvider>
         <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <Router>
@@ -1008,6 +1031,7 @@ function App() {
             <>
               {hostCheck.ok ? (
                 <>
+                  <MobileEntitlementBootstrap />
                   <Route path="/print" element={<PrintWindow />} />
                   <Route path="/" element={<Layout />}>
                     <Route index element={<Navigate to="/dashboard" replace />} />
@@ -1394,6 +1418,7 @@ function App() {
                     <Route path="utilities/e-way-bill" element={<Navigate to="/gst/e-way-bill" replace />} />
                     <Route path="user-management" element={<Navigate to="/settings" replace />} />
                     <Route path="settings" element={<Settings />} />
+                    <Route path="store" element={<StorePage />} />
                   </Route>
                 </>
               ) : (

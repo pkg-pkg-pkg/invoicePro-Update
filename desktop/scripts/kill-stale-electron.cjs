@@ -12,3 +12,9 @@ try {
 } catch {
   /* none running */
 }
+
+try {
+  execSync('taskkill /F /IM "PVE InvoicePro 360.exe" /T 2>nul', { stdio: 'ignore' });
+} catch {
+  /* none running */
+}

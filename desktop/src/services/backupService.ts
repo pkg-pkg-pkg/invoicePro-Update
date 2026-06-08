@@ -2,6 +2,7 @@
 
 import { APP_DISPLAY_NAME } from '../constants/appBranding';
 import { isElectronRuntime } from '../utils/runtime';
+import { getNormalizedCompanyProfile } from '../utils/companyProfile';
 
 const MANUAL_LOCATION_KEY = 'manualBackupLocation';
 
@@ -161,7 +162,7 @@ class BackupService {
         createdAt: new Date().toISOString(),
         size: 'N/A',
         type: 'auto' as const,
-        companyName: localStorage.getItem('companyName') || 'Your Company',
+        companyName: getNormalizedCompanyProfile().businessName || 'Your Company',
         invoiceCount,
         customerCount,
         supplierCount,
@@ -215,7 +216,7 @@ class BackupService {
           createdAt: new Date().toISOString(),
           size: result.sizeLabel || 'N/A',
           type: 'manual' as const,
-          companyName: localStorage.getItem('companyName') || 'Your Company',
+          companyName: getNormalizedCompanyProfile().businessName || 'Your Company',
           invoiceCount: 0,
           customerCount: 0,
           supplierCount: 0,
@@ -256,7 +257,7 @@ class BackupService {
         createdAt: new Date().toISOString(),
         size: 'N/A',
         type: 'manual' as const,
-        companyName: localStorage.getItem('companyName') || 'Your Company',
+        companyName: getNormalizedCompanyProfile().businessName || 'Your Company',
         invoiceCount: loadCount('pve_invoicepro_invoices'),
         customerCount: loadCount('pve_customers'),
         supplierCount: loadCount('pve_suppliers'),
