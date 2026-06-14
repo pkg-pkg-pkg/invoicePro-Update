@@ -27,7 +27,8 @@ export const itemHistoryService = {
   async append(
     itemId: string,
     action: ItemHistoryEntry['action'],
-    summary: string
+    summary: string,
+    meta?: ItemHistoryEntry['meta']
   ): Promise<void> {
     const rows = await readList<ItemHistoryEntry>(STORAGE_KEY);
     rows.push({
@@ -36,6 +37,7 @@ export const itemHistoryService = {
       action,
       summary,
       userLabel: readUserLabel(),
+      meta: meta ?? null,
       createdAt: nowIso(),
     });
     await writeList(STORAGE_KEY, rows.slice(-5000));

@@ -1,6 +1,7 @@
 import { publishMobileDataSnapshot } from '../services/mobileSnapshotPublisher';
+import { prefetchAllAppRoutes } from '../app/prefetchRoutes';
 import { getNormalizedCompanyProfile } from '../utils/companyProfile';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import {
@@ -49,17 +50,13 @@ import {
   fetchTodayOverview,
 } from '../store/slices/dashboardSlice';
 import { formatCurrency, formatDate } from '../utils/formatters';
-import { BusinessHealthCard } from '../components/dashboard/BusinessHealthCard';
 import { DashboardPanel } from '../components/dashboard/DashboardPanel';
 import {
   computeSparkTrend,
   greetingForHour,
   useDashboardTheme,
 } from '../components/dashboard/dashboardTheme';
-import { PremiumKpiCard } from '../components/dashboard/PremiumKpiCard';
 import { DashboardWelcome } from '../components/dashboard/DashboardWelcome';
-import { OutstandingAgingCard } from '../components/dashboard/OutstandingAgingCard';
-import { BusinessSnapshotCard } from '../components/dashboard/BusinessSnapshotCard';
 import { DashboardModuleGrid } from '../components/dashboard/DashboardModuleGrid';
 import { WhatsAppReminderPreviewDialog } from '../components/whatsapp/WhatsAppReminderPreviewDialog';
 import { WhatsAppOutstandingPickerDialog } from '../components/whatsapp/WhatsAppOutstandingPickerDialog';
@@ -73,6 +70,26 @@ import {
   refreshWhatsAppConnectionStatus,
 } from '../services/whatsappIntegration';
 import { useUserDisplayName } from '../hooks/useUserDisplayName';
+import { customersApi } from '../services/customers/customersApi';
+
+const BusinessHealthCard = lazy(() =>
+  import('../components/dashboard/BusinessHealthCard').then((m) => ({ default: m.BusinessHealthCard }))
+);
+const PremiumKpiCard = lazy(() =>
+  import('../components/dashboard/PremiumKpiCard').then((m) => ({ default: m.PremiumKpiCard }))
+);
+const OutstandingAgingCard = lazy(() =>
+  import('../components/dashboard/OutstandingAgingCard').then((m) => ({ default: m.OutstandingAgingCard }))
+);
+const BusinessSnapshotCard = lazy(() =>
+  import('../components/dashboard/BusinessSnapshotCard').then((m) => ({ default: m.BusinessSnapshotCard }))
+);
+
+const ChartFallback = () => (
+  <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+    <CircularProgress size={28} />
+  </Box>
+);
 
 function invoiceStatusBadge(raw: string): { label: string; color: 'success' | 'warning' | 'error' } {
   const u = raw.toUpperCase();
@@ -134,6 +151,11 @@ export default function Dashboard() {
 
   useEffect(() => {
     void refreshWhatsAppConnectionStatus();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => prefetchAllAppRoutes(), 600);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -229,10 +251,12 @@ export default function Dashboard() {
         salesVouchers: outstandingSummary?.salesVouchers ?? [],
         invoices: recentTransactions?.invoices ?? [],
         fallbackTotal: Number(overview?.totalOutstanding || 0),
+        billReferences: outstandingSummary?.billReferences ?? [],
       }),
     [
       outstandingSummary?.customers,
       outstandingSummary?.salesVouchers,
+      outstandingSummary?.billReferences,
       recentTransactions?.invoices,
       overview?.totalOutstanding,
     ]
@@ -481,7 +505,8 @@ export default function Dashboard() {
       >
         {kpiCards.map((kpi, idx) => (
           <Box key={kpi.id} sx={{ minWidth: 0, display: 'flex' }}>
-            <PremiumKpiCard
+            <Suspense fallback={<ChartFallback />}>
+              <PremiumKpiCard
               title={kpi.title}
               value={kpi.value}
               trendPct={sparkTrend.pct}
@@ -496,7 +521,8 @@ export default function Dashboard() {
                 value: s.value + idx * 3 + i,
               }))}
             />
-          </Box>
+            </Suspense>
+        </Box>
         ))}
       </Box>
 
@@ -512,51 +538,51 @@ export default function Dashboard() {
                   onClick={() =>
                     'onClick' in qa && qa.onClick ? qa.onClick() : navigate((qa as { to: string }).to)
                   }
-                  sx={{
+        sx={{
                     minHeight: 76,
                     py: 1,
                     borderRadius: dt.cardRadius,
-                    border: '1px solid',
+          border: '1px solid',
                     borderColor: alpha(accent, 0.14),
-                    flexDirection: 'column',
+                  flexDirection: 'column',
                     gap: 0.65,
                     bgcolor: alpha(accent, 0.06),
                     textTransform: 'none',
                     fontFamily: dt.fontFamily,
                     transition: dt.transition,
                     boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
-                    '&:hover': {
+                  '&:hover': {
                       transform: dt.hoverLift,
                       borderColor: alpha(accent, 0.35),
                       bgcolor: alpha(accent, 0.1),
                       boxShadow: dt.cardShadow,
                     },
                   }}
-                >
-                  <Box
-                    sx={{
+              >
+                <Box
+                  sx={{
                       width: 40,
                       height: 40,
                       borderRadius: '12px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                       background: `linear-gradient(145deg, ${alpha(accent, 0.22)} 0%, ${alpha(accent, 0.08)} 100%)`,
                       color: accent,
                       '& .MuiSvgIcon-root': { fontSize: 22 },
-                    }}
-                  >
+                  }}
+                >
                     {qa.icon}
-                  </Box>
+                </Box>
                   <Typography
                     variant="caption"
                     fontWeight={700}
                     sx={{ color: dt.text.primary, lineHeight: 1.2, fontSize: '0.72rem' }}
                   >
                     {qa.label}
-                  </Typography>
+                </Typography>
                 </Button>
-              </Grid>
+            </Grid>
             );
           })}
         </Grid>
@@ -564,11 +590,13 @@ export default function Dashboard() {
 
       {/* Outstanding aging — full width */}
       <Box sx={{ mb: dt.gridGap }}>
-        <OutstandingAgingCard
-          buckets={agingBuckets}
-          total={agingTotal}
-          onViewReport={() => navigate('/reports/outstanding-aging')}
-        />
+        <Suspense fallback={<ChartFallback />}>
+          <OutstandingAgingCard
+            buckets={agingBuckets}
+            total={agingTotal}
+            onViewReport={() => navigate('/reports/outstanding-aging')}
+          />
+        </Suspense>
       </Box>
 
       {/* Row 3 — business modules */}
@@ -578,7 +606,9 @@ export default function Dashboard() {
 
       {/* Row 4 — business snapshot */}
       <Box sx={{ mb: dt.gridGap }}>
-        <BusinessSnapshotCard items={snapshotItems} />
+        <Suspense fallback={<ChartFallback />}>
+          <BusinessSnapshotCard items={snapshotItems} />
+        </Suspense>
       </Box>
 
       <Grid container spacing={dt.gridGap} sx={{ mb: dt.gridGap }}>
@@ -592,7 +622,7 @@ export default function Dashboard() {
                 }
               >
                 <TableContainer
-                  sx={{
+            sx={{
                     borderRadius: dt.innerRadius,
                     border: `1px solid ${dt.border}`,
                     maxHeight: 360,
@@ -606,7 +636,7 @@ export default function Dashboard() {
                           <TableCell
                             key={h}
                             align={h === 'Amount' ? 'right' : 'left'}
-                            sx={{
+                sx={{
                               fontWeight: 700,
                               fontSize: '0.6875rem',
                               letterSpacing: '0.04em',
@@ -631,18 +661,18 @@ export default function Dashboard() {
                           (inv as { partyName?: string; party?: string }).partyName ||
                           (inv as { party?: string }).party ||
                           '—';
-                        return (
+          return (
                           <TableRow
                             key={inv.id}
                             hover
-                            sx={{
+                sx={{
                               bgcolor:
                                 rowIdx % 2 === 1
                                   ? alpha(dt.primary, 0.02)
                                   : 'transparent',
                               transition: 'background-color 200ms ease',
                               '&:last-child td': { border: 0 },
-                              '&:hover': {
+                  '&:hover': {
                                 bgcolor: alpha(dt.primary, 0.06),
                                 '& td': { borderColor: 'transparent' },
                               },
@@ -659,7 +689,7 @@ export default function Dashboard() {
                             <TableCell sx={{ fontSize: '0.8125rem', py: 1.35 }}>{party}</TableCell>
                             <TableCell
                               align="right"
-                              sx={{
+                sx={{
                                 fontWeight: 800,
                                 fontSize: '0.8125rem',
                                 fontFeatureSettings: '"tnum"',
@@ -669,11 +699,11 @@ export default function Dashboard() {
                               {formatCurrency(inv.grandTotal)}
                             </TableCell>
                             <TableCell sx={{ py: 1.35 }}>
-                              <Chip
-                                size="small"
+              <Chip
+                size="small"
                                 label={badge.label}
                                 color={badge.color}
-                                sx={{
+                sx={{
                                   fontWeight: 700,
                                   fontSize: '0.6875rem',
                                   height: 24,
@@ -689,7 +719,7 @@ export default function Dashboard() {
                 </TableContainer>
               </DashboardPanel>
             </Grid>
-          </Grid>
+        </Grid>
 
       <Grid container spacing={dt.gridGap}>
             <Grid item xs={12} md={6} sx={{ display: 'flex' }}>
@@ -710,11 +740,11 @@ export default function Dashboard() {
                 >
                   <Typography variant="caption" fontWeight={700} color={dt.text.muted}>
                     Customer Name
-                  </Typography>
+                      </Typography>
                   <Typography variant="caption" fontWeight={700} color={dt.text.muted}>
                     Outstanding Amount
-                  </Typography>
-                </Stack>
+                      </Typography>
+          </Stack>
                 <Stack spacing={0} divider={<Divider sx={{ borderColor: dt.border }} />}>
                   {(outstandingSummary?.customers ?? []).slice(0, 6).map((c) => {
                     const initials = String(c.name || 'C')
@@ -729,22 +759,27 @@ export default function Dashboard() {
                         direction="row"
                         alignItems="center"
                         justifyContent="space-between"
-                        sx={{
+                sx={{
                           py: 1.15,
                           px: 0.5,
                           borderRadius: dt.innerRadius,
                           transition: dt.transition,
-                          cursor: 'pointer',
-                          '&:hover': {
+                  cursor: 'pointer',
+                  '&:hover': {
                             bgcolor: dt.primarySoft,
                             transform: 'translateX(2px)',
                           },
                         }}
-                        onClick={() => navigate(`/parties/party-ledger/${encodeURIComponent(c.id)}`)}
+                        onClick={() => {
+                          void customersApi.findPartyIdByLedgerId(c.id).then((partyId) => {
+                            if (partyId) navigate(`/customers/${partyId}/statement`);
+                            else navigate(`/parties/party-ledger/${encodeURIComponent(c.id)}`);
+                          });
+                        }}
                       >
                         <Stack direction="row" spacing={1.25} alignItems="center" minWidth={0}>
                           <Avatar
-                            sx={{
+                sx={{
                               width: 38,
                               height: 38,
                               fontSize: 13,
@@ -758,13 +793,13 @@ export default function Dashboard() {
                           </Avatar>
                           <Typography variant="body2" fontWeight={600} noWrap>
                             {c.name}
-                          </Typography>
+                      </Typography>
                         </Stack>
-                        <Typography
+                      <Typography
                           variant="body2"
                           fontWeight={800}
                           flexShrink={0}
-                          sx={{
+            sx={{
                             ml: 1,
                             fontFeatureSettings: '"tnum"',
                             color: dt.kpi.outstanding,
@@ -772,23 +807,25 @@ export default function Dashboard() {
                           }}
                         >
                           {formatCurrency(c.currentBalance)}
-                        </Typography>
-                      </Stack>
+                  </Typography>
+          </Stack>
                     );
                   })}
                 </Stack>
               </DashboardPanel>
-            </Grid>
+              </Grid>
             <Grid item xs={12} md={6} sx={{ display: 'flex' }}>
               <Box sx={{ flex: 1, width: '100%' }}>
-                <BusinessHealthCard metrics={businessHealthMetrics} />
-              </Box>
-            </Grid>
-          </Grid>
+                <Suspense fallback={<ChartFallback />}>
+                  <BusinessHealthCard metrics={businessHealthMetrics} />
+                </Suspense>
+            </Box>
+        </Grid>
+      </Grid>
 
       {loading && (
         <Box sx={{ position: 'fixed', right: 24, bottom: 24, zIndex: 10 }}>
-          <Chip
+                            <Chip
             icon={<CircularProgress size={14} color="inherit" />}
             label="Loading dashboard..."
             sx={{
@@ -798,7 +835,7 @@ export default function Dashboard() {
               borderRadius: dt.cardRadius,
             }}
           />
-        </Box>
+              </Box>
       )}
 
       <WhatsAppOutstandingPickerDialog

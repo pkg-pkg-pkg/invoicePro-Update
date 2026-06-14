@@ -77,16 +77,25 @@ const pushToHost = async (event: SyncEvent): Promise<void> => {
 
 let running = false;
 let intervalId: ReturnType<typeof setInterval> | null = null;
+let loggedPushPermissionDenied = false;
 
 const processQueue = async (): Promise<void> => {
   if (running) return;
 
+  const base = getHostBaseUrl();
+  if (!base) {
+    return;
+  }
+
   if (!rbac.canPushSync()) {
-    syncLogger.warn({
-      event: 'push_failure',
-      code: 'SYNC_PUSH_PERMISSION_DENIED',
-      message: 'User lacks sync:push permission',
-    });
+    if (!loggedPushPermissionDenied) {
+      loggedPushPermissionDenied = true;
+      syncLogger.warn({
+        event: 'push_failure',
+        code: 'SYNC_PUSH_PERMISSION_DENIED',
+        message: 'User lacks sync:push permission',
+      });
+    }
     return;
   }
 
@@ -96,11 +105,6 @@ const processQueue = async (): Promise<void> => {
       code: 'SYNC_PUSH_OFFLINE',
       message: 'Offline; skipping push cycle',
     });
-    return;
-  }
-
-  const base = getHostBaseUrl();
-  if (!base) {
     return;
   }
 

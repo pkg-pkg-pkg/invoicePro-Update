@@ -444,7 +444,7 @@ const InventoryItemList = () => {
             </IconButton>
           </Tooltip>
           {canManage && (
-            <Button variant="contained" onClick={() => navigate('/masters/inventory-items/new')}>
+            <Button variant="contained" onClick={() => navigate('/items?new=1')}>
               New Inventory Item
             </Button>
           )}

@@ -1,3 +1,5 @@
+import { readStoredAuthUserRaw } from '../../utils/authStorage';
+
 export type Role = 'admin' | 'manager' | 'accountant' | 'user' | 'viewer';
 
 export type Permission =
@@ -70,14 +72,22 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   ],
 };
 
+/** Map persisted auth roles to RBAC role keys. */
+const normalizeRole = (raw: string | undefined): Role => {
+  const r = String(raw ?? 'viewer').toLowerCase();
+  if (r === 'sales') return 'user';
+  if (Object.prototype.hasOwnProperty.call(ROLE_PERMISSIONS, r)) return r as Role;
+  return 'viewer';
+};
+
 const getCurrentUser = (): { id: string; role: Role; companyId: string } | null => {
   try {
-    const raw = localStorage.getItem('user');
+    const raw = readStoredAuthUserRaw();
     if (!raw) return null;
     const user = JSON.parse(raw);
     return {
       id: user.id ?? '',
-      role: (user.role ?? 'user').toLowerCase() as Role,
+      role: normalizeRole(user.role),
       companyId: user.companyId ?? '',
     };
   } catch {
@@ -93,7 +103,7 @@ export const rbac = {
   hasPermission(permission: Permission, role?: Role): boolean {
     const user = getCurrentUser();
     const effectiveRole = role ?? user?.role ?? 'viewer';
-    const perms = ROLE_PERMISSIONS[effectiveRole] ?? [];
+    const perms = ROLE_PERMISSIONS[normalizeRole(effectiveRole)] ?? [];
     return perms.includes(permission);
   },
 

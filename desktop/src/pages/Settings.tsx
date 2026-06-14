@@ -3,7 +3,6 @@ import { useLocation } from 'react-router-dom';
 import { Typography, Paper, Box, TextField, Button, Divider, Alert, Grid, Chip, Stack, Card } from '@mui/material';
 import { useTheme, alpha } from '@mui/material/styles';
 import EditIcon from '@mui/icons-material/Edit';
-import PrintCustomization from '../components/PrintCustomization';
 import WhatsAppSettings from '../components/WhatsAppSettings';
 import UserManagement from './UserManagement';
 import AboutAndUpdates from '../components/AboutAndUpdates';
@@ -16,6 +15,7 @@ import { isTauriRuntime, isElectronRuntime } from '../utils/runtime';
 import { persistActiveCompanyLocalData } from '../services/companyRegistryService';
 import {
   getActiveCompanyProfileRow,
+  getCachedCompanyProfile,
   normalizedToUpsertPayload,
   preloadCompanyProfile,
   upsertCompanyProfile,
@@ -48,8 +48,13 @@ import { setDefaultCompany } from '../services/companyRegistryService';
 import { getActiveCompanyId } from '../utils/companyStorage';
 import { getSessionSettings, setSessionSettings } from '../services/sessionManager';
 import SettingsShell, { SettingsSectionBlock } from '../components/settings/SettingsShell';
+import InventorySettingsPanel from '../components/settings/InventorySettingsPanel';
+import LicenseLocalPanel from '../components/settings/LicenseLocalPanel';
 import GstEwayBillSettings from '../components/settings/GstEwayBillSettings';
 import DataStorageSettings from '../components/settings/DataStorageSettings';
+import PrivacySettingsPanel from '../components/settings/PrivacySettingsPanel';
+import VoucherNumberSettingsPanel from '../components/settings/VoucherNumberSettingsPanel';
+import CloudMiddlewareSyncSettings from '../components/settings/CloudMiddlewareSyncSettings';
 import type { SettingsSectionId } from '../components/settings/settingsNavConfig';
 
 // Password Change Form Component
@@ -206,6 +211,7 @@ interface CompanyProfile {
   email: string;
   website: string;
   upiId: string;
+  upiPayeeName: string;
   gstin: string;
 }
 
@@ -220,7 +226,6 @@ export default function Settings() {
   const canManageSettings = canAccessFeature('manage-settings');
   const canManageCompany = canAccessFeature('manage-company');
   const canManageUsers = canAccessFeature('manage-users');
-  const canCustomizePrint = canAccessFeature('customize-print');
   const canBackup = canAccessFeature('backup-data');
   const canRestore = canAccessFeature('restore-data');
 
@@ -264,14 +269,16 @@ export default function Settings() {
       setActiveSection('company');
     } else if (t === 'security') {
       setActiveSection('security');
+    } else if (t === 'privacy' || t === 'diagnostics') {
+      setActiveSection('privacy');
     } else if (t === 'backup') {
       setActiveSection('backup');
     } else if (t === 'data-storage' || t === 'storage' || t === 'data') {
       setActiveSection('data-storage');
+    } else if (t === 'inventory') {
+      setActiveSection('inventory');
     } else if (t === 'whatsapp') {
       setActiveSection('whatsapp');
-    } else if (t === 'print') {
-      setActiveSection('print');
     } else if (t === 'gst' || t === 'eway' || t === 'gst-eway') {
       setActiveSection('gst-eway');
     } else if (t === 'users') {
@@ -334,6 +341,7 @@ export default function Settings() {
     email: '',
     website: '',
     upiId: '',
+    upiPayeeName: '',
     gstin: '',
   });
 
@@ -404,7 +412,8 @@ export default function Settings() {
   };
 
   const upsertCompanyInfo = (partial: Record<string, any>) => {
-    void upsertCompanyProfile(normalizedToUpsertPayload(partial))
+    const merged = { ...getCachedCompanyProfile(), ...partial };
+    void upsertCompanyProfile(normalizedToUpsertPayload(merged))
       .then((res) => {
         if (!res.success) {
           setLicenseError(res.error || 'Failed to save company profile to database');
@@ -432,7 +441,8 @@ export default function Settings() {
         mobiles: String(row.mobile || '').trim(),
         email: String(row.email || '').trim(),
         website: String(row.website || '').trim(),
-        upiId: '',
+        upiId: String(row.upi_id || '').trim(),
+        upiPayeeName: String(row.upi_payee_name || row.company_name || '').trim(),
         gstin: String(row.gstin || '').trim(),
       };
       setCompanyProfile(loaded);
@@ -829,6 +839,8 @@ export default function Settings() {
           pinCode: statePin.replace(/^[^,]+,\s*/, '').match(/\d{6}/)?.[0] || '',
           logo: companyMedia.logo ?? '',
           signature: companyMedia.signature ?? '',
+          upiId: companyProfile.upiId.trim(),
+          upiPayeeName: companyProfile.upiPayeeName.trim() || companyProfile.name.trim(),
         })
       );
       if (!res.success) {
@@ -1054,6 +1066,15 @@ export default function Settings() {
                       helperText="Shown as Scan to Pay QR on printed invoices when set"
                       InputProps={{ sx: { borderRadius: 2 } }}
                     />
+                    <TextField
+                      label="UPI Payee Name"
+                      value={companyProfile.upiPayeeName}
+                      onChange={(e) => handleFieldChange('upiPayeeName', e.target.value)}
+                      fullWidth
+                      placeholder="Business name as registered on UPI"
+                      helperText="Name shown to customers when they scan the QR"
+                      InputProps={{ sx: { borderRadius: 2 } }}
+                    />
                     <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
                       <Button variant="contained" size="large" onClick={handleSave} sx={{ px: 6, borderRadius: 2 }}>
                         Save Profile
@@ -1072,6 +1093,7 @@ export default function Settings() {
                       { label: 'Email', value: companyProfile.email, icon: '✉️' },
                       { label: 'Website', value: companyProfile.website, icon: '🌐' },
                       { label: 'UPI ID', value: companyProfile.upiId, icon: '💳' },
+                      { label: 'UPI Payee Name', value: companyProfile.upiPayeeName, icon: '🏷️' },
                       { label: 'Address', value: companyProfile.address, icon: '📍', full: true },
                       { label: 'State & PIN', value: companyProfile.statePin, icon: '🗺️' },
                     ].map((item, idx) => (
@@ -1140,10 +1162,6 @@ export default function Settings() {
 
       {activeSection === 'about' && <AboutAndUpdates />}
 
-        {activeSection === 'print' && (
-          canCustomizePrint ? <PrintCustomization /> : <Alert severity="error" sx={{ mt: 3 }}>You do not have permission to customize print</Alert>
-        )}
-
         {activeSection === 'gst-eway' && (
           <SettingsSectionBlock title="GST & E-Way Bill">
             <GstEwayBillSettings />
@@ -1154,12 +1172,26 @@ export default function Settings() {
           <WhatsAppSettings />
         )}
 
+        {activeSection === 'privacy' && <PrivacySettingsPanel />}
+
+        {activeSection === 'voucher-numbers' && (
+          <SettingsSectionBlock title="Voucher Number Settings" subtitle="Prefixes, sequences, and formats per document type.">
+            <VoucherNumberSettingsPanel />
+          </SettingsSectionBlock>
+        )}
+
         {activeSection === 'users' && (
           canManageUsers ? <UserManagement /> : <Alert severity="error" sx={{ mt: 3 }}>You do not have permission to manage users</Alert>
         )}
 
         {activeSection === 'security' && (
           <Box>
+            <SettingsSectionBlock title="License" subtitle="Local activation status — online verify is optional.">
+              <Paper sx={{ p: 3, border: '1px solid var(--border)', maxWidth: 560 }}>
+                <LicenseLocalPanel />
+              </Paper>
+            </SettingsSectionBlock>
+            <Divider sx={{ my: 3 }} />
             <SettingsSectionBlock title="Change Password">
               <PasswordChangeForm />
             </SettingsSectionBlock>
@@ -1488,7 +1520,23 @@ export default function Settings() {
                   )}
                 </Paper>
               </Grid>
+
+              <Grid item xs={12}>
+                <Paper sx={{ p: 3 }}>
+                  <CloudMiddlewareSyncSettings />
+                </Paper>
+              </Grid>
             </Grid>
+          </Box>
+        )}
+
+        {activeSection === 'inventory' && (
+          <Box>
+            <SettingsSectionBlock title="Inventory" subtitle="Low stock threshold, barcode scan mode, and label printing.">
+              <Paper sx={{ p: 3, border: '1px solid var(--border)', maxWidth: 480 }}>
+                <InventorySettingsPanel />
+              </Paper>
+            </SettingsSectionBlock>
           </Box>
         )}
 

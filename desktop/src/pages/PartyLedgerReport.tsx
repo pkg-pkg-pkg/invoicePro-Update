@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Grid,
@@ -19,23 +20,34 @@ import {
   MenuItem,
   CircularProgress,
 } from '@mui/material';
-import Autocomplete from '@mui/material/Autocomplete';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { useSearchParams } from 'react-router-dom';
 import { customersApi, type PartyFilterOption } from '../services/customers/customersApi';
+import { ledgerAccountService } from '../services/masters/ledgerAccountService';
+import { ledgerGroupService } from '../services/masters/ledgerGroupService';
 import { ledgerReportService, type LedgerStatement } from '../services/reports/ledgerReportService';
 import { formatCurrency } from '../utils/formatters';
 import { PARTIES_CHANGED_EVENT } from '../services/masters/partyService';
+import { PartyPickerModal } from '../components/parties/PartyPickerModal';
+import { PartyPickerField } from '../components/parties/PartyPickerField';
+import type { LedgerAccount } from '../types/masters';
+import { VoucherNumberLink } from '../components/Vouchers/VoucherNumberLink';
+import { buildGroupPath } from '../utils/ledgerGroupPath';
+import { resolveVoucherNumberLabel } from '../utils/voucherNavigation';
 
 type PartyType = 'customer' | 'supplier';
-
-type PartyOption = PartyFilterOption;
+type SourceMode = 'any' | 'debtor' | 'creditor';
 
 const formatBalance = (value: number) => {
   const abs = Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return value >= 0 ? `${abs} Dr` : `${abs} Cr`;
 };
+
+function ledgerTxnVoucherNumber(t: LedgerStatement['transactions'][number]): string {
+  const meta = t.meta as { voucherNumber?: string } | null | undefined;
+  return resolveVoucherNumberLabel(meta?.voucherNumber ?? null, t.voucherId);
+}
 
 function exportLedgerCsv(statement: LedgerStatement, filename: string) {
   const rows = [
@@ -43,7 +55,7 @@ function exportLedgerCsv(statement: LedgerStatement, filename: string) {
     ['', '', 'Opening Balance', '', '', formatBalance(statement.openingBalance)],
     ...statement.transactions.map((t) => [
       new Date(t.date).toISOString().slice(0, 10),
-      t.voucherId,
+      ledgerTxnVoucherNumber(t),
       t.voucherType,
       t.debit ? String(t.debit) : '',
       t.credit ? String(t.credit) : '',
@@ -65,7 +77,7 @@ function exportLedgerPdf(statement: LedgerStatement, title: string) {
   const lines = statement.transactions
     .map(
       (t) =>
-        `<tr><td>${new Date(t.date).toISOString().slice(0, 10)}</td><td>${t.voucherId}</td><td>${t.voucherType}</td><td align="right">${t.debit || ''}</td><td align="right">${t.credit || ''}</td><td align="right">${formatBalance(t.runningBalance)}</td></tr>`
+        `<tr><td>${new Date(t.date).toISOString().slice(0, 10)}</td><td>${ledgerTxnVoucherNumber(t)}</td><td>${t.voucherType}</td><td align="right">${t.debit || ''}</td><td align="right">${t.credit || ''}</td><td align="right">${formatBalance(t.runningBalance)}</td></tr>`
     )
     .join('');
   const html = `<!DOCTYPE html><html><head><title>${title}</title><style>table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px;font-size:12px}th{background:#f5f5f5}</style></head><body><h2>${title}</h2><table><thead><tr><th>Date</th><th>Voucher No.</th><th>Particulars</th><th>Debit (Dr)</th><th>Credit (Cr)</th><th>Balance</th></tr></thead><tbody><tr><td colspan="3"><strong>Opening Balance</strong></td><td></td><td></td><td align="right">${formatBalance(statement.openingBalance)}</td></tr>${lines}<tr><td colspan="3"><strong>Closing Balance</strong></td><td></td><td></td><td align="right">${formatBalance(statement.closingBalance)}</td></tr></tbody></table></body></html>`;
@@ -77,34 +89,53 @@ function exportLedgerPdf(statement: LedgerStatement, title: string) {
 }
 
 export default function PartyLedgerReport() {
-  const [searchParams] = useSearchParams();
-  const [partyType, setPartyType] = useState<PartyType>('customer');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [sourceMode, setSourceMode] = useState<SourceMode>('any');
   const [customerOptions, setCustomerOptions] = useState<PartyFilterOption[]>([]);
   const [supplierOptions, setSupplierOptions] = useState<PartyFilterOption[]>([]);
+  const [allLedgers, setAllLedgers] = useState<LedgerAccount[]>([]);
+  const [groups, setGroups] = useState<Awaited<ReturnType<typeof ledgerGroupService.list>>>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingLists, setLoadingLists] = useState(true);
 
   const [selectedPartyId, setSelectedPartyId] = useState<string>('');
+  const [selectedLedgerId, setSelectedLedgerId] = useState<string>('');
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
   const [statement, setStatement] = useState<LedgerStatement | null>(null);
+  const [viewedLedgerId, setViewedLedgerId] = useState<string | null>(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState<string | null>(null);
+  const [partyPickerOpen, setPartyPickerOpen] = useState(false);
+  const loadRequestRef = useRef(0);
+  const loadedUrlLedgerRef = useRef<string | null>(null);
+
+  const clearStatementView = useCallback(() => {
+    setStatement(null);
+    setViewedLedgerId(null);
+    setLedgerError(null);
+    loadedUrlLedgerRef.current = null;
+  }, []);
 
   const refreshLists = useCallback(async () => {
     setLoadingLists(true);
     setLoadError(null);
     try {
-      const [buyers, sellers] = await Promise.all([
+      const [buyers, sellers, ledgers, groupRows] = await Promise.all([
         customersApi.listLedgerCustomerOptions(),
         customersApi.listLedgerSupplierOptions(),
+        ledgerAccountService.list({ includeInactive: true }),
+        ledgerGroupService.list({ includeInactive: true }),
       ]);
       setCustomerOptions(buyers);
       setSupplierOptions(sellers);
+      setAllLedgers(ledgers.sort((a, b) => a.name.localeCompare(b.name)));
+      setGroups(groupRows);
     } catch (e) {
-      setLoadError((e as Error).message ?? 'Failed to load parties');
+      setLoadError((e as Error).message ?? 'Failed to load ledgers');
       setCustomerOptions([]);
       setSupplierOptions([]);
+      setAllLedgers([]);
     } finally {
       setLoadingLists(false);
     }
@@ -120,117 +151,180 @@ export default function PartyLedgerReport() {
     return () => window.removeEventListener(PARTIES_CHANGED_EVENT, onPartiesChanged);
   }, [refreshLists]);
 
-  useEffect(() => {
-    const customerId = searchParams.get('customerId');
-    if (!customerId) return;
-    setPartyType('customer');
-    const match =
-      customerOptions.find((o) => o.partyId === customerId) ??
-      customerOptions.find((o) => o.ledgerId === customerId);
-    if (match) setSelectedPartyId(match.partyId);
-  }, [searchParams, customerOptions]);
+  const activeLedgerId = useMemo(() => {
+    if (sourceMode === 'any') return selectedLedgerId;
+    const selected = (sourceMode === 'debtor' ? customerOptions : supplierOptions).find((o) => o.partyId === selectedPartyId);
+    return selected?.ledgerId ?? '';
+  }, [sourceMode, selectedLedgerId, selectedPartyId, customerOptions, supplierOptions]);
 
-  const options: PartyOption[] = useMemo(
-    () => (partyType === 'customer' ? customerOptions : supplierOptions),
-    [partyType, customerOptions, supplierOptions]
-  );
+  const selectedLedger = allLedgers.find((l) => l.id === activeLedgerId) ?? null;
+  const selectedParty = (sourceMode === 'debtor' ? customerOptions : supplierOptions).find((o) => o.partyId === selectedPartyId) ?? null;
+  const displayName = selectedLedger?.name ?? selectedParty?.name ?? 'Ledger';
 
-  const selected = options.find((o) => o.partyId === selectedPartyId) ?? null;
-
-  const viewLedger = async () => {
-    if (!selected?.ledgerId) return;
+  const loadStatement = useCallback(async (ledgerId: string) => {
+    if (!ledgerId) return;
+    const requestId = ++loadRequestRef.current;
     setLedgerLoading(true);
     setLedgerError(null);
+    setStatement(null);
+    setViewedLedgerId(null);
     try {
-      const res = await ledgerReportService.getStatement(selected.ledgerId, {
+      const res = await ledgerReportService.getStatement(ledgerId, {
         fromDate: fromDate || undefined,
         toDate: toDate || undefined,
       });
+      if (requestId !== loadRequestRef.current) return;
       setStatement(res);
+      setViewedLedgerId(ledgerId);
     } catch (e) {
+      if (requestId !== loadRequestRef.current) return;
       setStatement(null);
+      setViewedLedgerId(null);
       setLedgerError((e as Error).message ?? 'Failed to load ledger');
     } finally {
-      setLedgerLoading(false);
+      if (requestId === loadRequestRef.current) {
+        setLedgerLoading(false);
+      }
+    }
+  }, [fromDate, toDate]);
+
+  useEffect(() => {
+    const ledgerId = searchParams.get('ledgerId');
+    const customerId = searchParams.get('customerId');
+    if (ledgerId) {
+      setSourceMode('any');
+      setSelectedLedgerId(ledgerId);
+      return;
+    }
+    if (customerId) {
+      setSourceMode('debtor');
+      const match =
+        customerOptions.find((o) => o.partyId === customerId) ??
+        customerOptions.find((o) => o.ledgerId === customerId);
+      if (match) setSelectedPartyId(match.partyId);
+    }
+  }, [searchParams, customerOptions]);
+
+  useEffect(() => {
+    const ledgerId = searchParams.get('ledgerId');
+    if (!ledgerId) {
+      loadedUrlLedgerRef.current = null;
+      return;
+    }
+    if (allLedgers.length === 0) return;
+    if (loadedUrlLedgerRef.current === ledgerId) return;
+    loadedUrlLedgerRef.current = ledgerId;
+    void loadStatement(ledgerId);
+  }, [searchParams, allLedgers.length, loadStatement]);
+
+  const partyOptions = sourceMode === 'debtor' ? customerOptions : supplierOptions;
+
+  const handleSelectionChange = () => {
+    clearStatementView();
+    if (searchParams.has('ledgerId') || searchParams.has('customerId')) {
+      setSearchParams({}, { replace: true });
     }
   };
 
-  const emptyMessage =
-    !loadingLists && options.length === 0
-      ? partyType === 'customer'
-        ? 'No customers found. Add customers under Customers module.'
-        : 'No suppliers found. Add suppliers under Party Master.'
-      : undefined;
+  const handleViewLedger = () => {
+    if (!activeLedgerId) return;
+    loadedUrlLedgerRef.current = activeLedgerId;
+    setSearchParams({ ledgerId: activeLedgerId }, { replace: true });
+    void loadStatement(activeLedgerId);
+  };
+
+  const statementMatchesSelection =
+    Boolean(statement && viewedLedgerId && activeLedgerId && viewedLedgerId === activeLedgerId);
+  const statementTitle = statementMatchesSelection ? statement!.ledger.name : displayName;
+
   return (
     <Box sx={{ p: 1 }}>
-      <Typography variant="h4" sx={{ mb: 2 }}>
+      <Typography variant="h5" fontWeight={800} sx={{ mb: 2 }}>
         Ledger Report
       </Typography>
 
-      {loadError && (
+      {loadError ? (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setLoadError(null)}>
           {loadError}
         </Alert>
-      )}
+      ) : null}
 
       <Paper sx={{ p: 2, mb: 2 }}>
         <Grid container spacing={2} alignItems="center">
           <Grid item xs={12} md={3}>
             <FormControl fullWidth size="small">
-              <InputLabel>Party Type</InputLabel>
+              <InputLabel>Ledger Source</InputLabel>
               <Select
-                label="Party Type"
-                value={partyType}
+                label="Ledger Source"
+                value={sourceMode}
                 onChange={(e) => {
-                  setPartyType(e.target.value as PartyType);
+                  setSourceMode(e.target.value as SourceMode);
                   setSelectedPartyId('');
-                  setStatement(null);
+                  setSelectedLedgerId('');
+                  clearStatementView();
+                  setSearchParams({}, { replace: true });
                 }}
               >
-                <MenuItem value="customer">Customer</MenuItem>
-                <MenuItem value="supplier">Supplier</MenuItem>
+                <MenuItem value="any">Any Ledger</MenuItem>
+                <MenuItem value="debtor">Debtor</MenuItem>
+                <MenuItem value="creditor">Creditor</MenuItem>
               </Select>
             </FormControl>
           </Grid>
 
           <Grid item xs={12} md={5}>
-            <Autocomplete
-              options={options}
-              value={selected}
-              getOptionLabel={(o) => o.name}
-              isOptionEqualToValue={(a, b) => a.partyId === b.partyId}
-              onChange={(_e, v) => {
-                setSelectedPartyId(v?.partyId ?? '');
-                setStatement(null);
-              }}
-              loading={loadingLists}
-              noOptionsText={loadingLists ? 'Loading…' : emptyMessage || 'No parties found'}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  size="small"
-                  label={partyType === 'customer' ? 'Customer' : 'Supplier'}
-                  placeholder="Search by name…"
-                />
-              )}
-            />
+            {sourceMode === 'any' ? (
+              <Autocomplete
+                size="small"
+                options={allLedgers}
+                loading={loadingLists}
+                value={selectedLedger}
+                onChange={(_, ledger) => {
+                  setSelectedLedgerId(ledger?.id ?? '');
+                  handleSelectionChange();
+                }}
+                getOptionLabel={(l) => l.name}
+                renderOption={(props, l) => (
+                  <li {...props} key={l.id}>
+                    <Stack>
+                      <Typography variant="body2">{l.name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {buildGroupPath(l.groupId, groups)}
+                      </Typography>
+                    </Stack>
+                  </li>
+                )}
+                renderInput={(params) => (
+                  <TextField {...params} label="Select Ledger" placeholder="Search any ledger account…" />
+                )}
+              />
+            ) : (
+              <PartyPickerField
+                size="small"
+                label={sourceMode === 'debtor' ? 'Debtor' : 'Creditor'}
+                displayValue={selectedParty?.name ?? ''}
+                placeholder={loadingLists ? 'Loading…' : 'Search by name…'}
+                disabled={loadingLists}
+                onOpen={() => setPartyPickerOpen(true)}
+                helperText={!loadingLists && partyOptions.length === 0 ? 'No parties found.' : undefined}
+              />
+            )}
           </Grid>
 
           <Grid item xs={12} md={2}>
-            <TextField label="From Date" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} fullWidth size="small" InputLabelProps={{ shrink: true }} />
+            <TextField label="From Date" type="date" value={fromDate} onChange={(e) => { setFromDate(e.target.value); clearStatementView(); }} fullWidth size="small" InputLabelProps={{ shrink: true }} />
           </Grid>
-
           <Grid item xs={12} md={2}>
-            <TextField label="To Date" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} fullWidth size="small" InputLabelProps={{ shrink: true }} />
+            <TextField label="To Date" type="date" value={toDate} onChange={(e) => { setToDate(e.target.value); clearStatementView(); }} fullWidth size="small" InputLabelProps={{ shrink: true }} />
           </Grid>
 
           <Grid item xs={12}>
             <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-              <Button variant="outlined" onClick={() => { setSelectedPartyId(''); setFromDate(''); setToDate(''); setStatement(null); }}>
+              <Button variant="outlined" onClick={() => { setSelectedPartyId(''); setSelectedLedgerId(''); setFromDate(''); setToDate(''); clearStatementView(); setSearchParams({}, { replace: true }); }}>
                 Clear
               </Button>
-              <Button variant="contained" disabled={!selectedPartyId || !selected?.ledgerId} onClick={() => void viewLedger()}>
-                View Ledger
+              <Button variant="contained" disabled={!activeLedgerId || ledgerLoading} onClick={handleViewLedger}>
+                {ledgerLoading ? 'Loading…' : 'View Statement'}
               </Button>
             </Box>
           </Grid>
@@ -241,17 +335,17 @@ export default function PartyLedgerReport() {
 
       {ledgerLoading ? (
         <Stack alignItems="center" py={4}><CircularProgress size={28} /></Stack>
-      ) : statement ? (
+      ) : statementMatchesSelection && statement ? (
         <Paper sx={{ p: 2 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
             <Typography variant="h6" fontWeight={700}>
-              {statement.ledger.name} — Ledger
+              {statement.ledger.name} — Ledger Statement
             </Typography>
             <Stack direction="row" spacing={1}>
-              <Button size="small" startIcon={<FileDownloadIcon />} onClick={() => exportLedgerCsv(statement, `ledger-${selected?.name ?? 'party'}.csv`)}>
-                Export Excel
+              <Button size="small" startIcon={<FileDownloadIcon />} onClick={() => exportLedgerCsv(statement, `ledger-${statement.ledger.name.replace(/\W+/g, '_')}.csv`)}>
+                Export CSV
               </Button>
-              <Button size="small" startIcon={<PictureAsPdfIcon />} onClick={() => exportLedgerPdf(statement, `${selected?.name ?? 'Party'} Ledger`)}>
+              <Button size="small" startIcon={<PictureAsPdfIcon />} onClick={() => exportLedgerPdf(statement, `${statement.ledger.name} Ledger`)}>
                 Export PDF
               </Button>
             </Stack>
@@ -269,15 +363,21 @@ export default function PartyLedgerReport() {
             </TableHead>
             <TableBody>
               <TableRow sx={{ bgcolor: 'action.hover' }}>
-                  <TableCell colSpan={3}><strong>Opening Balance</strong></TableCell>
-                  <TableCell align="right" />
-                  <TableCell align="right" />
-                  <TableCell align="right"><strong>{formatBalance(statement.openingBalance)}</strong></TableCell>
-                </TableRow>
+                <TableCell colSpan={3}><strong>Opening Balance</strong></TableCell>
+                <TableCell align="right" />
+                <TableCell align="right" />
+                <TableCell align="right"><strong>{formatBalance(statement.openingBalance)}</strong></TableCell>
+              </TableRow>
               {statement.transactions.map((t) => (
                 <TableRow key={t.id}>
                   <TableCell>{new Date(t.date).toLocaleDateString()}</TableCell>
-                  <TableCell>{t.voucherId}</TableCell>
+                  <TableCell>
+                    <VoucherNumberLink
+                      voucherId={t.voucherId}
+                      voucherType={t.voucherType}
+                      voucherNumber={(t.meta as { voucherNumber?: string } | undefined)?.voucherNumber}
+                    />
+                  </TableCell>
                   <TableCell>{t.voucherType}</TableCell>
                   <TableCell align="right">{t.debit ? formatCurrency(t.debit) : '—'}</TableCell>
                   <TableCell align="right">{t.credit ? formatCurrency(t.credit) : '—'}</TableCell>
@@ -285,15 +385,36 @@ export default function PartyLedgerReport() {
                 </TableRow>
               ))}
               <TableRow sx={{ bgcolor: 'action.hover' }}>
-                  <TableCell colSpan={3}><strong>Closing Balance</strong></TableCell>
-                  <TableCell align="right" />
-                  <TableCell align="right" />
-                  <TableCell align="right"><strong>{formatBalance(statement.closingBalance)}</strong></TableCell>
-                </TableRow>
+                <TableCell colSpan={3}><strong>Closing Balance</strong></TableCell>
+                <TableCell align="right" />
+                <TableCell align="right" />
+                <TableCell align="right"><strong>{formatBalance(statement.closingBalance)}</strong></TableCell>
+              </TableRow>
             </TableBody>
           </Table>
         </Paper>
-      ) : null}
+      ) : (
+        <Paper sx={{ p: 3, textAlign: 'center' }}>
+          <Typography color="text.secondary">
+            {!activeLedgerId
+              ? 'Select a ledger and click View Statement to load the statement.'
+              : `Click View Statement to load the ledger statement for ${statementTitle}.`}
+          </Typography>
+        </Paper>
+      )}
+
+      <PartyPickerModal
+        open={partyPickerOpen}
+        onClose={() => setPartyPickerOpen(false)}
+        scope={sourceMode === 'debtor' ? 'debtor' : 'creditor'}
+        title={sourceMode === 'debtor' ? 'Select Debtor' : 'Select Creditor'}
+        onSelect={(ledger) => {
+          setPartyPickerOpen(false);
+          const match = partyOptions.find((o) => o.ledgerId === ledger.id);
+          setSelectedPartyId(match?.partyId ?? '');
+          handleSelectionChange();
+        }}
+      />
     </Box>
   );
 }

@@ -1,6 +1,6 @@
 import api from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { mobileSyncWorker } from './sync/mobileSyncWorker';
+import { middlewareSync } from './sync/middlewareSync';
 
 export type PartyKind = 'CUSTOMER' | 'SUPPLIER';
 
@@ -82,7 +82,7 @@ export async function createCustomer(input: {
     state: input.state ?? '',
     addressLine1: input.addressLine1 ?? '',
   };
-  const event = await mobileSyncWorker.enqueueCreate('ledger', {
+  const event = await middlewareSync.enqueueCreate('ledger', {
     ...payload,
     kind: 'CUSTOMER',
   } as unknown as Record<string, unknown>);
@@ -111,7 +111,7 @@ export async function createSupplier(input: {
     state: input.state ?? '',
     addressLine1: input.addressLine1 ?? '',
   };
-  const event = await mobileSyncWorker.enqueueCreate('ledger', {
+  const event = await middlewareSync.enqueueCreate('ledger', {
     ...payload,
     kind: 'SUPPLIER',
   } as unknown as Record<string, unknown>);

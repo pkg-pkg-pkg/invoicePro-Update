@@ -87,9 +87,11 @@ const JournalVoucherList = () => {
         </Typography>
         <Stack direction="row" spacing={1}>
           <Tooltip title="Refresh">
-            <IconButton onClick={refresh} disabled={loading}>
-              <RefreshIcon />
-            </IconButton>
+            <span style={{ display: 'inline-flex' }}>
+              <IconButton onClick={refresh} disabled={loading}>
+                <RefreshIcon />
+              </IconButton>
+            </span>
           </Tooltip>
           {canCreate && (
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate('/vouchers/journal/new')}>

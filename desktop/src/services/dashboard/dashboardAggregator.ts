@@ -16,9 +16,11 @@ import {
   TopProduct,
 } from '../../types/dashboard';
 import { inventoryItemService } from '../masters/inventoryItemService';
+import { listLowStockItems } from '../inventory/lowStockService';
 import { ledgerAccountService } from '../masters/ledgerAccountService';
 import { ledgerGroupService } from '../masters/ledgerGroupService';
 import { voucherService } from '../vouchers/voucherService';
+import { billReferenceService } from '../settlement/billReferenceService';
 import { sumPurchaseExclusivePreGst, sumSalesItemExclusiveRevenue } from '../reports/preGstProfitService';
 import {
   computeSalesInvoicePaymentStatus,
@@ -368,12 +370,19 @@ export const dashboardAggregator = {
   async outstandingSummary(): Promise<{
     customers: CustomerSummary[];
     salesVouchers: AgingSaleVoucher[];
+    billReferences: import('../../types/billReference').BillReference[];
   }> {
     const [ledgers, groups, vouchers] = await Promise.all([
       ledgerAccountService.list({ includeInactive: false }),
       ledgerGroupService.list({ includeInactive: true }),
       voucherService.list(),
     ]);
+    await billReferenceService.ensureMigrated();
+    const billReferences = (await billReferenceService.list()).filter(
+      (r) => r.pendingAmount > 0.01 && CUSTOMER_GROUP_IDS.has(
+        ledgers.find((l) => l.id === r.partyId)?.groupId ?? ''
+      )
+    );
     const groupMap = buildGroupMap(groups);
     const ledgerMap = new Map(ledgers.map((ledger) => [ledger.id, ledger]));
     const customers = summarizeLedgers(ledgers, groupMap).customers
@@ -398,19 +407,28 @@ export const dashboardAggregator = {
       .filter((row) => row.partyLedgerId && row.amount > 0)
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    return { customers, salesVouchers };
+    return { customers, salesVouchers, billReferences };
   },
 
-  async payableSummary(): Promise<{ suppliers: SupplierSummary[] }> {
+  async payableSummary(): Promise<{
+    suppliers: SupplierSummary[];
+    billReferences: import('../../types/billReference').BillReference[];
+  }> {
     const [ledgers, groups] = await Promise.all([
       ledgerAccountService.list({ includeInactive: false }),
       ledgerGroupService.list({ includeInactive: true }),
     ]);
+    await billReferenceService.ensureMigrated();
+    const billReferences = (await billReferenceService.list()).filter(
+      (r) =>
+        r.pendingAmount > 0.01 &&
+        SUPPLIER_GROUP_IDS.has(ledgers.find((l) => l.id === r.partyId)?.groupId ?? '')
+    );
     const groupMap = buildGroupMap(groups);
     const suppliers = summarizeLedgers(ledgers, groupMap).suppliers
       .sort((a, b) => b.currentBalance - a.currentBalance)
       .slice(0, 10);
-    return { suppliers };
+    return { suppliers, billReferences };
   },
 
   async recentTransactions(
@@ -619,26 +637,13 @@ export const dashboardAggregator = {
 
   async lowStock(): Promise<LowStockItem[]> {
     const items = await inventoryItemService.list({ includeInactive: false });
-    return items
-      .filter(
-        (item) =>
-          item.status === 'ACTIVE' &&
-          item.reorderLevel != null &&
-          item.reorderLevel > 0 &&
-          item.currentStock <= item.reorderLevel
-      )
-      .map((item) => {
-        const reorder = item.reorderLevel ?? 0;
-        const required = Math.max(0, reorder - item.currentStock);
-        return {
-          id: item.id,
-          name: item.name,
-          currentStock: Number(item.currentStock.toFixed(2)),
-          reorderLevel: reorder,
-          requiredQuantity: Number(required.toFixed(2)),
-          supplier: item.brand?.trim() || '—',
-        };
-      })
-      .sort((a, b) => a.currentStock - b.currentStock);
+    return listLowStockItems(items).map((row) => ({
+      id: row.id,
+      name: row.name,
+      currentStock: Number(row.currentStock.toFixed(2)),
+      reorderLevel: row.threshold,
+      requiredQuantity: Number(row.reorderQty.toFixed(2)),
+      supplier: row.brand?.trim() || '—',
+    }));
   },
 };

@@ -1,3 +1,4 @@
+// LEGACY: disabled — desktop-tethered sync storage; middlewareSync uses mobileQueue + lastFetchedAt keys.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MobileSyncConfig, MobileSyncEnvelope } from './types';
 

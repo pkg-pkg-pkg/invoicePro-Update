@@ -15,6 +15,7 @@ import {
   resolveActiveCompanyDisplayNameSync,
 } from '../../services/companyDisplayName';
 import { APP_DISPLAY_NAME } from '@/constants/appBranding';
+import SyncStatusBar from '../layout/StatusBar';
 
 const HEADER_COMPANY_NAME_MAX = 48;
 
@@ -76,14 +77,18 @@ const ERP_MENUS: ErpMenu[] = [
     label: 'Masters',
     items: [
       { label: 'Items Desk', path: '/items' },
-      { label: 'Ledger Accounts', path: '/masters/ledger-accounts' },
+      { label: 'Ledger Master', path: '/masters/ledger-accounts' },
+      { label: 'Chart of Accounts', path: '/masters/chart-of-accounts' },
+      { label: 'Ledger Structure Audit', path: '/masters/ledger-audit' },
+      { label: 'Statement Readiness Audit', path: '/masters/financial-readiness' },
+      { label: 'Accounting Integrity Audit', path: '/masters/accounting-integrity' },
       { label: 'Bank Accounts', path: '/masters/bank-accounts' },
       { label: 'Godowns', path: '/masters/godowns' },
       { label: 'Inventory Items', path: '/masters/inventory-items' },
       { label: 'Price Lists', path: '/masters/price-lists' },
       { label: 'Stock Adjustments', path: '/masters/stock-adjustments' },
-      { label: 'Customers', path: '/customers' },
-      { label: 'Customer Ledger', path: '/customers/ledger-report' },
+      { label: 'Ledgers', path: '/ledgers' },
+      { label: 'Ledger Report', path: '/ledgers/report' },
     ],
   },
   {
@@ -140,7 +145,11 @@ const ERP_MENUS: ErpMenu[] = [
   {
     id: 'help',
     label: 'Help',
-    items: [{ label: 'About & Updates', path: '/settings?tab=about', perm: 'manage-settings' }],
+    items: [
+      { label: 'About & Updates', path: '/settings?tab=about', perm: 'manage-settings' },
+      { label: 'Send Feedback', path: '__send_feedback__' },
+      { label: 'Privacy & Diagnostics', path: '/settings?tab=privacy', perm: 'manage-settings' },
+    ],
   },
 ];
 
@@ -368,7 +377,7 @@ export function DesktopErpMenuBar({
     '/masters/godowns': 'Alt+G',
     '/masters/inventory-items': 'Alt+I',
     '/parties': 'F2',
-    '/parties/ledger-report': 'Alt+R',
+    '/ledgers/report': 'Alt+R',
     '/vouchers/sales': 'F3',
     '/vouchers/purchase': 'F4',
     '/vouchers/sales-return': 'Alt+3',
@@ -561,6 +570,11 @@ export function DesktopErpMenuBar({
                     closeNow();
                     return;
                   }
+                  if (it.path === '__send_feedback__') {
+                    window.dispatchEvent(new Event('openFeedbackDialog'));
+                    closeNow();
+                    return;
+                  }
                   erpNavigateTo(navigate, it.path.startsWith('/') ? it.path : `/${it.path}`);
                   closeNow();
                 }}
@@ -694,6 +708,7 @@ export function DesktopErpStatusBar({
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
+        <SyncStatusBar />
         {healthItems.map((h) => (
           <Box key={h.label}>{pill(h.label, h.ok)}</Box>
         ))}

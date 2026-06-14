@@ -150,7 +150,7 @@ export default function InventoryItemDetail() {
             <Button variant="outlined" onClick={() => navigate(`/masters/stock-adjustments/new`)}>
               Adjust stock
             </Button>
-            <Button variant="contained" startIcon={<EditIcon />} onClick={() => navigate(`/masters/inventory-items/${item.id}/edit`)}>
+            <Button variant="contained" startIcon={<EditIcon />} onClick={() => navigate(`/items?edit=${item.id}`)}>
               Edit item
             </Button>
           </>

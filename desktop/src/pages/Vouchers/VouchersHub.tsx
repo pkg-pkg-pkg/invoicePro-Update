@@ -168,7 +168,7 @@ export default function VouchersHub() {
           </Typography>
           <Button
             component={RouterLink}
-            to="/parties/ledger-report"
+            to="/customers/ledger-report"
             variant="contained"
             size="small"
             sx={{ textTransform: 'none' }}

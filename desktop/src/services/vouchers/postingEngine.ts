@@ -150,10 +150,11 @@ export async function postVoucher(voucher: Voucher): Promise<void> {
             itemId: line.itemId,
             quantity: line.quantity,
             narration: voucher.narration,
+            voucherNumber: voucher.number,
           } as Record<string, unknown>)
-        : voucher.narration
-        ? { narration: voucher.narration }
-        : undefined,
+        : voucher.narration || voucher.number
+        ? { narration: voucher.narration, voucherNumber: voucher.number }
+        : { voucherNumber: voucher.number },
   }));
 
   await ledgerTransactionService.recordTransactions(transactions);

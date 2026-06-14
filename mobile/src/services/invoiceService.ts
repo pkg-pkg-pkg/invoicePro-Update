@@ -1,5 +1,5 @@
 import { PartyKind } from './partyService';
-import { mobileSyncWorker } from './sync/mobileSyncWorker';
+import { middlewareSync } from './sync/middlewareSync';
 
 export type InvoiceLineInput = {
   itemName: string;
@@ -36,7 +36,7 @@ export async function createSimpleInvoice(input: {
     discountType: 'PERCENTAGE',
     items,
   };
-  const event = await mobileSyncWorker.enqueueCreate('invoice', payload as unknown as Record<string, unknown>);
+  const event = await middlewareSync.enqueueCreate('invoice', payload as unknown as Record<string, unknown>);
   return {
     success: true,
     queued: true,

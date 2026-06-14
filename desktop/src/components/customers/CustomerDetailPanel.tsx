@@ -45,7 +45,6 @@ import {
   type CustomerStatementRow,
   type CustomerTransactionsBundle,
 } from '../../services/customers/customersApi';
-import { partyService } from '../../services/masters/partyService';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { getCustomersModuleTokens } from '../../theme/customersModuleTheme';
 import { SalesStatusBadge, SALES_STATUS_FILTER_OPTIONS } from '../sales/SalesStatusBadge';
@@ -256,19 +255,8 @@ export function CustomerDetailPanel({
             <CloseIcon fontSize="small" />
           </IconButton>
           <Menu anchorEl={moreAnchor} open={Boolean(moreAnchor)} onClose={() => setMoreAnchor(null)}>
-            <MenuItem
-              onClick={() => {
-                void (async () => {
-                  const ledgerId =
-                    customer.ledgerId ??
-                    (await partyService.ensureLedgerForParty(customer.id)) ??
-                    '';
-                  if (ledgerId) navigate(`/parties/party-ledger/${ledgerId}`);
-                  setMoreAnchor(null);
-                })();
-              }}
-            >
-              View ledger
+            <MenuItem onClick={() => { navigate(`/customers/${customer.id}/statement`); setMoreAnchor(null); }}>
+              View Statement
             </MenuItem>
             <MenuItem onClick={() => { onDelete(); setMoreAnchor(null); }}>Delete customer</MenuItem>
           </Menu>

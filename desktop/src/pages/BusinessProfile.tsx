@@ -15,6 +15,7 @@ import { finalizeBusinessProfileSave } from '../services/businessProfileService'
 import { getActiveCompanyProfileRow } from '../services/companyProfileDbService';
 import { usePincodeAutofill } from '../hooks/usePincodeAutofill';
 import PincodeTextField from '../components/PincodeTextField';
+import { IfscField } from '../components/forms/IfscField';
 
 type FormState = {
   businessName: string;
@@ -371,13 +372,19 @@ export default function BusinessProfile(): JSX.Element {
               />
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField
+              <IfscField
                 label="IFSC Code *"
                 value={form.bankIfsc}
-                onChange={(e) => setForm((p) => ({ ...p, bankIfsc: e.target.value }))}
-                fullWidth
+                onChange={(v) => setForm((p) => ({ ...p, bankIfsc: v }))}
+                onResolved={(data) =>
+                  setForm((p) => ({
+                    ...p,
+                    bankName: data.bankName || p.bankName,
+                    bankBranch: data.branchName || p.bankBranch,
+                  }))
+                }
+                size="medium"
                 required
-                placeholder="ABCD0123456"
               />
             </Grid>
           </Grid>

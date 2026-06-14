@@ -29,6 +29,7 @@ import {
 import { BankAccountType } from '@gst-billing/shared';
 import { CreateBankAccountData } from '../../services/bankService';
 import { usePermissions } from '../../hooks/usePermissions';
+import { IfscField } from '../../components/forms/IfscField';
 
 type FormState = CreateBankAccountData & { isActive?: boolean };
 
@@ -244,14 +245,15 @@ export default function BankForm() {
             </Grid>
 
             <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
+              <IfscField
                 label="IFSC Code *"
                 value={formData.ifscCode}
-                onChange={(e) => handleChange('ifscCode', e.target.value.toUpperCase())}
-                error={!!errors.ifscCode}
-                helperText={errors.ifscCode || '11 characters (e.g., SBIN0001234)'}
-                inputProps={{ maxLength: 11 }}
+                onChange={(v) => handleChange('ifscCode', v)}
+                onResolved={(data) => {
+                  handleChange('bankName', data.bankName);
+                  handleChange('branchName', data.branchName);
+                }}
+                size="medium"
                 required
               />
             </Grid>

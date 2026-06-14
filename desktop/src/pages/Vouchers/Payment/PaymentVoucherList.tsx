@@ -35,6 +35,7 @@ import { Voucher } from '../../../types/vouchers';
 import { LedgerAccount } from '../../../types/masters';
 import { useMasterList } from '../../../hooks/useMasterList';
 import { usePermission } from '../../../hooks/usePermission';
+import { VoucherNumberLink } from '../../../components/Vouchers/VoucherNumberLink';
 
 interface FilterState {
   fromDate: string;
@@ -226,7 +227,13 @@ const PaymentVoucherList = () => {
                     .map((voucher) => (
                       <TableRow key={voucher.id} hover>
                         <TableCell>{new Date(voucher.date).toLocaleDateString()}</TableCell>
-                        <TableCell>{voucher.number}</TableCell>
+                        <TableCell>
+                          <VoucherNumberLink
+                            voucherId={voucher.id}
+                            voucherType="PAYMENT"
+                            voucherNumber={voucher.number}
+                          />
+                        </TableCell>
                         <TableCell>{primaryPayeeName(voucher)}</TableCell>
                         <TableCell align="right">{voucher.lines.length}</TableCell>
                         <TableCell>

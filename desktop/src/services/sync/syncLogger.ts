@@ -6,6 +6,7 @@ type SyncLogLevel = 'info' | 'warn' | 'error';
 
 export type SyncLogEvent =
   | 'enqueue'
+  | 'middleware_enqueue'
   | 'queue_status'
   | 'push_attempt'
   | 'push_success'

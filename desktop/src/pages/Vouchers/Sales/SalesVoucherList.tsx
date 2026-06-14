@@ -43,6 +43,7 @@ import {
 import PrintExportSetupDialog, { type PrintExportAction } from '../../../components/invoice/PrintExportSetupDialog';
 import { WhatsAppReminderPreviewDialog } from '../../../components/whatsapp/WhatsAppReminderPreviewDialog';
 import { EwayBillStatusChip } from '../../../components/eway/EwayBillStatusChip';
+import { VoucherNumberLink } from '../../../components/Vouchers/VoucherNumberLink';
 import { buildInvoiceWhatsAppMessage } from '../../../services/printService';
 import { resolvePartyPhone } from '../../../services/whatsappOutstandingReminder';
 
@@ -246,23 +247,16 @@ const SalesVoucherList = () => {
   );
 
   const buildPrintPackageForDialog = useCallback(
-    async (voucher: Voucher, input: { templateId: string; pageSize: string; orientation: string }) =>
+    async (voucher: Voucher, input: { pageSize: import('../../../templates/invoice/invoiceTemplatesConfig').InvoicePaperSize }) =>
       buildSalesVoucherInvoiceHtml({
         voucher,
         itemNameMap,
         ledgerNameMap: customerNameMap,
         customerLedger: customerLedgerForVoucher(voucher) ?? null,
-        templateId: input.templateId as import('../../../templates/invoice/invoiceTemplatesConfig').InvoiceTemplateId,
         pageSize: input.pageSize,
-        orientation: input.orientation,
       }),
     [itemNameMap, customerNameMap, customerLedgerForVoucher]
   );
-
-  const openPrintSetup = (action: PrintExportAction) => {
-    if (!selectedVoucher) return;
-    setPrintSetup({ open: true, action });
-  };
 
   const handleShareWhatsApp = useCallback(async () => {
     if (!selectedVoucher) return;
@@ -296,7 +290,7 @@ const SalesVoucherList = () => {
   }, [selectedVoucher]);
 
   const runInvoiceAction = useCallback(
-    async (action: PrintExportAction, forceSetup = false) => {
+    async (action: PrintExportAction) => {
       if (!selectedVoucher) return;
       const customerName = primaryCustomerName(selectedVoucher);
       const ledger = customerLedgerForVoucher(selectedVoucher);
@@ -305,8 +299,7 @@ const SalesVoucherList = () => {
 
       const result = await runInvoicePrintExportAction({
         action,
-        forceSetup,
-        onNeedSetup: (next) => setPrintSetup({ open: true, action: next }),
+        onNeedPaperSize: () => setPrintSetup({ open: true, action: 'download' }),
         buildPackage: (input) => buildPrintPackageForDialog(selectedVoucher, input),
         whatsAppMeta: {
           invoiceNumber: selectedVoucher.number,
@@ -419,7 +412,7 @@ const SalesVoucherList = () => {
                 fullWidth
               >
                 <MenuItem value="">
-                  <em>All Customers</em>
+                  <em>All Debtors</em>
                 </MenuItem>
                 {customers.map((customer) => (
                   <MenuItem key={customer.id} value={customer.id}>
@@ -520,7 +513,13 @@ const SalesVoucherList = () => {
                       return (
                         <TableRow key={voucher.id} hover>
                           <TableCell>{new Date(voucher.date).toLocaleDateString()}</TableCell>
-                          <TableCell>{voucher.number}</TableCell>
+                          <TableCell>
+                            <VoucherNumberLink
+                              voucherId={voucher.id}
+                              voucherType="SALES"
+                              voucherNumber={voucher.number}
+                            />
+                          </TableCell>
                           <TableCell>{primaryCustomerName(voucher)}</TableCell>
                           <TableCell align="right">
                             {voucher.lines.filter((line) => Boolean(line.itemId) && Number(line.quantity || 0) > 0).length}
@@ -670,14 +669,6 @@ const SalesVoucherList = () => {
           >
             Print
           </Button>
-          <Button
-            variant="text"
-            size="small"
-            onClick={() => openPrintSetup('print')}
-            disabled={!selectedVoucher}
-          >
-            Template…
-          </Button>
         </DialogActions>
       </Dialog>
 
@@ -687,12 +678,6 @@ const SalesVoucherList = () => {
           action={printSetup.action}
           onClose={() => setPrintSetup((p) => ({ ...p, open: false }))}
           buildPackage={(input) => buildPrintPackageForDialog(selectedVoucher, input)}
-          whatsAppMeta={{
-            invoiceNumber: selectedVoucher.number,
-            invoiceDate: selectedVoucher.date,
-            grandTotal: voucherGrandTotal(selectedVoucher),
-            phone: customerLedgerForVoucher(selectedVoucher)?.contactDetails?.phone,
-          }}
         />
       )}
 

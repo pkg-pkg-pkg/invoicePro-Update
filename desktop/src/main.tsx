@@ -9,8 +9,13 @@ import "./styles/theme.css";
 import { AuthProvider } from "./pages/contexts/auth";
 import { PveThemeProvider } from "./theme/themeProvider";
 import { initMasters } from "./services/masters/seedMasters";
+import { billReferenceService } from "./services/settlement/billReferenceService";
 import { syncService } from "./services/sync";
+import { initErrorLogger } from "./services/errorLogger";
+import { initGlobalCrashHandlers } from "./services/privacy/crashReportService";
 
+initErrorLogger();
+initGlobalCrashHandlers();
 console.log("🚀 Starting PVE InvoicePro 360...");
 
 const rootElement = document.getElementById("root");
@@ -78,6 +83,22 @@ void (async () => {
     await initMasters();
   } catch (error) {
     console.error("⚠️ Failed to initialize master data:", error);
+  }
+
+  try {
+    await billReferenceService.ensureMigrated();
+  } catch (error) {
+    console.error("⚠️ Failed to migrate bill references:", error);
+  }
+
+  try {
+    const { migrateLegacyVoucherNumbers } = await import('./services/vouchers/voucherNumberService');
+    const { updated } = await migrateLegacyVoucherNumbers();
+    if (updated > 0) {
+      console.log(`✅ Migrated ${updated} legacy voucher numbers`);
+    }
+  } catch (error) {
+    console.error('⚠️ Failed to migrate voucher numbers:', error);
   }
 
   try {

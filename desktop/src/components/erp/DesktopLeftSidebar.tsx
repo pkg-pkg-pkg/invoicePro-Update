@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Box, Collapse, IconButton, Tooltip, Typography } from '@mui/material';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Box, IconButton, Tooltip, Typography } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { useLocation, useNavigate } from 'react-router-dom';
 import HomeOutlinedIcon from '@mui/icons-material/HomeOutlined';
@@ -12,6 +12,7 @@ import AssessmentOutlinedIcon from '@mui/icons-material/AssessmentOutlined';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import CardGiftcardOutlinedIcon from '@mui/icons-material/CardGiftcardOutlined';
+import TodayOutlinedIcon from '@mui/icons-material/TodayOutlined';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ChevronRightOutlinedIcon from '@mui/icons-material/ChevronRightOutlined';
@@ -29,6 +30,7 @@ import {
   salesModuleExpanded,
   salesSubNavActive,
 } from '../../utils/moduleSubNav';
+import { prefetchRoutePath } from '../../app/prefetchRoutes';
 
 function companyInitials(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
@@ -52,6 +54,7 @@ const ICON_MAP = {
   ReceiptLong: ReceiptLongOutlinedIcon,
   Settings: SettingsOutlinedIcon,
   CardGiftcard: CardGiftcardOutlinedIcon,
+  Today: TodayOutlinedIcon,
 } as const;
 
 const MODULES_WITH_SUBNAV = new Set(['items', 'sales', 'purchase']);
@@ -90,7 +93,8 @@ export function DesktopLeftSidebar({ canAccessFeature, gstEnabled }: Props) {
   );
 
   useEffect(() => {
-    setExpandedParent(detectExpandedParent(location.pathname));
+    const next = detectExpandedParent(location.pathname);
+    setExpandedParent((prev) => (prev === next ? prev : next));
   }, [location.pathname]);
 
   const modules = useMemo(
@@ -124,18 +128,25 @@ export function DesktopLeftSidebar({ canAccessFeature, gstEnabled }: Props) {
       navigate(defaultPath);
       return;
     }
-    setExpandedParent((prev) => {
-      if (prev === parent) return null;
-      if (parent === 'items' && !itemsModuleExpanded(location.pathname)) {
-        navigate(defaultPath);
-      } else if (parent === 'sales' && !salesModuleExpanded(location.pathname)) {
-        navigate(defaultPath);
-      } else if (parent === 'purchase' && !purchaseModuleExpanded(location.pathname)) {
+    const willClose = expandedParent === parent;
+    const nextParent: ExpandedParent = willClose ? null : parent;
+    setExpandedParent(nextParent);
+    if (!willClose) {
+      const needsNav =
+        (parent === 'items' && !itemsModuleExpanded(location.pathname)) ||
+        (parent === 'sales' && !salesModuleExpanded(location.pathname)) ||
+        (parent === 'purchase' && !purchaseModuleExpanded(location.pathname));
+      if (needsNav) {
         navigate(defaultPath);
       }
-      return parent;
-    });
+    }
   };
+
+  const wrapTooltip = (title: string, node: ReactNode) => (
+    <Tooltip title={title} placement="right" arrow>
+      <span style={{ display: 'block', width: '100%' }}>{node}</span>
+    </Tooltip>
+  );
 
   const renderSubItem = (
     label: string,
@@ -148,6 +159,8 @@ export function DesktopLeftSidebar({ canAccessFeature, gstEnabled }: Props) {
       component="button"
       type="button"
       onClick={() => navigate(path)}
+      onMouseEnter={() => prefetchRoutePath(path)}
+      onFocus={() => prefetchRoutePath(path)}
       aria-current={active ? 'page' : undefined}
       sx={
         variant === 'items'
@@ -192,7 +205,13 @@ export function DesktopLeftSidebar({ canAccessFeature, gstEnabled }: Props) {
 
   const renderParentButton = (
     mod: ErpModuleNavItem,
-    opts: { hasChildren: boolean; isParentOpen: boolean; parentActive: boolean; onClick: () => void }
+    opts: {
+      hasChildren: boolean;
+      isParentOpen: boolean;
+      parentActive: boolean;
+      onClick: () => void;
+      prefetchPath?: string;
+    }
   ) => {
     const Icon = ICON_MAP[mod.icon];
     return (
@@ -200,6 +219,8 @@ export function DesktopLeftSidebar({ canAccessFeature, gstEnabled }: Props) {
         component="button"
         type="button"
         onClick={opts.onClick}
+        onMouseEnter={() => opts.prefetchPath && prefetchRoutePath(opts.prefetchPath)}
+        onFocus={() => opts.prefetchPath && prefetchRoutePath(opts.prefetchPath)}
         aria-expanded={opts.hasChildren ? opts.isParentOpen : undefined}
         aria-current={opts.parentActive && !opts.hasChildren ? 'page' : undefined}
         sx={{
@@ -260,21 +281,18 @@ export function DesktopLeftSidebar({ canAccessFeature, gstEnabled }: Props) {
         isParentOpen,
         parentActive,
         onClick: () => toggleParent('items', '/items'),
+        prefetchPath: '/items',
       });
       return (
         <Box key={mod.id}>
-          {sidebarExpanded ? btn : (
-            <Tooltip title={mod.label} placement="right" arrow>
-              {btn}
-            </Tooltip>
-          )}
-          <Collapse in={sidebarExpanded && isParentOpen} timeout={200} unmountOnExit>
+          {sidebarExpanded ? btn : wrapTooltip(mod.label, btn)}
+          {sidebarExpanded && isParentOpen ? (
             <Box sx={{ overflow: 'hidden', pb: 0.5 }}>
               {ITEMS_NAV_ITEMS.map((item) =>
                 renderSubItem(item.label, item.path, itemsSubNavActive(item.id, location.pathname), 'items')
               )}
             </Box>
-          </Collapse>
+          ) : null}
         </Box>
       );
     }
@@ -285,21 +303,18 @@ export function DesktopLeftSidebar({ canAccessFeature, gstEnabled }: Props) {
         isParentOpen,
         parentActive,
         onClick: () => toggleParent('sales', '/sales/tax-invoices'),
+        prefetchPath: '/sales/tax-invoices',
       });
       return (
         <Box key={mod.id}>
-          {sidebarExpanded ? btn : (
-            <Tooltip title={mod.label} placement="right" arrow>
-              {btn}
-            </Tooltip>
-          )}
-          <Collapse in={sidebarExpanded && isParentOpen} timeout={200} unmountOnExit>
+          {sidebarExpanded ? btn : wrapTooltip(mod.label, btn)}
+          {sidebarExpanded && isParentOpen ? (
             <Box sx={{ overflow: 'hidden' }}>
               {SALES_NAV_ITEMS.map((item) =>
                 renderSubItem(item.tabLabel, `/sales/${item.kind}`, salesSubNavActive(item.kind, location.pathname))
               )}
             </Box>
-          </Collapse>
+          ) : null}
         </Box>
       );
     }
@@ -310,15 +325,12 @@ export function DesktopLeftSidebar({ canAccessFeature, gstEnabled }: Props) {
         isParentOpen,
         parentActive,
         onClick: () => toggleParent('purchase', '/purchase/purchase-bills'),
+        prefetchPath: '/purchase/purchase-bills',
       });
       return (
         <Box key={mod.id}>
-          {sidebarExpanded ? btn : (
-            <Tooltip title={mod.label} placement="right" arrow>
-              {btn}
-            </Tooltip>
-          )}
-          <Collapse in={sidebarExpanded && isParentOpen} timeout={200} unmountOnExit>
+          {sidebarExpanded ? btn : wrapTooltip(mod.label, btn)}
+          {sidebarExpanded && isParentOpen ? (
             <Box sx={{ overflow: 'hidden' }}>
               {PURCHASE_NAV_ITEMS.map((item) =>
                 renderSubItem(
@@ -328,7 +340,7 @@ export function DesktopLeftSidebar({ canAccessFeature, gstEnabled }: Props) {
                 )
               )}
             </Box>
-          </Collapse>
+          ) : null}
         </Box>
       );
     }
@@ -338,14 +350,13 @@ export function DesktopLeftSidebar({ canAccessFeature, gstEnabled }: Props) {
       isParentOpen: false,
       parentActive,
       onClick: () => navigate(mod.path),
+      prefetchPath: mod.path,
     });
 
     return sidebarExpanded ? (
       <Box key={mod.id}>{btn}</Box>
     ) : (
-      <Tooltip key={mod.id} title={mod.label} placement="right" arrow>
-        {btn}
-      </Tooltip>
+      <Box key={mod.id}>{wrapTooltip(mod.label, btn)}</Box>
     );
   };
 
@@ -421,18 +432,20 @@ export function DesktopLeftSidebar({ canAccessFeature, gstEnabled }: Props) {
 
       <Box sx={{ borderTop: `1px solid ${chrome.headerBorder}`, py: 0.5 }}>
         <Tooltip title={sidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'} placement="right">
-          <IconButton
-            size="small"
-            onClick={toggleSidebar}
-            sx={{
-              width: '100%',
-              borderRadius: 0,
-              color: chrome.menuText,
-              py: 1,
-            }}
-          >
-            {sidebarExpanded ? <ChevronLeftIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
-          </IconButton>
+          <span style={{ display: 'block', width: '100%' }}>
+            <IconButton
+              size="small"
+              onClick={toggleSidebar}
+              sx={{
+                width: '100%',
+                borderRadius: 0,
+                color: chrome.menuText,
+                py: 1,
+              }}
+            >
+              {sidebarExpanded ? <ChevronLeftIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
+            </IconButton>
+          </span>
         </Tooltip>
       </Box>
     </Box>

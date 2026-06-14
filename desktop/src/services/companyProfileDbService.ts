@@ -1,6 +1,17 @@
 import type { CompanyProfileCompletionStatus, CompanyProfileRow } from '@/types/electron';
 import type { NormalizedCompanyProfile } from '@/utils/companyProfile';
 import { isElectronRuntime } from '@/utils/runtime';
+import { withTimeout } from '@/utils/withTimeout';
+
+const IPC_TIMEOUT_MS = 12_000;
+
+const PROFILE_STATUS_FALLBACK: CompanyProfileCompletionStatus = {
+  success: false,
+  profileCompleted: false,
+  companyExists: false,
+  reason: 'ipc_timeout',
+  migrationStatus: 'pending',
+};
 
 let cachedProfile: NormalizedCompanyProfile | null = null;
 let cacheTs = 0;
@@ -29,6 +40,8 @@ export function rowToNormalized(row: CompanyProfileRow | null | undefined): Norm
       bank: '',
       accountNo: '',
       ifsc: '',
+      upiId: '',
+      upiPayeeName: '',
     };
   }
   const name = String(row.company_name || '').trim();
@@ -49,6 +62,8 @@ export function rowToNormalized(row: CompanyProfileRow | null | undefined): Norm
     bank: String(row.bank_name || '').trim(),
     accountNo: String(row.bank_account_number || '').trim(),
     ifsc: String(row.bank_ifsc || '').trim(),
+    upiId: String(row.upi_id || '').trim(),
+    upiPayeeName: String(row.upi_payee_name || '').trim(),
   };
 }
 
@@ -79,13 +94,19 @@ export function normalizedToUpsertPayload(
     bank_account_number: profile.accountNo || profile.bank_account_number || profile.bankAccountNumber || '',
     bank_ifsc: profile.ifsc || profile.bank_ifsc || profile.bankIfsc || '',
     bank_branch: profile.bank_branch || profile.bankBranch || '',
+    upi_id: profile.upiId || profile.upi_id || '',
+    upi_payee_name: profile.upiPayeeName || profile.upi_payee_name || profile.name || profile.businessName || '',
     ...extras,
   };
 }
 
 export async function getActiveCompanyProfileRow(): Promise<CompanyProfileRow | null> {
   if (!isElectronRuntime()) return null;
-  const res = await api()?.companyProfileGetActive?.();
+  const res = await withTimeout(
+    Promise.resolve(api()?.companyProfileGetActive?.()),
+    IPC_TIMEOUT_MS,
+    { success: false }
+  );
   if (!res?.success) return null;
   return res.profile ?? null;
 }
@@ -162,13 +183,21 @@ export async function getProfileCompletionStatus(): Promise<CompanyProfileComple
       migrationStatus: 'pending',
     };
   }
-  const res = await api()?.companyProfileCompletionStatus?.();
+  const res = await withTimeout(
+    Promise.resolve(api()?.companyProfileCompletionStatus?.()),
+    IPC_TIMEOUT_MS,
+    PROFILE_STATUS_FALLBACK
+  );
   return res || { success: false, profileCompleted: false, reason: 'no_response' };
 }
 
 export async function runProfileMigration(): Promise<Record<string, unknown>> {
   if (!isElectronRuntime()) return { success: false };
-  const res = await api()?.companyProfileRunMigration?.();
+  const res = await withTimeout(
+    Promise.resolve(api()?.companyProfileRunMigration?.()),
+    IPC_TIMEOUT_MS,
+    { success: false, error: 'ipc_timeout' }
+  );
   invalidateCompanyProfileCache();
   return res || { success: false };
 }

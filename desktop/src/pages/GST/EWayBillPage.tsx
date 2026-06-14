@@ -28,6 +28,7 @@ import {
   patchVoucherEwayBill,
 } from '../../services/ewayBillService';
 import { loadEwayBillSettings } from '../../services/ewayBillSettingsService';
+import { VoucherNumberLink } from '../../components/Vouchers/VoucherNumberLink';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import type { Voucher } from '../../types/vouchers';
 
@@ -135,7 +136,13 @@ export default function EWayBillPage() {
                 ) : (
                   rows.map(({ voucher, grandTotal }) => (
                     <TableRow key={voucher.id} hover>
-                      <TableCell sx={{ fontWeight: 700 }}>{voucher.number}</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>
+                        <VoucherNumberLink
+                          voucherId={voucher.id}
+                          voucherType="SALES"
+                          voucherNumber={voucher.number}
+                        />
+                      </TableCell>
                       <TableCell>{formatDate(voucher.date)}</TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>{formatCurrency(grandTotal)}</TableCell>
                       <TableCell><EwayBillStatusChip eway={voucher.ewayBill} /></TableCell>

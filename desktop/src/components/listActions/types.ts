@@ -31,7 +31,11 @@ export type RowActionId =
   | 'viewStatement'
   | 'newTransaction'
   | 'adjustStock'
-  | 'markInactive';
+  | 'markInactive'
+  | 'reactivateCustomer'
+  | 'sendStatementWhatsapp'
+  | 'sendOutstandingReminder'
+  | 'printStatement';
 
 export type DocumentActionRow = SalesDocumentRow & {
   source?: 'voucher' | 'pipeline' | 'expense';
@@ -54,7 +58,7 @@ export type ActionContext =
       canManage: boolean;
     };
 
-export type ConfirmKind = 'delete' | 'cancel';
+export type ConfirmKind = 'delete' | 'cancel' | 'reactivate';
 
 export type PendingConfirm = {
   kind: ConfirmKind;

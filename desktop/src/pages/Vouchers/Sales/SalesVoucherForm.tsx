@@ -52,6 +52,16 @@ import { generateId } from '../../../utils/id';
 import InvoiceHeader from './components/InvoiceHeader';
 import PartyCards, { PartyInfo } from './components/PartyCards';
 import { erpContainedButtonSx } from '../../../theme/erpButtonStyles';
+import {
+  voucherLineCellSx,
+  voucherLineNumericInputSx,
+  voucherLinePercentInputSx,
+  voucherLineTableContainerSx,
+  voucherLineTableSx,
+  voucherLineItemFieldSx,
+  voucherLineSelectSx,
+  voucherLineAmountDisplaySx,
+} from '../../../theme/voucherLineItemTableStyles';
 import { usePincodeAutofill } from '../../../hooks/usePincodeAutofill';
 import PincodeTextField from '../../../components/PincodeTextField';
 import ActionFooter from './components/ActionFooter';
@@ -64,21 +74,45 @@ import { autoLedgerService } from '../../../services/masters/autoLedgerService';
 import QuickCreateLedgerDialog from '../../../components/QuickCreateLedgerDialog';
 import PartyMasterDialog from '../../../components/PartyMasterDialog';
 import InventoryItemMasterDialog from '../../../components/InventoryItemMasterDialog';
+import { ItemNotFoundDialog } from '../../../components/items/ItemNotFoundDialog';
+import { ScanQuantityDialog } from '../../../components/items/ScanQuantityDialog';
+import BarcodeScanner from '../../../components/scanner/BarcodeScanner';
+import { VoucherScanButton } from '../../../components/Vouchers/VoucherScanButton';
+import { VoucherScanToast } from '../../../components/Vouchers/VoucherScanToast';
+import { useVoucherBarcodeScan } from '../../../hooks/useVoucherBarcodeScan';
 import { ListPickerModal } from './components/ListPickerModal';
+import { PartyPickerModal } from '../../../components/parties/PartyPickerModal';
 import { rateMemory } from '../../../services/reports/rateMemory';
 import { priceListService } from '../../../services/masters/priceListService';
 import { partyProfileService } from '../../../services/masters/partyProfileService';
 import { getNormalizedCompanyProfile } from '../../../utils/companyProfile';
 import schemeService, { Scheme } from '../../../services/schemeService';
 import { calculateFinalQuantity, getBestScheme } from '../../../services/schemeResolutionEngine';
-import { buildInvoiceHTML, PrintFormat } from '../../../services/printService';
-import { getInvoicePrintLayout, getInvoiceTemplateId } from '../../../services/companySettingsService';
-import type { InvoiceTemplateId } from '../../../templates/invoice/invoiceTemplatesConfig';
+import {
+  buildInvoiceHTML,
+  DEFAULT_INVOICE_PRINT_OPTIONS,
+  paperSizeToFormat,
+} from '../../../services/printService';
+import {
+  applyDiscountAmountEdit,
+  applyDiscountPercentEdit,
+  applyExclusiveRateEdit,
+  applyInclusiveRateEdit,
+  applyTaxRateEdit,
+  computeLineDiscountTotal,
+  computeLineTaxableAmount,
+  computeLineTaxAmount,
+  discOnMrpPercent,
+  isPricingLineValid,
+  pricingToNumber as toNumber,
+  resolveLineDiscountAmount,
+  resolveLineDiscountPercent,
+} from '../../../utils/voucherLinePricing';
 import PrintExportSetupDialog, {
   type PrintExportAction,
-  type PrintExportBuildInput,
+  type PrintBuildInput,
 } from '../../../components/invoice/PrintExportSetupDialog';
-import { loadCompanyForPrint, resolvePrintFormatFromLayout } from '../../../services/voucherPrintBuilder';
+import { loadCompanyForPrint } from '../../../services/voucherPrintBuilder';
 import { runInvoicePrintExportAction } from '../../../services/invoicePrintFlow';
 import { salesPipelineService } from '../../../services/sales/salesDocumentService';
 import { PIPELINE_PREFILL_KEY } from '../../../components/listActions/documentRowActionsHandlers';
@@ -100,8 +134,11 @@ interface ItemLineState {
   lineId: string;
   itemId: string;
   quantity: string;
+  mrp: string;
   rateExclusive: string;
   rateInclusive: string;
+  discountPercent: string;
+  discountAmount: string;
   taxRate: string;
   godownId: string;
   appliedSchemeId?: string;
@@ -122,12 +159,16 @@ function buildLineRatesFromItem(
 ): Partial<ItemLineState> {
   if (pricingMode === 'PRICE_LIST' && activePriceList) {
     const resolved = priceListService.resolveItemRates(activePriceList, item);
+    const mrp = Number(item.pricing?.mrp ?? 0);
     if (resolved) {
       return {
         itemId: item.id,
         taxRate: String(resolved.gstRate),
+        mrp: mrp > 0 ? String(mrp) : '',
         rateExclusive: String(resolved.rateExclusive),
         rateInclusive: String(resolved.rateInclusive),
+        discountPercent: '',
+        discountAmount: '',
         autoRateExclusive: String(resolved.rateExclusive),
         autoRateInclusive: String(resolved.rateInclusive),
         priceOverridden: false,
@@ -139,11 +180,15 @@ function buildLineRatesFromItem(
   const sale = mem ?? Number(item.pricing?.sale ?? 0);
   const gst = Number(item.gstRate ?? 0);
   const inclusive = gst ? sale * (1 + gst / 100) : sale;
+  const mrp = Number(item.pricing?.mrp ?? 0);
   return {
     itemId: item.id,
     taxRate: String(gst),
+    mrp: mrp > 0 ? String(mrp) : '',
     rateExclusive: String(sale),
     rateInclusive: Number.isFinite(inclusive) ? inclusive.toFixed(2) : String(sale),
+    discountPercent: '',
+    discountAmount: '',
     autoRateExclusive: undefined,
     autoRateInclusive: undefined,
     priceOverridden: false,
@@ -153,12 +198,6 @@ function buildLineRatesFromItem(
 const SCREEN_ID = 'sales-voucher-form';
 
 const buildLineFieldId = (lineId: string, field: string) => `sales-line-${lineId}-${field}`;
-
-const toNumber = (value: string | number | undefined, precision = 2) => {
-  const parsed = Number(value ?? 0);
-  if (!Number.isFinite(parsed)) return 0;
-  return Number(parsed.toFixed(precision));
-};
 
 const amountToWordsINR = (amount: number): string => {
   const n = Math.round(Number(amount || 0));
@@ -184,20 +223,12 @@ const amountToWordsINR = (amount: number): string => {
   return `${chunks.join(' ')} Rupees Only`;
 };
 
-const computeLineAmount = (line: ItemLineState) => {
-  const qty = toNumber(line.quantity);
-  const rate = toNumber(line.rateExclusive);
-  return toNumber(qty * rate);
-};
+const computeLineAmount = (line: ItemLineState) => computeLineTaxableAmount(line);
 
-const computeLineTax = (line: ItemLineState) => {
-  const base = computeLineAmount(line);
-  const taxRate = toNumber(line.taxRate);
-  return toNumber((base * taxRate) / 100);
-};
+const computeLineTax = (line: ItemLineState) => computeLineTaxAmount(line);
 
 const isLineDataValid = (line: ItemLineState) =>
-  Boolean(line.itemId && toNumber(line.quantity) > 0 && toNumber(line.rateExclusive) > 0);
+  Boolean(line.itemId && isPricingLineValid(line));
 
 const SalesVoucherForm = () => {
   const navigate = useNavigate();
@@ -216,8 +247,11 @@ const SalesVoucherForm = () => {
     lineId: generateId('s-line'),
     itemId: '',
     quantity: '',
+    mrp: '',
     rateExclusive: '',
     rateInclusive: '',
+    discountPercent: '',
+    discountAmount: '',
     taxRate: '',
     godownId,
   });
@@ -244,10 +278,10 @@ const SalesVoucherForm = () => {
   const [showQuickCreateCustomer, setShowQuickCreateCustomer] = useState(false);
   const [showQuickCreateSales, setShowQuickCreateSales] = useState(false);
   const [showQuickCreateItem, setShowQuickCreateItem] = useState(false);
-  const [invoiceTemplateOverride, setInvoiceTemplateOverride] = useState<InvoiceTemplateId | null>(null);
-  const [printSetup, setPrintSetup] = useState<{ open: boolean; action: PrintExportAction; applyOnly?: boolean }>({
+  const [showBarcodeNotFound, setShowBarcodeNotFound] = useState(false);
+  const [printSetup, setPrintSetup] = useState<{ open: boolean; action: PrintExportAction }>({
     open: false,
-    action: 'print',
+    action: 'download',
   });
   const [pendingScannedBarcode, setPendingScannedBarcode] = useState('');
   const [partyPickerOpen, setPartyPickerOpen] = useState(false);
@@ -335,6 +369,7 @@ const SalesVoucherForm = () => {
       itemPickerLineId !== null ||
       showQuickCreateCustomer ||
       showQuickCreateItem ||
+      showBarcodeNotFound ||
       showQuickCreateSales;
   }, [
     partyPickerOpen,
@@ -638,8 +673,13 @@ const SalesVoucherForm = () => {
                   lineId: generateId('s-line'),
                   itemId: String(line.itemId || ''),
                   quantity: String(qty || ''),
+                  mrp: inv?.pricing?.mrp ? String(inv.pricing.mrp) : '',
                   rateExclusive: String(rateExclusive || ''),
-                  rateInclusive: String(rateExclusive || ''),
+                  rateInclusive: gst
+                    ? String((rateExclusive * (1 + gst / 100)).toFixed(2))
+                    : String(rateExclusive || ''),
+                  discountPercent: '',
+                  discountAmount: '',
                   taxRate: String(gst || 0),
                   godownId: String(line.godownId || formState.defaultGodownId || ''),
                   appliedSchemeId: undefined,
@@ -785,13 +825,19 @@ const SalesVoucherForm = () => {
               inventoryItems.find((item) => item.id === line.itemId) ??
               inventoryItems.find((item) => item.name === line.itemName);
             if (!inv) return null;
+            const gst = Number(line.gstPercent ?? inv.gstRate ?? 0);
+            const rateEx = Number(line.rate ?? 0);
+            const mrp = Number(inv.pricing?.mrp ?? 0);
             return {
               lineId: generateId('s-line'),
               itemId: inv.id,
               quantity: String(line.qty ?? 1),
-              rateExclusive: String(line.rate ?? 0),
-              rateInclusive: '',
-              taxRate: String(line.gstPercent ?? inv.gstRate ?? 0),
+              mrp: mrp > 0 ? String(mrp) : '',
+              rateExclusive: String(rateEx),
+              rateInclusive: gst ? String((rateEx * (1 + gst / 100)).toFixed(2)) : String(rateEx),
+              discountPercent: '',
+              discountAmount: '',
+              taxRate: String(gst),
               godownId: formState.defaultGodownId || '',
             } as ItemLineState;
           })
@@ -855,6 +901,12 @@ const SalesVoucherForm = () => {
               Boolean(autoEx || autoIn) &&
               ((Boolean(autoEx) && ex !== autoEx) || (Boolean(autoIn) && inc !== autoIn));
             next.priceOverridden = overridden;
+            if (patch.rateExclusive !== undefined && next.discountPercent) {
+              next = {
+                ...next,
+                ...applyDiscountPercentEdit(next.discountPercent, next.rateExclusive),
+              };
+            }
           }
           return next;
         })
@@ -863,32 +915,52 @@ const SalesVoucherForm = () => {
     [itemMap, pricingMode, activePriceList, formState.customerLedgerId]
   );
 
-  const placeItemFromScan = useCallback(
-    (item: InventoryItem) => {
-      setLines((prev) => {
-        const next = [...prev];
-        let targetIdx = next.findIndex((line) => !line.itemId);
-        if (targetIdx < 0) {
-          const lastIdx = next.length - 1;
-          const last = next[lastIdx];
-          if (isLineDataValid(last) && (godowns.length === 0 || Boolean(last.godownId))) {
-            const nl = createLine(last.godownId || formState.defaultGodownId);
-            next.push(nl);
-            targetIdx = next.length - 1;
-          } else {
-            targetIdx = lastIdx;
-          }
-        }
-        next[targetIdx] = {
-          ...next[targetIdx],
-          ...buildLineRatesFromItem(item, pricingMode, activePriceList, formState.customerLedgerId),
-        };
-        focusRegistry.queueFocus(buildLineFieldId(next[targetIdx].lineId, 'quantity'));
-        return next;
-      });
-    },
-    [formState.customerLedgerId, formState.defaultGodownId, godowns.length, pricingMode, activePriceList]
+  const wedgeBlocked = useCallback(
+    () =>
+      showQuickCreateItem ||
+      showBarcodeNotFound ||
+      showQuickCreateCustomer ||
+      showQuickCreateSales ||
+      partyPickerOpen ||
+      itemPickerLineId !== null,
+    [
+      showQuickCreateItem,
+      showQuickCreateCustomer,
+      showQuickCreateSales,
+      partyPickerOpen,
+      itemPickerLineId,
+    ]
   );
+
+  const {
+    scannerOpen,
+    setScannerOpen,
+    highlightLineId,
+    toast: scanToast,
+    placeItem: placeItemFromScan,
+    handleScannedBarcode,
+    qtyPromptItem,
+    confirmQtyPrompt,
+    cancelQtyPrompt,
+  } = useVoucherBarcodeScan<ItemLineState>({
+    inventoryItems,
+    lines,
+    setLines,
+    mode: 'sale',
+    getRate: (item) => Number(item.pricing?.sale ?? 0),
+    buildLineFromItem: (item, template) => ({
+      ...template,
+      ...buildLineRatesFromItem(item, pricingMode, activePriceList, formState.customerLedgerId),
+      quantity: template.quantity && Number(template.quantity) > 0 ? template.quantity : '1',
+    }),
+    createEmptyLine: () => createLine(formState.defaultGodownId),
+    isLineValid: (line) => isLineDataValid(line) && (godowns.length === 0 || Boolean(line.godownId)),
+    wedgeBlocked,
+    onNotFound: (barcode) => {
+      setPendingScannedBarcode(barcode);
+      setShowBarcodeNotFound(true);
+    },
+  });
 
   useEffect(() => {
     if (pricingMode !== 'PRICE_LIST' || !activePriceList) return;
@@ -905,74 +977,6 @@ const SalesVoucherForm = () => {
     );
   }, [priceListId, pricingMode, activePriceList, formState.customerLedgerId, itemMap]);
 
-  const handleScannedBarcode = useCallback(
-    (raw: string) => {
-      const scanned = raw.trim();
-      if (!scanned) return;
-      const found = inventoryItems.find(
-        (it) => String(it.barcode ?? '').trim().toLowerCase() === scanned.toLowerCase()
-      );
-      if (found) {
-        setError(null);
-        placeItemFromScan(found);
-        return;
-      }
-      setPendingScannedBarcode(scanned);
-      setShowQuickCreateItem(true);
-      setError(`Barcode "${scanned}" item list mein nahi mila. Naya item bana sakte hain.`);
-    },
-    [inventoryItems, placeItemFromScan]
-  );
-
-  useEffect(() => {
-    const buffer = { value: '', lastAt: 0 };
-    const GAP_MS = 90;
-    const MIN_LEN = 4;
-
-    const shouldIgnoreTarget = (target: EventTarget | null) => {
-      const el = target as HTMLElement | null;
-      if (!el?.isConnected) return true;
-      if (el.closest('[role="dialog"], [data-list-picker-modal], .MuiMenu-root, .MuiPopover-root')) return true;
-      return false;
-    };
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.altKey || e.metaKey) return;
-      if (showQuickCreateItem || showQuickCreateCustomer || showQuickCreateSales || partyPickerOpen || itemPickerLineId !== null) return;
-      if (shouldIgnoreTarget(e.target)) return;
-
-      const now = Date.now();
-      if (now - buffer.lastAt > GAP_MS) {
-        buffer.value = '';
-      }
-      buffer.lastAt = now;
-
-      if (e.key === 'Enter') {
-        const code = buffer.value.trim();
-        buffer.value = '';
-        if (code.length >= MIN_LEN) {
-          e.preventDefault();
-          handleScannedBarcode(code);
-        }
-        return;
-      }
-
-      if (e.key.length === 1) {
-        buffer.value += e.key;
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [
-    handleScannedBarcode,
-    itemPickerLineId,
-    partyPickerOpen,
-    showQuickCreateCustomer,
-    showQuickCreateItem,
-    showQuickCreateSales,
-  ]);
-
   const addLine = useCallback(() => {
     setLines((prev) => {
       const newLine = createLine(formState.defaultGodownId);
@@ -986,10 +990,8 @@ const SalesVoucherForm = () => {
   }, []);
 
   const totals = useMemo(() => {
-    // Line item subtotal (pre-tax)
     const subtotal = lines.reduce((sum, line) => sum + computeLineAmount(line), 0);
-    
-    // Item GST
+    const discountTotal = lines.reduce((sum, line) => sum + computeLineDiscountTotal(line), 0);
     const taxTotal = lines.reduce((sum, line) => sum + computeLineTax(line), 0);
     
     // Additional charges
@@ -1048,6 +1050,7 @@ const SalesVoucherForm = () => {
 
     return {
       subtotal: Number(subtotal.toFixed(2)),
+      discountTotal: Number(discountTotal.toFixed(2)),
       itemTax: taxTotal,
       itemTaxBifurcated,
       chargesTotal: Number(chargesTotal.toFixed(2)),
@@ -1396,36 +1399,18 @@ const SalesVoucherForm = () => {
     return voucherLines;
   };
 
-  const resolvePrintFormat = (): { format: PrintFormat; landscape: boolean; showSignature: boolean; fontSize: 'compact' | 'normal' } => {
-    const uiSettingsRaw = localStorage.getItem('invoice-settings');
-    const uiSettings = uiSettingsRaw ? JSON.parse(uiSettingsRaw) : {};
-    const pageSize: string = uiSettings?.pageSize || 'A4';
-    const orientation: string = uiSettings?.orientation || 'portrait';
-    const fontSizeValue: string = uiSettings?.fontSize || '12';
-    const showSignature: boolean = Boolean(uiSettings?.showSignature ?? true);
-    const landscape = orientation === 'landscape';
-    const format: PrintFormat =
-      pageSize === 'THERMAL_80'
-        ? 'THERMAL_80'
-        : pageSize === 'THERMAL_58'
-        ? 'THERMAL_58'
-        : pageSize === 'A5'
-        ? landscape
-          ? 'A5_LANDSCAPE'
-          : 'A5_PORTRAIT'
-        : landscape
-        ? 'A4_LANDSCAPE'
-        : 'A4_PORTRAIT';
-    return { format, landscape, showSignature, fontSize: Number(fontSizeValue) <= 12 ? 'compact' : 'normal' };
-  };
-
   const buildCurrentInvoiceHtml = async (
-    opts?: PrintExportBuildInput
-  ): Promise<{ html: string; fileName: string; landscape: boolean }> => {
+    opts?: PrintBuildInput
+  ): Promise<{ html: string; fileName: string }> => {
     const printed = loadCompanyForPrint();
+    const customerLedger = ledgerAccounts.find((a) => a.id === formState.customerLedgerId);
+    const freightTotal = additionalCharges
+      .filter((c) => /freight|fright/i.test(String(c.name || '')))
+      .reduce((s, c) => s + (Number(c.amount) || 0), 0);
+    const prevBalance = Number(customerLedger?.currentBalance ?? NaN);
     const company = {
       ...printed,
-      name: printed.name || companyInfo.name || 'Company',
+      name: printed.name || companyInfo.name || '',
       address: printed.address || companyInfo.address || '',
       gstin: printed.gstin || companyInfo.gstin || '',
       phone: printed.phone || companyInfo.phone || '',
@@ -1437,9 +1422,7 @@ const SalesVoucherForm = () => {
       accountNo: printed.accountNo || companyInfo.accountNo || '',
       ifsc: printed.ifsc || companyInfo.ifsc || '',
     };
-    const pageSize = opts?.pageSize || getInvoicePrintLayout().pageSize;
-    const orientation = opts?.orientation || getInvoicePrintLayout().orientation;
-    const { format, landscape, showSignature, fontSize } = resolvePrintFormatFromLayout(pageSize, orientation);
+    const format = paperSizeToFormat(opts?.pageSize || 'A4');
     const items = lines
       .filter((l) => l.itemId && toNumber(l.quantity) > 0)
       .map((l) => {
@@ -1454,16 +1437,20 @@ const SalesVoucherForm = () => {
           hsn: String(product?.hsnCode ?? ''),
           qty: toNumber(l.quantity),
           unit: unitLabel,
+          mrp: toNumber(l.mrp) || undefined,
           rate: toNumber(l.rateExclusive),
-          discount: 0,
+          rateInclusive: toNumber(l.rateInclusive) || undefined,
+          discountPercent: resolveLineDiscountPercent(l) || undefined,
+          discountAmount: resolveLineDiscountAmount(l) || undefined,
+          discount: computeLineDiscountTotal(l) || undefined,
           taxPercent: toNumber(l.taxRate),
+          taxAmount: computeLineTax(l),
           amount,
           cgst: taxBif.cgst,
           sgst: taxBif.sgst,
           igst: taxBif.igst,
         };
       });
-    const templateId = opts?.templateId || invoiceTemplateOverride || getInvoiceTemplateId();
     const html = await buildInvoiceHTML(
       format,
       company as any,
@@ -1485,7 +1472,7 @@ const SalesVoucherForm = () => {
         cgstTotal: Number(totals.itemTaxBifurcated.cgst + totals.chargeTaxBifurcated.cgst || 0),
         sgstTotal: Number(totals.itemTaxBifurcated.sgst + totals.chargeTaxBifurcated.sgst || 0),
         igstTotal: Number(totals.itemTaxBifurcated.igst + totals.chargeTaxBifurcated.igst || 0),
-        discountTotal: 0,
+        discountTotal: Number(totals.discountTotal || 0),
         roundOff: Number(totals.roundOff || 0),
         grandTotal: Number(totals.grandTotal || 0),
         amountInWords: amountToWordsINR(Number(totals.grandTotal || 0)),
@@ -1493,31 +1480,31 @@ const SalesVoucherForm = () => {
         ewayBillBlock: buildEwayPrintBlock(voucherEwayBill),
         declaration:
           'We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',
+        freightTotal,
+        paymentMode: formState.paymentTerms || undefined,
+        buyerState: partyDraft.billing.state || undefined,
+        prevBalance: Number.isFinite(prevBalance) ? prevBalance : undefined,
       } as any,
-      {
-        showTaxBreakup: true,
-        showSignature,
-        showDeclaration: true,
-        logoPosition: 'top-left',
-        fontSize,
-        margin: 'normal',
-      },
-      templateId
+      DEFAULT_INVOICE_PRINT_OPTIONS
     );
-    return { html, fileName: `${formState.number}.pdf`, landscape };
+    return { html, fileName: `${formState.number}.pdf` };
   };
 
   const runFormPrintAction = useCallback(
     async (action: PrintExportAction) => {
       const result = await runInvoicePrintExportAction({
         action,
-        onNeedSetup: (next) => setPrintSetup({ open: true, action: next }),
+        onNeedPaperSize: () => setPrintSetup({ open: true, action: 'download' }),
         buildPackage: (input) => buildCurrentInvoiceHtml(input),
         whatsAppMeta: {
           invoiceNumber: formState.number,
           invoiceDate: formState.date,
           grandTotal: Number(totals.grandTotal || 0),
           phone: partyDraft.billing.phone,
+          customerName: partyDraft.billing.name,
+          documentType: 'Invoice',
+          dueDate: formState.dueDate,
+          ledgerId: partyDraft.billing.ledgerId,
         },
       });
       if (!result.ok && result.error) {
@@ -1823,7 +1810,7 @@ const SalesVoucherForm = () => {
           }}
           onChange={(patch) => setFormState((prev) => ({ ...prev, ...patch }))}
           company={companyInfo}
-          onPrint={() => window.print()}
+          onPrint={() => void runFormPrintAction('print')}
           onClose={() => navigate(listPath)}
         />
 
@@ -1945,20 +1932,29 @@ const SalesVoucherForm = () => {
         <Card ref={lineItemsSectionRef}>
           <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
             <Stack spacing={1.5}>
-              <Typography variant="subtitle1" fontWeight={600}>
-                Line Items
-              </Typography>
-              <Box sx={{ overflowX: 'auto' }}>
-                <Table size="small" sx={{ '& td': { verticalAlign: 'top', py: 0.75 }, minWidth: 1000 }}>
+              <Stack direction="row" alignItems="center" justifyContent="space-between">
+                <Typography variant="subtitle1" fontWeight={600}>
+                  Line Items
+                </Typography>
+                <VoucherScanButton onClick={() => setScannerOpen(true)} />
+              </Stack>
+              <Box sx={voucherLineTableContainerSx}>
+                <Table size="small" sx={voucherLineTableSx}>
                   <TableHead>
                   <TableRow>
-                    <TableCell sx={{ minWidth: 200 }}>Item</TableCell>
-                    <TableCell sx={{ minWidth: 100, width: 100 }}>Quantity</TableCell>
-                    <TableCell sx={{ minWidth: 110, width: 110 }}>GST %</TableCell>
-                    <TableCell sx={{ minWidth: 240, width: 240 }}>Rate (Incl/Excl)</TableCell>
-                    <TableCell sx={{ minWidth: 140, width: 140 }}>Godown</TableCell>
-                    <TableCell sx={{ minWidth: 120, width: 120 }} align="right">Amount</TableCell>
-                    <TableCell sx={{ minWidth: 80, width: 80 }} align="right">Actions</TableCell>
+                    <TableCell sx={voucherLineCellSx('index')}>#</TableCell>
+                    <TableCell sx={{ minWidth: 180 }}>Item</TableCell>
+                    <TableCell sx={voucherLineCellSx('qty')}>Qty</TableCell>
+                    <TableCell sx={voucherLineCellSx('unit')}>Unit</TableCell>
+                    <TableCell sx={voucherLineCellSx('mrp')}>MRP</TableCell>
+                    <TableCell sx={voucherLineCellSx('rate')}>Rate (Excl. GST)</TableCell>
+                    <TableCell sx={voucherLineCellSx('rate')}>Rate (Incl. GST)</TableCell>
+                    <TableCell sx={voucherLineCellSx('discPercent')}>Disc %</TableCell>
+                    <TableCell sx={voucherLineCellSx('discAmount')}>Disc Amt</TableCell>
+                    <TableCell sx={voucherLineCellSx('gstPercent')}>GST %</TableCell>
+                    <TableCell sx={voucherLineCellSx('amount')} align="right">Amount</TableCell>
+                    <TableCell sx={voucherLineCellSx('godown')}>Godown</TableCell>
+                    <TableCell sx={voucherLineCellSx('delete')} align="right">Delete</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1967,6 +1963,7 @@ const SalesVoucherForm = () => {
                       key={line.lineId}
                       line={line}
                       index={index}
+                      scannedHighlight={highlightLineId === line.lineId}
                       godowns={godowns}
                       updateLine={updateLine}
                       removeLine={removeLine}
@@ -1976,6 +1973,12 @@ const SalesVoucherForm = () => {
                       onValidationError={setError}
                       requireGodown={godowns.length > 0}
                       getItemDisplayName={(id) => getItemName(id)}
+                      getUnitLabel={(itemId) => {
+                        const product = itemMap.get(itemId);
+                        return product?.unitId
+                          ? unitLabelById.get(product.unitId) ?? product.unitId
+                          : '—';
+                      }}
                       onOpenItemPicker={(rowIndex, initialQuery) => {
                         const lid = lines[rowIndex]?.lineId;
                         if (lid) {
@@ -2028,6 +2031,9 @@ const SalesVoucherForm = () => {
               <Stack spacing={1.5}>
                 <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 1 }}>
                   <Typography variant="body2">Subtotal: <strong>₹{totals.subtotal.toFixed(2)}</strong></Typography>
+                  {totals.discountTotal > 0 && (
+                    <Typography variant="body2">Total Discount: <strong>₹{totals.discountTotal.toFixed(2)}</strong></Typography>
+                  )}
                   
                   {totals.gstDecision.isLocalTransaction ? (
                     <>
@@ -2271,17 +2277,8 @@ const SalesVoucherForm = () => {
         <PrintExportSetupDialog
           open={printSetup.open}
           action={printSetup.action}
-          applyOnly={printSetup.applyOnly}
-          confirmLabel={printSetup.applyOnly ? 'Apply' : undefined}
-          onApply={(input) => setInvoiceTemplateOverride(input.templateId)}
-          onClose={() => setPrintSetup((p) => ({ ...p, open: false, applyOnly: false }))}
+          onClose={() => setPrintSetup((p) => ({ ...p, open: false }))}
           buildPackage={(input) => buildCurrentInvoiceHtml(input)}
-          whatsAppMeta={{
-            invoiceNumber: formState.number,
-            invoiceDate: formState.date,
-            grandTotal: Number(totals.grandTotal || 0),
-            phone: partyDraft.billing.phone,
-          }}
         />
 
         {/* Party Master (popup) — new customer from voucher */}
@@ -2328,6 +2325,26 @@ const SalesVoucherForm = () => {
           }}
         />
 
+        <ItemNotFoundDialog
+          open={showBarcodeNotFound}
+          barcode={pendingScannedBarcode}
+          onCancel={() => {
+            setShowBarcodeNotFound(false);
+            setPendingScannedBarcode('');
+          }}
+          onConfirm={() => {
+            setShowBarcodeNotFound(false);
+            setShowQuickCreateItem(true);
+          }}
+        />
+
+        <ScanQuantityDialog
+          open={Boolean(qtyPromptItem)}
+          itemName={qtyPromptItem?.name ?? ''}
+          onConfirm={confirmQtyPrompt}
+          onCancel={cancelQtyPrompt}
+        />
+
         <InventoryItemMasterDialog
           open={showQuickCreateItem}
           initialBarcode={pendingScannedBarcode}
@@ -2338,52 +2355,33 @@ const SalesVoucherForm = () => {
           onSaved={handleInventoryMasterSaved}
         />
 
-        <ListPickerModal<Party>
+        <BarcodeScanner
+          open={scannerOpen}
+          onClose={() => setScannerOpen(false)}
+          onScan={(code) => {
+            setError(null);
+            handleScannedBarcode(code);
+          }}
+        />
+        <VoucherScanToast toast={scanToast} />
+
+        <PartyPickerModal
           open={partyPickerOpen}
           onClose={() => {
             suppressNextPartyFocusOpenRef.current = true;
             setPartyPickerOpen(false);
           }}
-          title="List of Ledger Accounts"
-          searchPlaceholder="Search party name, alias, or GSTIN…"
-          rows={parties}
-          getRowKey={(p) => String(p.ledgerId ?? p.id)}
-          filterRow={(p, q) => {
-            const s = q.trim().toLowerCase();
-            if (!s) return true;
-            const name = (p.name || '').toLowerCase();
-            const g = (p.gstin || '').toLowerCase();
-            const mobile = (p.mobile || '').toLowerCase();
-            return name.includes(s) || g.includes(s) || mobile.includes(s);
-          }}
-          columns={[
-            {
-              id: 'name',
-              header: 'Party Name',
-              render: (p) => <Typography fontWeight={600}>{p.name}</Typography>,
-            },
-            {
-              id: 'bal',
-              header: 'Outstanding Balance',
-              align: 'right',
-              render: (p) => {
-                const n = Number(p.currentBalance ?? p.openingBalance ?? 0);
-                return <Typography variant="body2">₹{Number.isFinite(n) ? n.toFixed(2) : '0.00'}</Typography>;
-              },
-            },
-            {
-              id: 'gstin',
-              header: 'GSTIN',
-              render: (p) => (
-                <Typography variant="body2" color="text.secondary">
-                  {p.gstin || '—'}
-                </Typography>
-              ),
-            },
-          ]}
-          onSelect={(selectedParty) => {
+          scope="debtor"
+          title="Select Debtor"
+          onSelect={(ledger) => {
             setPartyPickerOpen(false);
-            const ledgerId = selectedParty.ledgerId || '';
+            const selectedParty =
+              parties.find((p) => p.ledgerId === ledger.id) ??
+              parties.find(
+                (p) => String(p.name).trim().toLowerCase() === String(ledger.name).trim().toLowerCase()
+              );
+            if (!selectedParty) return;
+            const ledgerId = selectedParty.ledgerId || ledger.id;
             const nextPending = {
               partyId: selectedParty.id,
               ledgerId,
@@ -2398,7 +2396,6 @@ const SalesVoucherForm = () => {
               pin: selectedParty.pincode,
             };
             setPendingCustomerDetails(nextPending);
-            // Open confirm popup after picker close animation so it reliably appears.
             window.setTimeout(() => {
               setCustomerConfirmOpen(true);
             }, 80);
@@ -2407,8 +2404,7 @@ const SalesVoucherForm = () => {
             setPartyPickerOpen(false);
             setShowQuickCreateCustomer(true);
           }}
-          createNewLabel="+ Create New Party"
-          emptyMessage="No parties found."
+          createNewLabel="+ Create New Debtor"
         />
 
         <ListPickerModal<InventoryItem>
@@ -2680,8 +2676,10 @@ interface SalesLineRowProps {
   onValidationError: (message: string | null) => void;
   requireGodown: boolean;
   getItemDisplayName: (itemId: string) => string;
+  getUnitLabel: (itemId: string) => string;
   onOpenItemPicker: (rowIndex: number, initialQuery?: string) => void;
   shouldOpenPickerOnItemFocus: () => boolean;
+  scannedHighlight?: boolean;
 }
 
 const SalesLineRow = memo(
@@ -2697,8 +2695,10 @@ const SalesLineRow = memo(
     onValidationError,
     requireGodown,
     getItemDisplayName,
+    getUnitLabel,
     onOpenItemPicker,
     shouldOpenPickerOnItemFocus,
+    scannedHighlight,
   }: SalesLineRowProps) => {
     const baseOrder = 100 + index * 10;
 
@@ -2764,9 +2764,29 @@ const SalesLineRow = memo(
       onBeforeNext: ensureAdvance,
     });
 
+    const mrpDiscPct = useMemo(() => {
+      const mrp = toNumber(line.mrp);
+      const rateEx = toNumber(line.rateExclusive);
+      return discOnMrpPercent(mrp, rateEx);
+    }, [line.mrp, line.rateExclusive]);
+
     return (
-      <TableRow hover>
-        <TableCell sx={{ minWidth: 200 }}>
+      <TableRow
+        hover
+        sx={
+          scannedHighlight
+            ? {
+                animation: 'scanFlash 1s ease',
+                '@keyframes scanFlash': {
+                  '0%': { bgcolor: 'rgba(76, 175, 80, 0.35)' },
+                  '100%': { bgcolor: 'transparent' },
+                },
+              }
+            : undefined
+        }
+      >
+        <TableCell sx={{ width: 36 }}>{index + 1}</TableCell>
+        <TableCell sx={{ minWidth: 180 }}>
           <Stack spacing={0.5}>
             <TextField
               value={line.itemId ? getItemDisplayName(line.itemId) : ''}
@@ -2775,6 +2795,7 @@ const SalesLineRow = memo(
               size="small"
               InputProps={{ readOnly: true }}
               inputRef={itemFieldRef}
+              sx={voucherLineItemFieldSx}
               onClick={() => onOpenItemPicker(index)}
               onFocus={() => {
                 if (!shouldOpenPickerOnItemFocus()) return;
@@ -2809,9 +2830,15 @@ const SalesLineRow = memo(
                 ) : null}
               </Stack>
             ) : null}
+            {line.autoRateInclusive ? (
+              <Typography variant="caption" color="text.secondary">
+                List price: ₹{line.autoRateInclusive}
+                {line.priceOverridden ? ' · overridden' : ''}
+              </Typography>
+            ) : null}
           </Stack>
         </TableCell>
-        <TableCell sx={{ minWidth: 100, width: 100 }}>
+        <TableCell sx={voucherLineCellSx('qty')}>
           <TextField
             type="number"
             value={line.quantity}
@@ -2819,76 +2846,112 @@ const SalesLineRow = memo(
             inputProps={{ min: 0, step: '0.01' }}
             inputRef={quantityFieldRef}
             fullWidth
+            size="small"
+            sx={voucherLinePercentInputSx}
           />
         </TableCell>
-        <TableCell sx={{ minWidth: 80, width: 80 }}>
+        <TableCell sx={voucherLineCellSx('unit')}>
+          <Typography variant="body2" color="text.secondary">
+            {line.itemId ? getUnitLabel(line.itemId) : '—'}
+          </Typography>
+        </TableCell>
+        <TableCell sx={voucherLineCellSx('mrp')}>
+          <Stack spacing={0.25}>
+            <TextField
+              type="number"
+              value={line.mrp}
+              onChange={(e) => updateLine(index, { mrp: e.target.value })}
+              inputProps={{ min: 0, step: '0.01' }}
+              placeholder="MRP"
+              size="small"
+              fullWidth
+              sx={voucherLineNumericInputSx}
+            />
+            {mrpDiscPct != null ? (
+              <Typography variant="caption" color="success.main" sx={{ lineHeight: 1.2 }}>
+                Disc on MRP: {mrpDiscPct.toFixed(2)}%
+              </Typography>
+            ) : null}
+          </Stack>
+        </TableCell>
+        <TableCell sx={voucherLineCellSx('rate')}>
+          <TextField
+            type="number"
+            placeholder="Excl. GST"
+            value={line.rateExclusive}
+            onChange={(e) =>
+              updateLine(index, applyExclusiveRateEdit(e.target.value, line.taxRate))
+            }
+            inputProps={{ min: 0, step: '0.01' }}
+            inputRef={rateFieldRef}
+            size="small"
+            fullWidth
+            sx={voucherLineNumericInputSx}
+          />
+        </TableCell>
+        <TableCell sx={voucherLineCellSx('rate')}>
+          <TextField
+            type="number"
+            placeholder="Incl. GST"
+            value={line.rateInclusive}
+            onChange={(e) =>
+              updateLine(index, applyInclusiveRateEdit(e.target.value, line.taxRate))
+            }
+            inputProps={{ min: 0, step: '0.01' }}
+            size="small"
+            fullWidth
+            sx={voucherLineNumericInputSx}
+          />
+        </TableCell>
+        <TableCell sx={voucherLineCellSx('discPercent')}>
+          <TextField
+            type="number"
+            value={line.discountPercent}
+            onChange={(e) =>
+              updateLine(index, applyDiscountPercentEdit(e.target.value, line.rateExclusive))
+            }
+            inputProps={{ min: 0, max: 100, step: '0.01' }}
+            size="small"
+            fullWidth
+            sx={voucherLinePercentInputSx}
+          />
+        </TableCell>
+        <TableCell sx={voucherLineCellSx('discAmount')}>
+          <TextField
+            type="number"
+            value={line.discountAmount}
+            onChange={(e) =>
+              updateLine(index, applyDiscountAmountEdit(e.target.value, line.rateExclusive))
+            }
+            inputProps={{ min: 0, step: '0.01' }}
+            size="small"
+            fullWidth
+            sx={voucherLineNumericInputSx}
+          />
+        </TableCell>
+        <TableCell sx={voucherLineCellSx('gstPercent')}>
           <TextField
             type="number"
             value={line.taxRate}
-            onChange={(e) => updateLine(index, { taxRate: e.target.value })}
+            onChange={(e) =>
+              updateLine(
+                index,
+                applyTaxRateEdit(e.target.value, line.rateExclusive, line.rateInclusive, 'exclusive')
+              )
+            }
             inputProps={{ min: 0, step: '0.01' }}
             inputRef={taxFieldRef}
             fullWidth
             size="small"
+            sx={voucherLinePercentInputSx}
           />
         </TableCell>
-        <TableCell sx={{ minWidth: 280, width: 280 }}>
-          <Stack spacing={1}>
-            {line.autoRateInclusive ? (
-              <Typography variant="caption" color="text.secondary">
-                Auto price: ₹{line.autoRateInclusive}
-                {line.priceOverridden ? ` · Manual override: ₹${line.rateInclusive || line.rateExclusive}` : ''}
-              </Typography>
-            ) : null}
-            <TextField
-              type="number"
-              label="Rate (Incl. GST)"
-              value={line.rateInclusive}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (!value) {
-                  updateLine(index, { rateInclusive: '', rateExclusive: '' });
-                  return;
-                }
-                const inclusive = Number(value);
-                const taxRate = Number(line.taxRate || 0);
-                const exclusive = inclusive / (1 + taxRate / 100);
-                updateLine(index, {
-                  rateInclusive: value,
-                  rateExclusive: Number.isFinite(exclusive) ? exclusive.toFixed(2) : '',
-                });
-              }}
-              inputProps={{ min: 0, step: '0.01' }}
-              helperText="Primary entry"
-              size="small"
-              fullWidth
-            />
-            <TextField
-              type="number"
-              label="Rate (Excl. GST)"
-              value={line.rateExclusive}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (!value) {
-                  updateLine(index, { rateExclusive: '', rateInclusive: '' });
-                  return;
-                }
-                const exclusive = Number(value);
-                const taxRate = Number(line.taxRate || 0);
-                const inclusive = exclusive * (1 + taxRate / 100);
-                updateLine(index, {
-                  rateExclusive: value,
-                  rateInclusive: Number.isFinite(inclusive) ? inclusive.toFixed(2) : '',
-                });
-              }}
-              inputProps={{ min: 0, step: '0.01' }}
-              inputRef={rateFieldRef}
-              size="small"
-              fullWidth
-            />
-          </Stack>
+        <TableCell sx={voucherLineCellSx('amount')} align="right">
+          <Typography component="span" sx={voucherLineAmountDisplaySx}>
+            {computeLineAmount(line).toFixed(2)}
+          </Typography>
         </TableCell>
-        <TableCell sx={{ minWidth: 180, width: 180 }}>
+        <TableCell sx={voucherLineCellSx('godown')}>
           <TextField
             select
             value={line.godownId}
@@ -2897,6 +2960,7 @@ const SalesLineRow = memo(
             inputRef={godownFieldRef}
             SelectProps={{ displayEmpty: true }}
             size="small"
+            sx={voucherLineSelectSx}
           >
             <MenuItem value="">
               <em>Select Godown</em>
@@ -2908,12 +2972,7 @@ const SalesLineRow = memo(
             ))}
           </TextField>
         </TableCell>
-        <TableCell sx={{ minWidth: 120, width: 120 }} align="right">
-          <Typography variant="body2" sx={{ fontWeight: 500 }}>
-            {computeLineAmount(line).toFixed(2)}
-          </Typography>
-        </TableCell>
-        <TableCell sx={{ minWidth: 80, width: 80 }} align="right">
+        <TableCell sx={voucherLineCellSx('delete')} align="right">
           <IconButton onClick={() => removeLine(index)} disabled={disableRemove}>
             <DeleteIcon fontSize="small" />
           </IconButton>

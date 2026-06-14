@@ -1,7 +1,9 @@
 // src/store/slices/bankSlice.ts
 import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
 
-const API = (import.meta.env?.VITE_API_URL || 'http://localhost:3000/api').replace('/api', '');
+import { resolveApiOrigin } from '../../utils/apiConfig';
+
+const API = resolveApiOrigin();
 
 const isOfflineRuntime = () => {
   try {

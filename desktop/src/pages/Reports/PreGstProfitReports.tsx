@@ -21,6 +21,7 @@ import { inventoryItemService } from '../../services/masters/inventoryItemServic
 import { ledgerAccountService } from '../../services/masters/ledgerAccountService';
 import { buildPreGstTradingProfit } from '../../services/reports/preGstProfitService';
 import { formatCurrency } from '../../utils/formatters';
+import { VoucherNumberLink } from '../../components/Vouchers/VoucherNumberLink';
 
 interface PreGstProfitReportsProps {
   canExport: boolean;
@@ -184,7 +185,13 @@ export default function PreGstProfitReports({ canExport: _canExport }: PreGstPro
               ) : (
                 byBill.map((r) => (
                   <TableRow key={r.voucherId}>
-                    <TableCell>{r.number}</TableCell>
+                    <TableCell>
+                      <VoucherNumberLink
+                        voucherId={r.voucherId}
+                        voucherType="SALES"
+                        voucherNumber={r.number}
+                      />
+                    </TableCell>
                     <TableCell>{r.date?.slice(0, 10)}</TableCell>
                     <TableCell>{ledgerName(r.customerLedgerId)}</TableCell>
                     <TableCell align="right">{formatCurrency(r.revenueExGst)}</TableCell>

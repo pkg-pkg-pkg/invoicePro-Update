@@ -41,6 +41,8 @@ import { usePermissions } from "../hooks/usePermissions";
 import { useUserDisplayName } from "../hooks/useUserDisplayName";
 import { getAppSettings } from '../services/appSettingsService';
 import FeedbackDialog from "./FeedbackDialog";
+import CrashReportHost from "./privacy/CrashReportHost";
+import ReleaseNotesBootstrap from "./ReleaseNotesBootstrap";
 import { checkForAppUpdate, resolveDownloadUrl, type AppReleaseInfo } from "../services/appUpdateService";
 import { openExternalUrl } from "../services/printService";
 import { isElectronRuntime } from "../utils/runtime";
@@ -71,6 +73,8 @@ import { QuickAddMenu } from "./erp/QuickAddMenu";
 import { ERP_PRIMARY_MODULES } from "../config/erpModuleNav";
 import { getErpChromeColors } from "../theme/erpColors";
 import { pageHasOwnHeading } from "../utils/pageChrome";
+import TrialBanner from "./TrialBanner";
+import { isLocalTrialActive, isTrialAccountEmail } from "../services/localTrialService";
 
 // Page title mapping
 const getPageTitle = (pathname: string): { title: string; showBackButton: boolean } => {
@@ -87,9 +91,13 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
     '/products': { title: 'Inventory Items', showBackButton: false },
     '/products/new': { title: 'Add Inventory Item', showBackButton: true },
     '/products/edit': { title: 'Edit Inventory Item', showBackButton: true },
-    '/customers': { title: 'Customers', showBackButton: false },
+    '/ledgers': { title: 'Ledgers', showBackButton: false },
+    '/ledgers/debtors': { title: 'Debtors', showBackButton: false },
+    '/ledgers/creditors': { title: 'Creditors', showBackButton: false },
+    '/ledgers/report': { title: 'Ledger Report', showBackButton: false },
+    '/customers': { title: 'Ledgers', showBackButton: false },
     '/customers/ledger-report': { title: 'Ledger Report', showBackButton: true },
-    '/parties': { title: 'Customers', showBackButton: false },
+    '/parties': { title: 'Ledgers', showBackButton: false },
     '/parties/new': { title: 'New Party', showBackButton: true },
     '/parties/edit': { title: 'Edit Party', showBackButton: true },
     '/parties/ledger-report': { title: 'Ledger Report', showBackButton: true },
@@ -153,6 +161,7 @@ const getPageTitle = (pathname: string): { title: string; showBackButton: boolea
     '/schemes': { title: 'Schemes', showBackButton: false },
     '/schemes/new': { title: 'New Scheme', showBackButton: true },
     '/schemes/edit': { title: 'Edit Scheme', showBackButton: true },
+    '/day-book': { title: 'Day Book', showBackButton: false },
     '/reports': { title: 'Reports', showBackButton: false },
     '/settings': { title: 'Settings', showBackButton: false },
     '/store': { title: 'PVE Store', showBackButton: false },
@@ -311,6 +320,23 @@ const Layout: React.FC = () => {
   const chrome = useMemo(() => getErpChromeColors(isDark ? 'premium-dark' : 'light'), [isDark]);
   const { user, logout } = useAuth();
   const { canAccessFeature } = usePermissions();
+  const [showTrialBanner, setShowTrialBanner] = useState(false);
+
+  useEffect(() => {
+    const openFeedback = () => setFeedbackOpen(true);
+    window.addEventListener('openFeedbackDialog', openFeedback);
+    return () => window.removeEventListener('openFeedbackDialog', openFeedback);
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      if (!isTrialAccountEmail(user?.email)) {
+        setShowTrialBanner(false);
+        return;
+      }
+      setShowTrialBanner(await isLocalTrialActive());
+    })();
+  }, [user?.email]);
 
   const [companyOwnerName, setCompanyOwnerName] = useState(() => readCompanyOwnerName());
 
@@ -558,7 +584,7 @@ const Layout: React.FC = () => {
           B: '/masters/bank-accounts',
           G: '/masters/godowns',
           I: '/masters/inventory-items',
-          R: '/parties/ledger-report',
+          R: '/ledgers/report',
           '3': '/vouchers/sales-return',
           '4': '/vouchers/purchase-return',
           P: '/vouchers/payment',
@@ -864,6 +890,7 @@ const Layout: React.FC = () => {
       }}
     >
       <ElectronTitleBar />
+      {showTrialBanner && <TrialBanner />}
       <Box
         sx={{
           display: 'flex',
@@ -1192,7 +1219,7 @@ const Layout: React.FC = () => {
               }}
             >
               <FeedbackIcon sx={{ mr: 1 }} />
-              Feedback to Developer
+              Send Feedback
             </MenuItem>
             <MenuItem onClick={handleLockScreen}>
               <LockOutlinedIcon sx={{ mr: 1 }} />
@@ -1340,6 +1367,8 @@ const Layout: React.FC = () => {
         open={feedbackOpen}
         onClose={() => setFeedbackOpen(false)}
       />
+      <CrashReportHost />
+      <ReleaseNotesBootstrap />
       <Snackbar
         open={dueToastOpen && Boolean(dueToastItem)}
         autoHideDuration={10000}

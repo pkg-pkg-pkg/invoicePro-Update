@@ -11,6 +11,7 @@ import type { LicenseDoc, UserProfileDoc } from '../firebase/models';
 import { computeLicenseDeviceKey, getDeviceId } from './deviceService';
 import { getEncryptedItem, setEncryptedItem } from './secureStorage';
 import { bindCurrentDevice, clearDeviceBinding } from './deviceChangeDetector';
+import { clearTrialStartDate } from './localTrialService';
 import { syncPasswordToFirestore } from './userProfileService';
 import { getBundledAppVersion } from './appUpdateService';
 import { withTimeout } from '../utils/withTimeout';
@@ -32,7 +33,150 @@ export type LicenseGateResult =
       newDeviceId?: string;
     };
 
-const LOCAL_LICENSE_CACHE_KEY = 'enc_license_cache_v1';
+export const LOCAL_LICENSE_CACHE_KEY = 'enc_license_cache_v1';
+
+/** Permanent local licence cache — never auto-expires. */
+export type LocalLicenseCache = {
+  uid?: string;
+  email?: string;
+  token?: string;
+  licenseKey?: string;
+  activationKey?: string;
+  licenseExpiry?: number | null;
+  cachedAt?: number;
+  multiUserLan?: boolean;
+  gatewayValidUntilMs?: number | null;
+  gatewayUpdatesEntitled?: boolean;
+  permanently_activated?: boolean;
+  activated_at?: string;
+  activation_device_id?: string;
+  last_online_verify_at?: string;
+  /** @deprecated Ignored — cache never auto-expires. */
+  cache_expires_at?: number;
+};
+
+// CLOUD CALL - only these 3 cases:
+// 1. activateLicense() - first activation (callActivateLicense)
+// 2. transferLicense() - device change (callTransferLicense)
+// 3. manual verify button in Settings (verifyLicenseOnlineManual → validateOnLoginOrStart)
+
+// LOCAL ONLY - everything else:
+// - app start, login, daily use, invoicing, reports
+
+export async function readLocalLicenseCache(deviceId: string): Promise<LocalLicenseCache | null> {
+  return (await getEncryptedItem<LocalLicenseCache>(LOCAL_LICENSE_CACHE_KEY, deviceId)) ?? null;
+}
+
+export function maskLicenseKeyDisplay(key: string): string {
+  const k = String(key ?? '').trim().toUpperCase().replace(/-/g, '');
+  if (!k) return '—';
+  if (k.length <= 4) return `${k}-****`;
+  const head = k.slice(0, 12);
+  const parts = head.match(/.{1,4}/g) ?? [head];
+  return `${parts.join('-')}-****`;
+}
+
+function permanentCacheFields(
+  deviceId: string,
+  activatedAt?: string
+): Pick<LocalLicenseCache, 'permanently_activated' | 'activated_at' | 'activation_device_id'> {
+  return {
+    permanently_activated: true,
+    activated_at: activatedAt || new Date().toISOString(),
+    activation_device_id: deviceId,
+  };
+}
+
+/** PART H — migrate existing valid caches to permanent activation (no cloud call). */
+export async function migrateLicenseCacheIfNeeded(deviceId: string): Promise<LocalLicenseCache | null> {
+  const cache = await readLocalLicenseCache(deviceId);
+  if (!cache) return null;
+  const hasKey = Boolean(cache.licenseKey || cache.activationKey);
+  if (!hasKey) return cache;
+  if (cache.permanently_activated) return cache;
+
+  const updated: LocalLicenseCache = {
+    ...cache,
+    ...permanentCacheFields(
+      deviceId,
+      cache.activated_at ||
+        (cache.cachedAt ? new Date(cache.cachedAt).toISOString() : new Date().toISOString())
+    ),
+    cachedAt: cache.cachedAt || Date.now(),
+  };
+  delete updated.cache_expires_at;
+  await setEncryptedItem(LOCAL_LICENSE_CACHE_KEY, deviceId, updated);
+  return updated;
+}
+
+/** LOCAL ONLY — finalize encrypted cache after login (no validateLicense CF). */
+export async function finalizeLoginFromLocalCache(params: {
+  uid: string;
+  email: string;
+  licenseKey: string;
+  token: string;
+  licenseExpiry?: number | null;
+  completedBusinessProfile?: boolean;
+  multiUserLan?: boolean;
+}): Promise<LicenseGateResult> {
+  const deviceId = await getDeviceId();
+  const email = normalizeEmail(params.email);
+  const licenseKey = params.licenseKey.trim().toUpperCase();
+  const existing = (await migrateLicenseCacheIfNeeded(deviceId)) ?? {};
+
+  await setEncryptedItem(LOCAL_LICENSE_CACHE_KEY, deviceId, {
+    ...existing,
+    uid: params.uid,
+    email,
+    token: params.token,
+    licenseKey,
+    licenseExpiry: params.licenseExpiry ?? existing.licenseExpiry ?? null,
+    cachedAt: Date.now(),
+    multiUserLan: params.multiUserLan ?? existing.multiUserLan,
+    ...permanentCacheFields(deviceId, existing.activated_at),
+  });
+  await bindCurrentDevice(email);
+
+  return {
+    ok: true,
+    licenseKey,
+    completedBusinessProfile: Boolean(params.completedBusinessProfile),
+    multiUserLan: Boolean(params.multiUserLan ?? existing.multiUserLan),
+  };
+}
+
+export type ManualVerifyResult =
+  | {
+      ok: true;
+      expiryDateMs: number | null;
+      multiUserLan: boolean;
+      lastOnlineVerifyAt: string;
+    }
+  | { ok: false; reason: string };
+
+/** CLOUD CALL #3 — Settings "Verify License Online" only. */
+export async function verifyLicenseOnlineManual(): Promise<ManualVerifyResult> {
+  if (!auth?.currentUser) return { ok: false, reason: 'Sign in first' };
+  if (!navigator.onLine) return { ok: false, reason: 'Internet required for online verification' };
+
+  const gate = await validateOnLoginOrStart();
+  if (!gate.ok) {
+    return { ok: false, reason: gate.reason || 'License verification failed' };
+  }
+
+  const deviceId = await getDeviceId();
+  const updated = (await readLocalLicenseCache(deviceId)) ?? {};
+  const lastOnlineVerifyAt = updated.last_online_verify_at || new Date().toISOString();
+  const expiryDateMs =
+    updated.licenseExpiry != null ? Number(updated.licenseExpiry) : null;
+
+  return {
+    ok: true,
+    expiryDateMs,
+    multiUserLan: Boolean(gate.multiUserLan),
+    lastOnlineVerifyAt,
+  };
+}
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -159,7 +303,7 @@ export async function callGetMyGatewayRenewalStatus(params?: { licenseKey?: stri
   return res.data as { ok: boolean; item: any | null; items?: any[] };
 }
 
-/** Re-check Firestore license flags (e.g. after admin approves multi-user) and refresh encrypted cache. */
+/** LOCAL ONLY — read Firestore license doc / profile; refresh encrypted cache (no validateLicense CF). */
 export async function refreshMultiUserLanInCache(): Promise<{
   multiUserLan: boolean;
   licenseKey: string | null;
@@ -174,33 +318,45 @@ export async function refreshMultiUserLanInCache(): Promise<{
     return { multiUserLan: false, licenseKey: null, gatewayValidUntilMs: null, gatewayUpdatesEntitled: false };
   }
 
-  let licenseKey = '';
+  const deviceId = await getDeviceId();
+  const cached = (await readLocalLicenseCache(deviceId)) ?? {};
+  let licenseKey = String(cached.licenseKey || cached.activationKey || '').trim();
+
   try {
     const ensured = await ensureUserProfileByEmail(email);
-    licenseKey = String((ensured.data as any)?.licenseKey ?? '').trim();
+    const profileKey = String((ensured.data as any)?.licenseKey ?? '').trim();
+    if (profileKey) licenseKey = profileKey;
   } catch {
-    return { multiUserLan: false, licenseKey: null, gatewayValidUntilMs: null, gatewayUpdatesEntitled: false };
+    // use cached key offline
   }
+
   if (!licenseKey) {
     return { multiUserLan: false, licenseKey: null, gatewayValidUntilMs: null, gatewayUpdatesEntitled: false };
   }
 
-  const deviceId = await getDeviceId();
-  let validated: any;
-  try {
-    validated = await callValidateLicense({ licenseKey, deviceId });
-  } catch {
-    return { multiUserLan: false, licenseKey, gatewayValidUntilMs: null, gatewayUpdatesEntitled: false };
+  let multiUserLan = Boolean(cached.multiUserLan);
+  let gatewayValidUntilMs =
+    cached.gatewayValidUntilMs != null ? Number(cached.gatewayValidUntilMs) : null;
+  let gatewayUpdatesEntitled = Boolean(cached.gatewayUpdatesEntitled);
+
+  if (db && navigator.onLine) {
+    try {
+      const licSnap = await getDoc(doc(db, 'licenses', licenseKey.trim().toUpperCase()));
+      if (licSnap.exists()) {
+        const data = licSnap.data() as Record<string, unknown>;
+        multiUserLan = Boolean(data.multiUserLan);
+        gatewayValidUntilMs =
+          data.gatewayValidUntilMs != null ? Number(data.gatewayValidUntilMs) : gatewayValidUntilMs;
+        gatewayUpdatesEntitled = Boolean(data.gatewayUpdatesEntitled);
+      }
+    } catch {
+      // offline or rules — keep cached flags
+    }
   }
 
-  const multiUserLan = Boolean(validated?.multiUserLan);
-  const gatewayValidUntilMs =
-    validated?.gatewayValidUntilMs != null ? Number(validated.gatewayValidUntilMs) : null;
-  const gatewayUpdatesEntitled = Boolean(validated?.gatewayUpdatesEntitled);
   try {
-    const prev = (await getEncryptedItem<Record<string, unknown>>(LOCAL_LICENSE_CACHE_KEY, deviceId)) ?? {};
     await setEncryptedItem(LOCAL_LICENSE_CACHE_KEY, deviceId, {
-      ...prev,
+      ...cached,
       uid: auth.currentUser.uid,
       email,
       licenseKey,
@@ -208,6 +364,7 @@ export async function refreshMultiUserLanInCache(): Promise<{
       gatewayValidUntilMs,
       gatewayUpdatesEntitled,
       cachedAt: Date.now(),
+      ...(cached.permanently_activated ? {} : permanentCacheFields(deviceId, cached.activated_at)),
     });
   } catch {
     // ignore cache write failures
@@ -407,10 +564,13 @@ export async function activateAccountWithLicense(params: {
       licenseKey,
       licenseExpiry: expiryDate ? expiryDate.toMillis() : null,
       cachedAt: Date.now(),
+      ...permanentCacheFields(deviceId),
     });
 
     // Bind device to prevent future tampering
     await bindCurrentDevice(email);
+
+    await clearTrialStartDate();
 
     // ❌ SECURITY FIX: Never store passwords in Firestore
     // Firebase Authentication handles password storage securely
@@ -817,6 +977,7 @@ export async function validateLicenseForLogin(
   };
 }
 
+/** CLOUD CALL #3 internal — only invoked from verifyLicenseOnlineManual (Settings). */
 export async function validateOnLoginOrStart(): Promise<LicenseGateResult> {
   if (!auth || !db) return { ok: false, reason: 'Firebase not configured' };
   const user = auth.currentUser;
@@ -915,6 +1076,7 @@ export async function validateOnLoginOrStart(): Promise<LicenseGateResult> {
   const token = await user.getIdToken();
   const exp = validated?.expiryDateMs ? Timestamp.fromMillis(Number(validated.expiryDateMs)) : null;
   const multiUserLan = Boolean(validated?.multiUserLan);
+  const verifyIso = new Date().toISOString();
   await setEncryptedItem(LOCAL_LICENSE_CACHE_KEY, deviceId, {
     uid: user.uid,
     email,
@@ -923,6 +1085,8 @@ export async function validateOnLoginOrStart(): Promise<LicenseGateResult> {
     licenseExpiry: exp ? exp.toMillis() : null,
     cachedAt: Date.now(),
     multiUserLan,
+    last_online_verify_at: verifyIso,
+    ...permanentCacheFields(deviceId),
   });
 
   // Bind/update device binding on successful validation

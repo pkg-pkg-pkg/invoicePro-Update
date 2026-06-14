@@ -1,8 +1,13 @@
-import { StockAdjustment, StockAdjustmentType } from '../../types/masters';
+import {
+  StockAdjustment,
+  StockAdjustmentReasonType,
+  StockAdjustmentType,
+} from '../../types/masters';
 import { generateId } from '../../utils/id';
 import { godownService } from './godownService';
 import { inventoryItemService } from './inventoryItemService';
 import { nowIso, readList, sanitizeString, writeList } from './storageHelpers';
+import { postStockAdjustmentJournal } from './stockAdjustmentAccountingService';
 
 const STORAGE_KEY = 'pve_stock_adjustments';
 
@@ -111,7 +116,7 @@ export const stockAdjustmentService = {
     if (!itemId) {
       throw new Error('Item is required for stock adjustment');
     }
-    await validateItem(itemId);
+    const item = await validateItem(itemId);
 
     const godownId = sanitizeString(payload.godownId ?? null);
     await validateGodown(godownId);
@@ -125,17 +130,44 @@ export const stockAdjustmentService = {
     ensurePositive(quantity, 'Quantity');
 
     const value = normalizeNumber(payload.value, 0);
-    ensureNonNegative(value, 'Value');
+    ensureNonNegative(value, 'Total value');
 
-    const reason = sanitizeString(payload.reason ?? null);
+    const ratePerUnit =
+      payload.ratePerUnit != null && Number.isFinite(Number(payload.ratePerUnit))
+        ? normalizeNumber(payload.ratePerUnit, 0)
+        : quantity > 0 && value > 0
+          ? Number((value / quantity).toFixed(2))
+          : null;
+
+    if (ratePerUnit != null) {
+      ensureNonNegative(ratePerUnit, 'Rate per unit');
+    }
+
+    const notes = sanitizeString(payload.notes ?? payload.reason ?? null);
+    const reasonType = payload.reasonType ?? null;
     const date = payload.date ?? nowIso();
 
     if (type === 'OPENING') {
       ensureSingleOpening(adjustments, itemId);
     }
 
-    const direction: AdjustmentDirection =
-      options.direction ?? (type === 'OPENING' ? 'INCREASE' : 'INCREASE');
+    if (type === 'ADJUSTMENT' && !reasonType) {
+      throw new Error('Reason type is required for stock adjustments');
+    }
+
+    if (type === 'ADJUSTMENT' && reasonType === 'OTHER' && !notes) {
+      throw new Error('Notes are required when reason type is Other');
+    }
+
+    let direction: AdjustmentDirection =
+      options.direction ?? payload.direction ?? (type === 'OPENING' ? 'INCREASE' : 'INCREASE');
+
+    if (type === 'ADJUSTMENT' && reasonType && reasonType !== 'OTHER') {
+      direction =
+        reasonType === 'EXCESS_FOUND'
+          ? 'INCREASE'
+          : 'DECREASE';
+    }
 
     if (type === 'OPENING' && direction === 'DECREASE') {
       throw new Error('Opening adjustments cannot decrease stock');
@@ -143,16 +175,37 @@ export const stockAdjustmentService = {
 
     const deltaQuantity = direction === 'DECREASE' ? -quantity : quantity;
 
-    await inventoryItemService.adjustStock(itemId, deltaQuantity, { godownId });
+    await inventoryItemService.adjustStock(itemId, deltaQuantity, {
+      godownId,
+      allowNegative: direction === 'DECREASE',
+    });
+
+    let voucherId: string | null = null;
+    if (type === 'ADJUSTMENT' && value > 0 && reasonType) {
+      voucherId = await postStockAdjustmentJournal({
+        item,
+        direction,
+        reasonType,
+        value,
+        date,
+        notes,
+        quantity,
+      });
+    }
 
     const adjustment: StockAdjustment = {
       id: payload.id ?? generateId('adj'),
       itemId,
       godownId,
       type,
+      direction,
+      reasonType,
       quantity,
+      ratePerUnit,
       value,
-      reason,
+      notes,
+      reason: notes,
+      voucherId,
       date,
       createdAt: payload.createdAt ?? nowIso(),
     };

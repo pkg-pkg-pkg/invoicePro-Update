@@ -47,15 +47,59 @@ const findLedgerByName = (ledgers: LedgerAccount[], name: string) => {
 };
 
 const ensureGroups = async () => {
-  const seeds: LedgerGroup[] = [
-    { ...GROUPS.sundryDebtors, code: 'SDEBT', parentGroupId: null, isSystem: true, sortOrder: 10, isActive: true, createdAt: '', updatedAt: '' },
-    { ...GROUPS.sundryCreditors, code: 'SCRED', parentGroupId: null, isSystem: true, sortOrder: 11, isActive: true, createdAt: '', updatedAt: '' },
-    { ...GROUPS.sales, code: 'SALES', parentGroupId: null, isSystem: true, sortOrder: 20, isActive: true, createdAt: '', updatedAt: '' },
-    { ...GROUPS.purchase, code: 'PUR', parentGroupId: null, isSystem: true, sortOrder: 21, isActive: true, createdAt: '', updatedAt: '' },
-    { ...GROUPS.cashBank, code: 'CASH', parentGroupId: null, isSystem: true, sortOrder: 5, isActive: true, createdAt: '', updatedAt: '' },
-    { ...GROUPS.dutiesTaxes, code: 'GST', parentGroupId: null, isSystem: true, sortOrder: 30, isActive: true, createdAt: '', updatedAt: '' },
-  ];
-  await ledgerGroupService.seed(seeds);
+  // Hierarchy is seeded by seedMasters — only ensure missing legacy-compatible rows.
+  await ledgerGroupService.seed([
+    {
+      ...GROUPS.sundryDebtors,
+      code: 'SDEBT',
+      parentGroupId: 'grp-current-assets',
+      isSystem: true,
+      sortOrder: 22,
+      isActive: true,
+      createdAt: '',
+      updatedAt: '',
+    },
+    {
+      ...GROUPS.sundryCreditors,
+      code: 'SCRED',
+      parentGroupId: 'grp-current-liabilities',
+      isSystem: true,
+      sortOrder: 40,
+      isActive: true,
+      createdAt: '',
+      updatedAt: '',
+    },
+    {
+      ...GROUPS.sales,
+      code: 'SALES',
+      parentGroupId: 'grp-direct-income',
+      isSystem: true,
+      sortOrder: 52,
+      isActive: true,
+      createdAt: '',
+      updatedAt: '',
+    },
+    {
+      ...GROUPS.purchase,
+      code: 'PUR',
+      parentGroupId: 'grp-direct-expenses',
+      isSystem: true,
+      sortOrder: 62,
+      isActive: true,
+      createdAt: '',
+      updatedAt: '',
+    },
+    {
+      ...GROUPS.dutiesTaxes,
+      code: 'GST',
+      parentGroupId: 'grp-current-liabilities',
+      isSystem: true,
+      sortOrder: 41,
+      isActive: true,
+      createdAt: '',
+      updatedAt: '',
+    },
+  ]);
 };
 
 const ensureSystemLedger = async (def: typeof SYSTEM_LEDGERS[keyof typeof SYSTEM_LEDGERS]) => {
@@ -219,7 +263,7 @@ export const autoLedgerService = {
   async ensureExpenseLedger(nameRaw: string): Promise<string> {
     await ensureGroups();
     const name = sanitizeString(nameRaw) || 'Miscellaneous Expense';
-    const targetGroupId = GROUPS.purchase.id; // Expenses go under Purchase Accounts
+    const targetGroupId = 'grp-indirect-expenses';
     const openingBalanceType: LedgerBalanceType = 'DEBIT';
 
     const ledgers = await ledgerAccountService.list({ includeInactive: true });

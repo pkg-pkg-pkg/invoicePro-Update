@@ -53,6 +53,7 @@ import {
 import { SerializableUser } from '../store/slices/userManagementSlice';
 import { User, UserRole, DEFAULT_PERMISSIONS, UserPermissions } from '../store/slices/authSlice';
 import { useAuth } from './contexts/auth';
+import RolesPermissionsMatrix from '../components/settings/RolesPermissionsMatrix';
 
 const buildBlankPermissions = (): UserPermissions => {
   const keys = Object.keys(DEFAULT_PERMISSIONS.viewer) as Array<keyof UserPermissions>;
@@ -266,6 +267,13 @@ const UserManagement: React.FC = () => {
     }
   };
 
+  const getRoleLabel = (role: UserRole) => {
+    switch (role) {
+      case 'sales': return 'Billing Operator';
+      default: return role.charAt(0).toUpperCase() + role.slice(1);
+    }
+  };
+
   const getRoleIcon = (role: UserRole) => {
     switch (role) {
       case 'admin': return '👑';
@@ -292,7 +300,7 @@ const UserManagement: React.FC = () => {
       permissions: ['createPayments', 'editPayments', 'deletePayments', 'viewPayments'],
     },
     {
-      title: 'Customers & Suppliers',
+      title: 'Debtors & Creditors',
       permissions: ['createCustomers', 'editCustomers', 'deleteCustomers', 'viewCustomers', 'createSuppliers', 'editSuppliers', 'deleteSuppliers', 'viewSuppliers'],
     },
     {
@@ -365,7 +373,7 @@ const UserManagement: React.FC = () => {
                   <TableCell>
                     <Chip
                       icon={<span style={{ fontSize: '14px' }}>{getRoleIcon(user.role)}</span>}
-                      label={user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+                      label={getRoleLabel(user.role)}
                       color={getRoleColor(user.role)}
                       size="small"
                     />
@@ -422,6 +430,8 @@ const UserManagement: React.FC = () => {
           </Box>
         )}
       </Paper>
+
+      <RolesPermissionsMatrix />
 
       {/* User Dialog */}
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
@@ -486,7 +496,7 @@ const UserManagement: React.FC = () => {
                     <MenuItem value="admin">👑 Admin - Full Access</MenuItem>
                     <MenuItem value="manager">👔 Manager - Most Features</MenuItem>
                     <MenuItem value="accountant">🧮 Accountant - Financial Operations</MenuItem>
-                    <MenuItem value="sales">💼 Sales - Sales Operations</MenuItem>
+                    <MenuItem value="sales">💼 Billing Operator - Sales Operations</MenuItem>
                     <MenuItem value="viewer">👁️ Viewer - Read Only</MenuItem>
                   </Select>
                 </FormControl>

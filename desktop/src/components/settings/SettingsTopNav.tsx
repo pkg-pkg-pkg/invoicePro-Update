@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Tab, Tabs, Typography, alpha, useTheme } from '@mui/material';
+import { WrapTabScrollButton } from '../mui/WrapTabScrollButton';
 import type { SettingsNavItem, SettingsSectionId } from './settingsNavConfig';
 
 interface Props {
@@ -35,6 +36,7 @@ export default function SettingsTopNav({ items, activeSection, onSelect }: Props
         variant="scrollable"
         scrollButtons="auto"
         allowScrollButtonsMobile
+        ScrollButtonComponent={WrapTabScrollButton}
         sx={{
           minHeight: 48,
           '& .MuiTab-root': {

@@ -1,5 +1,6 @@
 import { ChangeEvent, useCallback, useEffect, useState } from 'react';
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material';
+import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { Party, PartyInput } from '../../types/party';
 import { customersApi, type CustomerFilterKey } from '../../services/customers/customersApi';
@@ -11,6 +12,7 @@ import {
   parsePartiesFile,
 } from '../Parties/partyBulkExcel';
 import { partyService, PARTIES_CHANGED_EVENT } from '../../services/masters/partyService';
+import { sendBulkOutstandingReminders } from '../../services/customers/customerLedgerStatementService';
 
 export default function CustomersListPage() {
   const navigate = useNavigate();
@@ -33,6 +35,8 @@ export default function CustomersListPage() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
+  const [reminderSummary, setReminderSummary] = useState<string | null>(null);
+  const [bulkStatusOpen, setBulkStatusOpen] = useState<'ACTIVE' | 'INACTIVE' | null>(null);
 
   const loadCustomers = useCallback(async () => {
     setLoading(true);
@@ -81,7 +85,7 @@ export default function CustomersListPage() {
         const created = await customersApi.create(values);
         setFormOpen(false);
         await loadCustomers();
-        navigate(`/customers/${created.id}`);
+        navigate(`/ledgers/debtors/${created.id}`);
       } else if (editParty) {
         await customersApi.update(editParty.id, values);
         setFormOpen(false);
@@ -95,8 +99,26 @@ export default function CustomersListPage() {
   };
 
   const handleBulkDelete = async () => {
-    for (const id of selectedIds) await customersApi.remove(id);
+    for (const id of selectedIds) await customersApi.markInactive(id);
     setSelectedIds(new Set());
+    await loadCustomers();
+  };
+
+  const handleBulkReminders = async () => {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    const result = await sendBulkOutstandingReminders(ids);
+    setReminderSummary(`Selected: ${result.selected} • Sent: ${result.sent} • Skipped: ${result.skipped}`);
+    if (result.errors.length) setError(result.errors.join('; '));
+  };
+
+  const handleBulkStatus = async (status: 'ACTIVE' | 'INACTIVE') => {
+    for (const id of selectedIds) {
+      if (status === 'ACTIVE') await customersApi.reactivate(id);
+      else await customersApi.markInactive(id);
+    }
+    setSelectedIds(new Set());
+    setBulkStatusOpen(null);
     await loadCustomers();
   };
 
@@ -143,6 +165,8 @@ export default function CustomersListPage() {
     <Box>
       {error ? <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setError(null)}>{error}</Alert> : null}
 
+      {reminderSummary ? <Alert severity="info" sx={{ mb: 1.5 }} onClose={() => setReminderSummary(null)}>{reminderSummary}</Alert> : null}
+
       <CustomersListToolbar
         filter={filter}
         search={search}
@@ -154,6 +178,9 @@ export default function CustomersListPage() {
         onExport={() => void handleExport()}
         onBulkUpload={() => setBulkOpen(true)}
         onBulkDelete={() => void handleBulkDelete()}
+        onBulkReminders={() => void handleBulkReminders()}
+        onBulkMarkActive={() => setBulkStatusOpen('ACTIVE')}
+        onBulkMarkInactive={() => setBulkStatusOpen('INACTIVE')}
         selectedCount={selectedIds.size}
       />
 
@@ -184,7 +211,7 @@ export default function CustomersListPage() {
             return next;
           });
         }}
-        onRowClick={(id) => navigate(`/customers/${id}`)}
+        onRowClick={(id) => navigate(`/ledgers/debtors/${id}`)}
         onEdit={(id) => {
           const party = customers.find((c) => c.id === id);
           if (!party) return;
@@ -226,6 +253,24 @@ export default function CustomersListPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setBulkOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={bulkStatusOpen != null} onClose={() => setBulkStatusOpen(null)}>
+        <DialogTitle>{bulkStatusOpen === 'ACTIVE' ? 'Mark selected active?' : 'Mark selected inactive?'}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            This will update {selectedIds.size} customer(s). Continue?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkStatusOpen(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => bulkStatusOpen && void handleBulkStatus(bulkStatusOpen)}
+          >
+            Confirm
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

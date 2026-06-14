@@ -1,7 +1,9 @@
 // src/store/slices/productSlice.ts
 /// <reference types="vite/client" />
 
-const API = (import.meta.env?.VITE_API_URL || 'http://localhost:3000/api').replace('/api', '');
+import { resolveApiOrigin } from '../../utils/apiConfig';
+
+const API = resolveApiOrigin();
 
 import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
 

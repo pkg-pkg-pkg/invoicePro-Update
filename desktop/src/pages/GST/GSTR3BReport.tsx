@@ -20,6 +20,7 @@ import {
   TableRow,
 } from '@mui/material';
 import { gstService, GSTR3BResponse } from '../../services/gstService';
+import { GstReportExportMenu } from '../../components/gst/GstReportExportMenu';
 
 const MONTHS = [
   { value: 1, label: 'January' },
@@ -59,6 +60,31 @@ export default function GSTR3BReport() {
 
   const years = Array.from({ length: 5 }, (_, i) => currentDate.getFullYear() - i);
 
+  const exportSections = data
+    ? [
+        {
+          heading: 'Outward Supplies',
+          sheetName: 'Outward',
+          rows: [data.outwardSupplies as Record<string, unknown>],
+        },
+        {
+          heading: 'Inward Supplies',
+          sheetName: 'Inward',
+          rows: [data.inwardSupplies as Record<string, unknown>],
+        },
+        {
+          heading: 'Tax Liability',
+          sheetName: 'TaxLiability',
+          rows: [data.taxLiability as Record<string, unknown>],
+        },
+        {
+          heading: 'Summary',
+          sheetName: 'Summary',
+          rows: [data.summary as Record<string, unknown>],
+        },
+      ]
+    : [];
+
   return (
     <Box>
       <Typography variant="h4" gutterBottom>
@@ -96,9 +122,17 @@ export default function GSTR3BReport() {
               variant="contained"
               onClick={handleGenerate}
               disabled={loading}
+              sx={{ mr: 1 }}
             >
               {loading ? <CircularProgress size={24} /> : 'Generate Report'}
             </Button>
+            {data && (
+              <GstReportExportMenu
+                title={`GSTR-3B ${MONTHS.find((m) => m.value === month)?.label} ${year}`}
+                baseFileName={`GSTR3B_${year}_${month}`}
+                sections={exportSections}
+              />
+            )}
           </Grid>
         </Grid>
       </Paper>

@@ -14,41 +14,56 @@ import {
   Alert,
   CircularProgress,
   Typography,
+  FormControlLabel,
+  Checkbox,
+  Rating,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
-import { feedbackService } from '../services/feedbackService';
+import PreviewIcon from '@mui/icons-material/Preview';
+import { FEEDBACK_CATEGORY_OPTIONS, type FeedbackCategory } from '../types/privacyDiagnostics';
+import { privacyFeedbackService } from '../services/privacy/privacyFeedbackService';
+import {
+  buildDiagnosticsPayload,
+  previewDiagnosticsPayload,
+} from '../services/privacy/diagnosticsService';
+import { getPrivacySettings } from '../services/privacy/privacySettingsService';
+import DiagnosticsPreviewDialog from './privacy/DiagnosticsPreviewDialog';
 
 interface FeedbackDialogProps {
   open: boolean;
   onClose: () => void;
 }
 
-const FEEDBACK_CATEGORIES = [
-  { value: 'bug', label: '🐛 Bug Report' },
-  { value: 'new-feature', label: '✨ New Feature Request' },
-  { value: 'missing-feature', label: '❌ Missing Feature' },
-  { value: 'improvement', label: '⚡ Improvement Suggestion' },
-  { value: 'requirement', label: '📋 My Requirement' },
-  { value: 'other', label: '💬 Other' },
-];
-
 const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose }) => {
-  const [category, setCategory] = useState('bug');
-  const [channel, setChannel] = useState<'in-app' | 'email' | 'whatsapp'>('in-app');
-  const [subject, setSubject] = useState('');
+  const defaults = getPrivacySettings();
+  const [rating, setRating] = useState<number | null>(4);
+  const [category, setCategory] = useState<FeedbackCategory>('bug');
   const [message, setMessage] = useState('');
+  const [includeDiagnostics, setIncludeDiagnostics] = useState(defaults.sendAnonymousDiagnostics);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewJson, setPreviewJson] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
+  const resetForm = () => {
+    setRating(4);
+    setCategory('bug');
+    setMessage('');
+    setIncludeDiagnostics(getPrivacySettings().sendAnonymousDiagnostics);
+    setError('');
+    setSuccess(false);
+    setSuccessMessage('');
+  };
+
   const handleSubmit = async () => {
-    if (!subject.trim()) {
-      setError('Please enter a subject');
-      return;
-    }
     if (!message.trim()) {
       setError('Please enter your feedback message');
+      return;
+    }
+    if (!rating || rating < 1) {
+      setError('Please select a rating from 1 to 5');
       return;
     }
 
@@ -57,25 +72,25 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose }) => {
     setSuccessMessage('');
 
     try {
-      const res = await feedbackService.sendFeedback({
+      const diagnostics = includeDiagnostics
+        ? await buildDiagnosticsPayload({ userConsented: true })
+        : undefined;
+      const res = await privacyFeedbackService.send({
+        type: 'user_feedback',
+        rating,
         category,
-        subject,
-        message,
-        channel,
+        message: message.trim(),
+        includeDiagnostics: Boolean(diagnostics),
+        diagnostics: diagnostics ?? undefined,
       });
-      setSuccessMessage(res?.message || 'Thank you! Your feedback has been sent successfully.');
+      setSuccessMessage(res.message);
       setSuccess(true);
-      setTimeout(() => {
-        setSubject('');
-        setMessage('');
-        setCategory('bug');
-        setChannel('in-app');
-        setSuccess(false);
-        setSuccessMessage('');
+      window.setTimeout(() => {
+        resetForm();
         onClose();
-      }, 2000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to send feedback. Please try again.');
+      }, 1800);
+    } catch (err: unknown) {
+      setError((err as Error).message || 'Failed to send feedback. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -83,111 +98,124 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose }) => {
 
   const handleClose = () => {
     if (!loading) {
-      setSubject('');
-      setMessage('');
-      setCategory('bug');
-      setChannel('in-app');
-      setError('');
-      setSuccess(false);
-      setSuccessMessage('');
+      resetForm();
       onClose();
     }
   };
 
+  const openPreview = async () => {
+    const json = await previewDiagnosticsPayload({
+      userConsented: includeDiagnostics,
+    });
+    setPreviewJson(json);
+    setPreviewOpen(true);
+  };
+
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle sx={{ pb: 1 }}>
-        <Typography variant="h6" fontWeight={600}>
-          Send Feedback to Developer
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          Help us improve the software - feedback is sent from inside app.
-        </Typography>
-      </DialogTitle>
-
-      <DialogContent sx={{ pt: 2 }}>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {success && (
-            <Alert severity="success">
-              ✓ {successMessage || 'Thank you! Your feedback has been sent successfully.'}
-            </Alert>
-          )}
-
-          {error && <Alert severity="error">{error}</Alert>}
-
-          <FormControl fullWidth>
-            <InputLabel>Category</InputLabel>
-            <Select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              label="Category"
-              disabled={loading}
-            >
-              {FEEDBACK_CATEGORIES.map((cat) => (
-                <MenuItem key={cat.value} value={cat.value}>
-                  {cat.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          <FormControl fullWidth>
-            <InputLabel>Send Via</InputLabel>
-            <Select
-              value={channel}
-              onChange={(e) => setChannel(e.target.value as 'in-app' | 'email' | 'whatsapp')}
-              label="Send Via"
-              disabled={loading}
-            >
-              <MenuItem value="in-app">In-App (Recommended)</MenuItem>
-              <MenuItem value="email">Email Channel</MenuItem>
-              <MenuItem value="whatsapp">WhatsApp Channel</MenuItem>
-            </Select>
-          </FormControl>
-
-          <TextField
-            label="Subject"
-            placeholder="Brief title of your feedback"
-            fullWidth
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            disabled={loading}
-            size="small"
-            error={!!error && !subject.trim()}
-          />
-
-          <TextField
-            label="Message"
-            placeholder="Describe your feedback in detail..."
-            fullWidth
-            multiline
-            rows={6}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            disabled={loading}
-            error={!!error && !message.trim()}
-          />
-
-          <Typography variant="caption" color="text.secondary">
-            💡 Tip: Include screenshots or detailed steps to reproduce for bug reports. No external mail app required.
+    <>
+      <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ pb: 1 }}>
+          <Typography variant="h6" fontWeight={700}>
+            Send Feedback
           </Typography>
-        </Box>
-      </DialogContent>
+          <Typography variant="caption" color="text.secondary">
+            Help → Send Feedback · Privacy-first · no customer or financial data unless you opt in to
+            diagnostics.
+          </Typography>
+        </DialogTitle>
 
-      <DialogActions sx={{ p: 2 }}>
-        <Button onClick={handleClose} disabled={loading}>
-          Cancel
-        </Button>
-        <Button
-          variant="contained"
-          onClick={handleSubmit}
-          disabled={loading}
-          startIcon={loading ? <CircularProgress size={20} /> : <SendIcon />}
-        >
-          {loading ? 'Sending...' : 'Send Feedback'}
-        </Button>
-      </DialogActions>
-    </Dialog>
+        <DialogContent sx={{ pt: 2 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {success ? (
+              <Alert severity="success">{successMessage || 'Thank you! Your feedback was sent.'}</Alert>
+            ) : null}
+            {error ? <Alert severity="error">{error}</Alert> : null}
+
+            <Box>
+              <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
+                Rating
+              </Typography>
+              <Rating
+                value={rating}
+                onChange={(_, v) => setRating(v)}
+                disabled={loading}
+                max={5}
+              />
+            </Box>
+
+            <FormControl fullWidth>
+              <InputLabel>Feedback Category</InputLabel>
+              <Select
+                value={category}
+                onChange={(e) => setCategory(e.target.value as FeedbackCategory)}
+                label="Feedback Category"
+                disabled={loading}
+              >
+                {FEEDBACK_CATEGORY_OPTIONS.map((cat) => (
+                  <MenuItem key={cat.value} value={cat.value}>
+                    {cat.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <TextField
+              label="Message"
+              placeholder="Describe your experience, bug steps, or suggestion…"
+              fullWidth
+              multiline
+              rows={6}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              disabled={loading}
+              error={!!error && !message.trim()}
+            />
+
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={includeDiagnostics}
+                  onChange={(e) => setIncludeDiagnostics(e.target.checked)}
+                  disabled={loading}
+                />
+              }
+              label="Include optional anonymous diagnostics (app version, OS, error logs, usage counters)"
+            />
+
+            <Button
+              size="small"
+              startIcon={<PreviewIcon />}
+              onClick={() => void openPreview()}
+              disabled={loading}
+              sx={{ alignSelf: 'flex-start' }}
+            >
+              Preview diagnostics payload
+            </Button>
+          </Box>
+        </DialogContent>
+
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={handleClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void handleSubmit()}
+            disabled={loading}
+            startIcon={loading ? <CircularProgress size={20} /> : <SendIcon />}
+          >
+            {loading ? 'Sending…' : 'Send Feedback'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <DiagnosticsPreviewDialog
+        open={previewOpen}
+        previewJson={previewJson}
+        onClose={() => setPreviewOpen(false)}
+        readOnly
+      />
+    </>
   );
 };
 

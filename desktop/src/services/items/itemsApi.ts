@@ -66,6 +66,7 @@ export const itemsApi = {
       name: `${source.name} (Copy)`,
       sku: `${source.sku}-COPY-${Date.now().toString(36).slice(-4).toUpperCase()}`,
       barcode: null,
+      additionalBarcodes: null,
       openingStock: 0,
       openingValue: 0,
       currentStock: 0,

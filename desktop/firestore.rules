@@ -5,91 +5,38 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function emailLower() {
-      return isSignedIn() && request.auth.token.email != null ? request.auth.token.email.lower() : "";
-    }
-
-    function isAdmin() {
-      return isSignedIn() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        exists(/databases/$(database)/documents/admin/$(request.auth.uid))
-      );
-    }
-
-    // Admin panel: signed-in user may read own admins/{uid} doc (login check). No client writes.
-    match /admins/{uid} {
-      allow get: if isSignedIn() && request.auth.uid == uid;
-      allow list, create, update, delete: if false;
-    }
-
-    match /admin/{uid} {
-      allow get: if isSignedIn() && request.auth.uid == uid;
-      allow list, create, update, delete: if false;
-    }
-
     function isOwner(userId) {
-      return isSignedIn() && request.auth.token.email != null && request.auth.token.email.lower() == userId;
+      return isSignedIn() && request.auth.token.email != null
+        && request.auth.token.email.lower() == userId;
+    }
+
+    match /trials/{mobileNo} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /trial_settings/{doc} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /licenses/{licenseId} {
+      allow read: if true;
+      allow write: if false;
     }
 
     match /users/{userId} {
-      allow get: if isOwner(userId) || isAdmin();
-      allow list: if isAdmin();
-
-      allow create, update: if (isOwner(userId) || isAdmin()) && (request.resource.data.email == null || request.resource.data.email == userId);
-      allow delete: if isAdmin();
-
-      match /usage_sessions/{sessionId} {
-        allow create, update: if isOwner(userId);
-        allow get, list: if isOwner(userId) || isAdmin();
-        allow delete: if isAdmin();
-      }
+      allow read, write: if isOwner(userId);
     }
 
-    // assignedToEmail empty = newly generated key (pending activation) — must be readable by signed-in user.
-    function licenseAssignedEmailLower() {
-      return resource != null && resource.data.assignedToEmail is string
-        ? resource.data.assignedToEmail.lower()
-        : '';
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if false;
     }
 
-    function canReadLicense() {
-      return isAdmin() || (
-        isSignedIn() && resource != null && (
-          licenseAssignedEmailLower() == '' ||
-          licenseAssignedEmailLower() == emailLower()
-        )
-      );
-    }
-
-    match /licenses/{licenseKey} {
-      allow get: if canReadLicense();
-      allow list: if isAdmin();
-      allow create, update, delete: if isAdmin();
-    }
-
-    match /license_audit/{docId} {
-      allow read, write: if isAdmin();
-    }
-
-    match /license_audit/{userKey}/events/{eventId} {
-      allow read, write: if isAdmin();
-    }
-
-    match /license_upgrade_requests/{requestId} {
-      allow read, list: if isAdmin();
-      allow create, update, delete: if false;
-    }
-
-    match /gateway_renewal_requests/{requestId} {
-      allow read, list: if isAdmin();
-      allow create, update, delete: if false;
-    }
-
-    // Public read for in-app update checks; only admins may publish.
-    match /app_config/{docId} {
-      allow get: if true;
-      allow list: if isAdmin();
-      allow create, update, delete: if isAdmin();
+    match /deviceTransfers/{transferId} {
+      allow read: if isSignedIn();
+      allow write: if false;
     }
 
     match /{document=**} {

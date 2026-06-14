@@ -8,7 +8,7 @@ import { canCreateLedger } from '../utils/permissions';
 
 export default function ProductsScreen() {
   const user = useSelector((state: RootState) => state.auth.user);
-  const createAllowed = canCreateLedger(user?.mobilePermissions);
+  const createAllowed = canCreateLedger(user?.permissions ?? user?.mobilePermissions);
   const [mode, setMode] = useState<'CUSTOMER' | 'SUPPLIER'>('CUSTOMER');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');

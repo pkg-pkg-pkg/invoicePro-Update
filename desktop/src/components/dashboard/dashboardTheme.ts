@@ -49,7 +49,7 @@ const SHARED_LAYOUT = {
   padDesktop: 3,
   padTablet: 2,
   gridGap: 2,
-  aging: ['#16A34A', '#F59E0B', '#EA580C', '#DC2626'] as const,
+  aging: ['#16A34A', '#F59E0B', '#EA580C', '#DC2626', '#991B1B'] as const,
   assistantGradient: 'linear-gradient(135deg, #1E40AF 0%, #2563EB 100%)',
 };
 

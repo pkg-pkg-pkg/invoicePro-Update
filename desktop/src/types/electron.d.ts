@@ -23,6 +23,8 @@ export interface CompanyProfileRow {
   bank_account_number?: string;
   bank_ifsc?: string;
   bank_branch?: string;
+  upi_id?: string;
+  upi_payee_name?: string;
   is_profile_completed?: boolean;
   created_at?: string;
   updated_at?: string;
@@ -199,6 +201,11 @@ export interface ElectronAPI {
   mobileSyncRetry?: () => Promise<any>;
   mobileSyncPublishChange?: (change: unknown) => Promise<boolean>;
   mobileEntitlementsSync?: (payload: unknown) => Promise<boolean>;
+  firebaseCallable?: (payload: {
+    name: string;
+    data?: unknown;
+    idToken: string;
+  }) => Promise<{ ok: boolean; result?: unknown; error?: string; code?: string }>;
   mobileSnapshotPublish?: (snapshot: unknown) => Promise<boolean>;
   onMobileDeviceBound?: (callback: (data: unknown) => void) => () => void;
   onSyncUpdate: (callback: (data: any) => void) => void;
@@ -224,9 +231,9 @@ export interface ElectronAPI {
 
   // Cleanup
   removeAllListeners: (event: string) => void;
-  printToPDF?: (payload: { html: string; fileName?: string; landscape?: boolean }) => Promise<string | null>;
+  printToPDF?: (payload: { html: string; fileName?: string; landscape?: boolean; pageSize?: string }) => Promise<string | null>;
   printDirect?: (payload: { html: string; silent?: boolean }) => Promise<boolean>;
-  openPrintPreview?: (payload: { html: string }) => Promise<boolean>;
+  openPrintPreview?: (payload: { html: string; pageSize?: string }) => Promise<boolean>;
 
   /** Frameless window (Windows/Linux) */
   windowMinimize?: () => Promise<void>;
@@ -249,6 +256,7 @@ export interface ElectronAPI {
     error?: string;
   }>;
   onWindowStateChanged?: (callback: (maximized: boolean) => void) => () => void;
+  onNetworkOnline?: (callback: () => void) => () => void;
 
   getAppSystemInfo?: () => Promise<{
     appVersion?: string;
@@ -266,15 +274,86 @@ export interface ElectronAPI {
     error?: string;
   }>;
 
+  getDeviceFingerprint?: () => Promise<{
+    device_id: string;
+    device_fingerprint?: string;
+    device_name: string;
+    os_info: string;
+  }>;
+
+  superAdminGetRuntime?: () => Promise<{
+    success?: boolean;
+    nodeVersion?: string;
+    electronVersion?: string;
+    uptimeSec?: number;
+    ramMb?: number;
+    osVersion?: string;
+    platform?: string;
+  }>;
+  superAdminGetDbStatus?: () => Promise<{
+    success?: boolean;
+    dbPath?: string;
+    sizeBytes?: number;
+    integrity?: string;
+    connected?: boolean;
+    counts?: Record<string, number>;
+    error?: string;
+  }>;
+  superAdminGetNetwork?: () => Promise<{
+    success?: boolean;
+    addresses?: Array<{ name: string; address: string }>;
+    online?: boolean;
+  }>;
+  superAdminOpenPath?: (targetPath: string) => Promise<{ success: boolean; error?: string }>;
+  superAdminOpenDbFolder?: () => Promise<{ success: boolean; path?: string; error?: string }>;
+  superAdminOpenLogFolder?: () => Promise<{ success: boolean; path?: string; error?: string }>;
+  superAdminRelaunch?: () => Promise<{ success: boolean }>;
+  superAdminAppendLog?: (payload: { level: string; message: string; ts: number }) => Promise<{ success: boolean }>;
+  superAdminGetLogPath?: () => Promise<{ success: boolean; path?: string; logsDir?: string }>;
+  superAdminReadLogFile?: () => Promise<{ success: boolean; content?: string; error?: string }>;
+
   dialogPickFolder?: (options?: { title?: string; defaultPath?: string }) => Promise<string | null>;
   dialogPickBackupFile?: (options?: { title?: string; defaultPath?: string }) => Promise<string | null>;
-  backupCreateManual?: (payload: { targetDir: string }) => Promise<{
+  backupCreateManual?: (payload: { targetDir: string; allowSkipDatabase?: boolean }) => Promise<{
     success: boolean;
     fileName?: string;
     filePath?: string;
     location?: string;
     sizeBytes?: number;
     sizeLabel?: string;
+    error?: string;
+    partial?: boolean;
+    databaseSkipped?: boolean;
+    warning?: string;
+    requiresDatabaseConfirmation?: boolean;
+    dbSizeBytes?: number;
+    dbSizeLabel?: string;
+  }>;
+  backupPreviewFile?: (payload: { filePath: string }) => Promise<{
+    success: boolean;
+    meta?: {
+      version?: string;
+      createdAt?: string;
+      companyId?: string;
+      companyName?: string;
+      sections?: string[];
+      hasDatabase?: boolean;
+      databaseSkipped?: boolean;
+      databaseSizeBytes?: number;
+      restoreWarnings?: string[];
+    };
+    error?: string;
+  }>;
+  backupRestoreFromFile?: (payload: { filePath: string }) => Promise<{
+    success: boolean;
+    requiresReload?: boolean;
+    restoredSections?: string[];
+    restorePointId?: string;
+    restorePointPath?: string;
+    error?: string;
+  }>;
+  backupRollbackRestorePoint?: (payload: { restorePointId: string }) => Promise<{
+    success: boolean;
     error?: string;
   }>;
   shellShowItemInFolder?: (targetPath: string) => Promise<boolean>;

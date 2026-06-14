@@ -109,13 +109,15 @@ class NetworkService {
         this.status.isClientConnected = false;
         this.status.serverUrl = (res as any)?.server_url ?? (res as any)?.serverUrl ?? `http://localhost:${this.config.port}`;
         this.status.localIP = (res as any)?.local_ip ?? (res as any)?.localIp;
-      } else {
-        // Browser runtime: simulate
+      } else if (import.meta.env.DEV) {
+        // Browser dev-only simulation (no production fallback hosts).
         this.config.isServer = true;
         this.status.isServerRunning = true;
         this.status.isClientConnected = false;
         this.status.serverUrl = `http://localhost:${this.config.port}`;
-        this.status.localIP = '192.168.1.100';
+        this.status.localIP = '127.0.0.1';
+      } else {
+        throw new Error('Multi-user host server requires the desktop or Tauri runtime.');
       }
 
       // Save config

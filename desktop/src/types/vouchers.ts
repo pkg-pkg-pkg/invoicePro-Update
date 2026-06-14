@@ -40,6 +40,10 @@ export interface Voucher {
   lines: VoucherLine[];
   status: 'ACTIVE' | 'CANCELLED';
   createdAt: string;
+  createdBy?: string;
+  isDeleted?: boolean;
+  deletedAt?: string;
+  deletedBy?: string;
   /** GST E-Way Bill details (sales invoices). */
   ewayBill?: VoucherEwayBill;
 }

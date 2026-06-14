@@ -7,7 +7,10 @@
     "desktop",
     "mobile",
     "backend",
-    "shared"
+    "shared",
+    "pve-utils",
+    "invoicepro-api",
+    "mobile-standalone-api"
   ],
   "scripts": {
     "install:all": "npm install && npm run install:desktop && npm run install:mobile && npm run install:backend",
@@ -17,9 +20,13 @@
     "dev:desktop": "cd desktop && npm run dev",
     "dev:mobile": "cd mobile && npm start",
     "dev:backend": "cd backend && npm run dev",
+    "dev:invoicepro-api": "cd invoicepro-api && npm run dev",
+    "dev:mobile-standalone-api": "cd mobile-standalone-api && npm run dev",
     "build:desktop": "cd desktop && npm run build",
     "build:mobile": "cd mobile && npm run build",
-    "build:backend": "cd backend && npm run build"
+    "build:backend": "cd backend && npm run build",
+    "build:invoicepro-api": "cd invoicepro-api && npm run build",
+    "build:mobile-standalone-api": "cd mobile-standalone-api && npm run build"
   },
   "keywords": [
     "gst",

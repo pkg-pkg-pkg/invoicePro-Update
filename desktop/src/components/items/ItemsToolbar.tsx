@@ -20,12 +20,16 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import type { ItemCategory } from '../../types/masters';
 
 type FilterKey = 'ALL' | 'ACTIVE' | 'INACTIVE' | string;
+export type BrandFilterKey = 'ALL' | 'PRIMARY' | string;
 
 type Props = {
   categories: ItemCategory[];
+  brandOptions: string[];
   filter: FilterKey;
+  brandFilter: BrandFilterKey;
   search: string;
   onFilterChange: (f: FilterKey) => void;
+  onBrandFilterChange: (f: BrandFilterKey) => void;
   onSearchChange: (q: string) => void;
   onNew: () => void;
   onBulkDelete?: () => void;
@@ -37,9 +41,12 @@ type Props = {
 
 export function ItemsToolbar({
   categories,
+  brandOptions,
   filter,
+  brandFilter,
   search,
   onFilterChange,
+  onBrandFilterChange,
   onSearchChange,
   onNew,
   onBulkDelete,
@@ -57,15 +64,27 @@ export function ItemsToolbar({
       spacing={1}
       sx={{ px: compact ? 1.25 : 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}
     >
-      <FormControl size="small" sx={{ flex: compact ? 1 : { xs: 1, sm: 'none' }, minWidth: compact ? 0 : { sm: 180 } }}>
-        <InputLabel>Filter</InputLabel>
-        <Select label="Filter" value={filter} onChange={(e) => onFilterChange(e.target.value as FilterKey)}>
+      <FormControl size="small" sx={{ flex: compact ? 1 : { xs: 1, sm: 'none' }, minWidth: compact ? 0 : { sm: 160 } }}>
+        <InputLabel>Status</InputLabel>
+        <Select label="Status" value={filter} onChange={(e) => onFilterChange(e.target.value as FilterKey)}>
           <MenuItem value="ALL">All Items</MenuItem>
           <MenuItem value="ACTIVE">Active</MenuItem>
           <MenuItem value="INACTIVE">Inactive</MenuItem>
           {categories.map((c) => (
             <MenuItem key={c.id} value={c.id}>
-              {c.name}
+              Category: {c.name}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+      <FormControl size="small" sx={{ flex: compact ? 1 : { xs: 1, sm: 'none' }, minWidth: compact ? 0 : { sm: 160 } }}>
+        <InputLabel>Brand</InputLabel>
+        <Select label="Brand" value={brandFilter} onChange={(e) => onBrandFilterChange(e.target.value as BrandFilterKey)}>
+          <MenuItem value="ALL">All</MenuItem>
+          <MenuItem value="PRIMARY">Primary</MenuItem>
+          {brandOptions.map((brand) => (
+            <MenuItem key={brand} value={brand}>
+              {brand}
             </MenuItem>
           ))}
         </Select>

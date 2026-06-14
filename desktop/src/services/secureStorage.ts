@@ -15,16 +15,23 @@ function fromBase64(b64: string): Uint8Array {
   return bytes;
 }
 
+let cachedDerivedKey: { deviceId: string; key: CryptoKey } | null = null;
+
 async function deriveKey(deviceId: string): Promise<CryptoKey> {
+  if (cachedDerivedKey?.deviceId === deviceId) {
+    return cachedDerivedKey.key;
+  }
   const salt = encoder.encode('invoicepro.secureStorage.v1');
   const baseKey = await crypto.subtle.importKey('raw', encoder.encode(deviceId), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey(
+  const key = await crypto.subtle.deriveKey(
     { name: 'PBKDF2', salt, iterations: 200_000, hash: 'SHA-256' },
     baseKey,
     { name: 'AES-GCM', length: 256 },
     false,
     ['encrypt', 'decrypt']
   );
+  cachedDerivedKey = { deviceId, key };
+  return key;
 }
 
 export async function encryptJson<T>(deviceId: string, data: T): Promise<string> {

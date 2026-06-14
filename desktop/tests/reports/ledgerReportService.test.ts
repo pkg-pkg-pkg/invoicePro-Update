@@ -76,4 +76,30 @@ describe('ledgerReportService.getStatement', () => {
     expect(statement.transactions[0].voucherId).toBe('vch-test-unposted');
     expect(statement.transactions[0].debit).toBeCloseTo(2500, 6);
   });
+
+  it('includes human-readable voucher number on stored ledger rows', async () => {
+    const customer = await createBasicLedger('CityElectronics', 'ASSET');
+    const sales = await createBasicLedger('SalesAcct', 'INCOME');
+    const date = '2026-06-15';
+
+    await voucherService.create({
+      type: 'SALES',
+      date,
+      number: 'SALES/26-27/0001',
+      lines: [
+        { ledgerId: customer.id, debit: 7500, credit: 0 },
+        { ledgerId: sales.id, debit: 0, credit: 7500 },
+      ],
+    });
+
+    const statement = await ledgerReportService.getStatement(customer.id, {
+      fromDate: date,
+      toDate: date,
+    });
+
+    expect(statement.transactions).toHaveLength(1);
+    expect((statement.transactions[0].meta as { voucherNumber?: string })?.voucherNumber).toBe(
+      'SALES/26-27/0001'
+    );
+  });
 });

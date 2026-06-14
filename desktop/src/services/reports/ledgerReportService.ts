@@ -1,8 +1,8 @@
 import { LedgerAccount, LedgerTransaction } from '../../types/masters';
+import type { Voucher } from '../../types/vouchers';
 import { ledgerAccountService } from '../masters/ledgerAccountService';
 import { ledgerTransactionService } from '../masters/ledgerTransactionService';
 import { voucherService } from '../vouchers/voucherService';
-
 export interface LedgerStatementFilters {
   fromDate?: string;
   toDate?: string;
@@ -75,12 +75,15 @@ async function resolveRelatedLedgerIds(primaryLedgerId: string): Promise<string[
 }
 
 /** Build ledger rows from posted vouchers — source of truth for party ledger display. */
-async function buildTransactionsFromVouchers(ledgerIds: string[]): Promise<LedgerTransaction[]> {
-  const vouchers = await voucherService.list();
+async function buildTransactionsFromVouchers(
+  ledgerIds: string[],
+  vouchers?: Voucher[]
+): Promise<LedgerTransaction[]> {
+  const allVouchers = vouchers ?? (await voucherService.list({ includeDeleted: true }));
   const ledgerSet = new Set(ledgerIds);
   const rows: LedgerTransaction[] = [];
 
-  for (const voucher of vouchers) {
+  for (const voucher of allVouchers) {
     if ((voucher.status ?? 'ACTIVE') === 'CANCELLED') continue;
     voucher.lines.forEach((line, lineIndex) => {
       if (!line.ledgerId || !ledgerSet.has(line.ledgerId)) return;
@@ -96,7 +99,10 @@ async function buildTransactionsFromVouchers(ledgerIds: string[]): Promise<Ledge
         debit,
         credit,
         runningBalance: 0,
-        meta: voucher.narration ? { narration: voucher.narration } : undefined,
+        meta: {
+          ...(voucher.narration ? { narration: voucher.narration } : {}),
+          voucherNumber: voucher.number,
+        },
         createdAt: voucher.createdAt,
       });
     });
@@ -115,9 +121,41 @@ function mergeLedgerTransactions(
   const map = new Map<string, LedgerTransaction>();
   for (const t of stored) map.set(key(t), t);
   for (const t of fromVouchers) {
-    if (!map.has(key(t))) map.set(key(t), t);
+    const k = key(t);
+    const existing = map.get(k);
+    if (!existing) {
+      map.set(k, t);
+      continue;
+    }
+    const voucherNumber = (t.meta as { voucherNumber?: string } | undefined)?.voucherNumber;
+    if (voucherNumber) {
+      map.set(k, {
+        ...existing,
+        meta: { ...(existing.meta ?? {}), voucherNumber },
+      });
+    }
   }
   return [...map.values()].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
+/** Stored ledger rows often lack voucherNumber in meta — always overlay from live voucher.number. */
+function enrichLedgerTransactionsWithVoucherNumbers(
+  transactions: LedgerTransaction[],
+  voucherById: Map<string, Voucher>
+): LedgerTransaction[] {
+  return transactions.map((txn) => {
+    if (!txn.voucherId || txn.voucherId.startsWith('opening-')) return txn;
+    const voucher = voucherById.get(txn.voucherId);
+    const number = String(voucher?.number ?? '').trim();
+    if (!number) return txn;
+    return {
+      ...txn,
+      meta: {
+        ...(txn.meta ?? {}),
+        voucherNumber: number,
+      },
+    };
+  });
 }
 
 export const ledgerReportService = {
@@ -134,11 +172,18 @@ export const ledgerReportService = {
     }
 
     const relatedLedgerIds = await resolveRelatedLedgerIds(ledgerId);
+    const vouchers = await voucherService.list();
+    const voucherById = new Map(
+      (await voucherService.list({ includeDeleted: true })).map((v) => [v.id, v])
+    );
     const storedTxns = (
       await Promise.all(relatedLedgerIds.map((id) => ledgerTransactionService.list({ ledgerId: id })))
     ).flat();
-    const voucherTxns = await buildTransactionsFromVouchers(relatedLedgerIds);
-    const transactions = mergeLedgerTransactions(storedTxns, voucherTxns);
+    const voucherTxns = await buildTransactionsFromVouchers(relatedLedgerIds, vouchers);
+    const transactions = enrichLedgerTransactionsWithVoucherNumbers(
+      mergeLedgerTransactions(storedTxns, voucherTxns),
+      voucherById
+    );
 
     const openingBalance = computeLedgerOpening(ledger, transactions, fromTs);
     const statementEntries: LedgerStatementEntry[] = [];

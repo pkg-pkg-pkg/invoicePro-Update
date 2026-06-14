@@ -33,6 +33,11 @@ import {
   baseFromSelling,
   sellingFromBase,
 } from '../../../utils/priceListPricing';
+import {
+  voucherLineCellSx,
+  voucherLineCompactFieldSx,
+  voucherLineNumericInputSx,
+} from '../../../theme/voucherLineItemTableStyles';
 
 type RowState = {
   key: string;
@@ -312,11 +317,11 @@ export default function PriceListForm() {
                 <TableCell sx={{ minWidth: 220 }}>Item</TableCell>
                 <TableCell>SKU</TableCell>
                 <TableCell>HSN</TableCell>
-                <TableCell align="right">Base price</TableCell>
-                <TableCell align="right">GST %</TableCell>
+                <TableCell align="right" sx={voucherLineCellSx('rate')}>Base price</TableCell>
+                <TableCell align="right" sx={voucherLineCellSx('gstPercent')}>GST %</TableCell>
                 <TableCell>Price type</TableCell>
                 <TableCell align="right">Selling price</TableCell>
-                <TableCell align="right">Discount %</TableCell>
+                <TableCell align="right" sx={voucherLineCellSx('discPercent')}>Discount %</TableCell>
                 <TableCell width={48} />
               </TableRow>
             </TableHead>
@@ -338,24 +343,24 @@ export default function PriceListForm() {
                     </TableCell>
                     <TableCell>{item?.sku || '—'}</TableCell>
                     <TableCell>{item?.hsnCode || '—'}</TableCell>
-                    <TableCell align="right">
+                    <TableCell align="right" sx={voucherLineCellSx('rate')}>
                       <TextField
                         size="small"
                         type="number"
                         value={row.basePrice}
                         onChange={(e) => updateRow(row.key, { basePrice: Number(e.target.value) })}
                         inputProps={{ min: 0, step: '0.01' }}
-                        sx={{ width: 110 }}
+                        sx={voucherLineCompactFieldSx('rate')}
                       />
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell align="right" sx={voucherLineCellSx('gstPercent')}>
                       <TextField
                         size="small"
                         type="number"
                         value={row.gstRate}
                         onChange={(e) => updateRow(row.key, { gstRate: Number(e.target.value) })}
                         inputProps={{ min: 0, step: '0.01' }}
-                        sx={{ width: 80 }}
+                        sx={voucherLineCompactFieldSx('gstPercent', 'percent')}
                       />
                     </TableCell>
                     <TableCell>
@@ -363,17 +368,17 @@ export default function PriceListForm() {
                         {pricingType === 'INCLUSIVE' ? 'Inclusive' : 'Exclusive'}
                       </Typography>
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell align="right" sx={voucherLineCellSx('rate')}>
                       <TextField
                         size="small"
                         type="number"
                         value={row.sellingPrice}
                         onChange={(e) => updateRow(row.key, { sellingPrice: Number(e.target.value) })}
                         inputProps={{ min: 0, step: '0.01' }}
-                        sx={{ width: 110 }}
+                        sx={voucherLineCompactFieldSx('rate')}
                       />
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell align="right" sx={voucherLineCellSx('discPercent')}>
                       <TextField
                         size="small"
                         type="number"
@@ -384,7 +389,7 @@ export default function PriceListForm() {
                           })
                         }
                         inputProps={{ min: 0, max: 100, step: '0.01' }}
-                        sx={{ width: 90 }}
+                        sx={voucherLineCompactFieldSx('discPercent', 'percent')}
                       />
                     </TableCell>
                     <TableCell>

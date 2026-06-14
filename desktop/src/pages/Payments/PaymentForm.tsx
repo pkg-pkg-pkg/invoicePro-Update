@@ -30,6 +30,9 @@ import { PaymentType, PartyType, PaymentMode } from "@gst-billing/shared";
 import { CreatePaymentData } from '../../services/paymentService';
 import { getDefaultTodayForEntry, validateTransactionDate } from '../../services/appSettingsService';
 import { usePermissions } from '../../hooks/usePermissions';
+import { PartyPickerModal } from '../../components/parties/PartyPickerModal';
+import { PartyPickerField } from '../../components/parties/PartyPickerField';
+import type { PartyPickerScope } from '../../components/parties/PartyPickerModal';
 
 export default function PaymentForm() {
   console.log('🔍 PaymentForm component loaded');
@@ -42,6 +45,7 @@ export default function PaymentForm() {
 
   const isEditMode = !!id;
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [partyPickerOpen, setPartyPickerOpen] = useState(false);
 
   const { canAccessFeature } = usePermissions();
   const canView = true; // canAccessFeature('view-payments');
@@ -205,6 +209,9 @@ export default function PaymentForm() {
   };
 
   const selectedParty = getPartyOptions().find((p) => p.id === formData.partyId);
+  const partyPickerScope: PartyPickerScope =
+    formData.partyType === PartyType.CUSTOMER ? 'debtor' : 'creditor';
+  const partyPool = formData.partyType === PartyType.CUSTOMER ? customers : suppliers;
 
   if (loading && isEditMode) {
     return (
@@ -272,8 +279,8 @@ export default function PaymentForm() {
                     handleChange('partyId', '');
                   }}
                 >
-                  <MenuItem value={PaymentType.RECEIPT}>Receivable (Customer Payment)</MenuItem>
-                  <MenuItem value={PaymentType.PAYMENT}>Payable (Supplier Payment)</MenuItem>
+                  <MenuItem value={PaymentType.RECEIPT}>Receivable (Debtor Payment)</MenuItem>
+                  <MenuItem value={PaymentType.PAYMENT}>Payable (Creditor Payment)</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -296,27 +303,21 @@ export default function PaymentForm() {
                     handleChange('partyId', ''); // Reset party selection
                   }}
                 >
-                  <MenuItem value={PartyType.CUSTOMER}>Customer</MenuItem>
-                  <MenuItem value={PartyType.SUPPLIER}>Supplier</MenuItem>
+                  <MenuItem value={PartyType.CUSTOMER}>Debtor</MenuItem>
+                  <MenuItem value={PartyType.SUPPLIER}>Creditor</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
 
             <Grid item xs={12} md={6}>
-              <Autocomplete
-                options={getPartyOptions()}
-                getOptionLabel={(option) => option.name}
-                value={selectedParty || null}
-                onChange={(_, newValue) => handleChange('partyId', newValue?.id || '')}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Party *"
-                    error={!!errors.partyId}
-                    helperText={errors.partyId}
-                    required
-                  />
-                )}
+              <PartyPickerField
+                label="Party *"
+                displayValue={selectedParty?.name ?? ''}
+                placeholder={formData.partyType === PartyType.CUSTOMER ? 'Select debtor' : 'Select creditor'}
+                onOpen={() => setPartyPickerOpen(true)}
+                error={!!errors.partyId}
+                helperText={errors.partyId}
+                required
               />
             </Grid>
 
@@ -508,6 +509,23 @@ export default function PaymentForm() {
           </Grid>
         </form>
       </Paper>
+
+      <PartyPickerModal
+        open={partyPickerOpen}
+        onClose={() => setPartyPickerOpen(false)}
+        scope={partyPickerScope}
+        title={formData.partyType === PartyType.CUSTOMER ? 'Select Debtor' : 'Select Creditor'}
+        onSelect={(ledger) => {
+          setPartyPickerOpen(false);
+          const match =
+            partyPool.find((p: { id: string; name: string; ledgerId?: string }) => p.ledgerId === ledger.id) ??
+            partyPool.find(
+              (p: { id: string; name: string }) =>
+                String(p.name).trim().toLowerCase() === String(ledger.name).trim().toLowerCase()
+            );
+          handleChange('partyId', match?.id || '');
+        }}
+      />
     </Box>
   );
 }

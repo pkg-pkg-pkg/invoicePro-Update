@@ -1,0 +1,150 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Tax Invoice {{invoice_no}}</title>
+  <style>
+    {{page_css}}
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; font-size: 10px; color: #000; line-height: 1.25; background: #fff; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 0.5px solid #000; padding: 2px 4px; vertical-align: top; }
+    .num { text-align: right; white-space: nowrap; }
+    .center { text-align: center; }
+    .bold { font-weight: 700; }
+    .doc-title { text-align: center; font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+    .header-wrap { display: flex; gap: 6px; }
+    .header-left { width: 60%; display: flex; gap: 6px; }
+    .header-right { width: 40%; }
+    .logo { width: 60px; height: 60px; object-fit: contain; flex-shrink: 0; }
+    .company-name { font-size: 16px; font-weight: 700; margin-bottom: 2px; }
+    .meta-table td:first-child { width: 42%; font-weight: 600; }
+    .parties { display: flex; gap: 0; margin-top: 4px; }
+    .party-box { width: 50%; min-height: 72px; }
+    .party-title { font-weight: 700; margin-bottom: 2px; }
+    .items th { font-weight: 700; font-size: 9px; }
+    .items td { font-size: 9px; }
+    .summary td { border-top: none; }
+    .total-row td { font-weight: 700; font-size: 11px; border-top: 2px solid #000; border-bottom: 2px solid #000; }
+    .amount-words td { border: 0.5px solid #000; padding: 4px; }
+    .hsn th { font-weight: 700; }
+    .bottom-3 { display: flex; margin-top: 4px; }
+    .bottom-3 > div { width: 33.33%; border: 0.5px solid #000; padding: 4px; min-height: 70px; }
+    .sign-row { display: flex; margin-top: 4px; }
+    .sign-row > div { width: 50%; border: 0.5px solid #000; padding: 4px; min-height: 56px; }
+    .footer { text-align: center; font-size: 9px; margin-top: 6px; font-weight: 600; }
+    .dr { font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="doc-title">Tax Invoice</div>
+
+    <div class="header-wrap">
+      <div class="header-left">
+        {{company_logo_html}}
+        <div>
+          <div class="company-name">{{company_name}}</div>
+          <div>{{company_address}}</div>
+          <div>{{company_contact_lines}}</div>
+          <div>{{company_gstin_line}}</div>
+          <div>{{company_state_line}}</div>
+          <div>{{company_email_line}}</div>
+          <div>{{company_website_line}}</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <table class="meta-table">
+          {{invoice_meta_rows}}
+        </table>
+      </div>
+    </div>
+
+    <div class="parties">
+      <div class="party-box">
+        <div class="party-title">Consignee (Ship to)</div>
+        {{consignee_block}}
+      </div>
+      <div class="party-box">
+        <div class="party-title">Buyer (Bill to)</div>
+        {{buyer_block}}
+      </div>
+    </div>
+
+    <table class="items" style="margin-top:4px;">
+      <thead>
+        <tr>
+          <th class="center" style="width:4%">Sl No.</th>
+          <th style="width:28%">Description of Goods</th>
+          <th class="center" style="width:8%">HSN/SAC</th>
+          <th class="center" style="width:6%">GST Rate</th>
+          <th class="center" style="width:7%">Quantity</th>
+          <th class="num" style="width:7%">MRP</th>
+          <th class="num" style="width:8%">Rate (Excl. GST)</th>
+          <th class="num" style="width:8%">Rate (Incl. GST)</th>
+          <th class="center" style="width:5%">Disc. %</th>
+          <th class="num" style="width:7%">Disc. Amt</th>
+          <th class="num" style="width:10%">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{items_rows}}
+        {{summary_rows}}
+        {{total_row}}
+      </tbody>
+    </table>
+
+    <table class="amount-words" style="margin-top:4px;">
+      <tr>
+        <td style="width:75%"><span class="bold">Amount Chargeable (in words)</span><br/>{{amount_in_words}}</td>
+        <td class="num" style="width:25%;vertical-align:top;">E. &amp; O.E</td>
+      </tr>
+    </table>
+
+    <table class="hsn" style="margin-top:4px;">
+      <thead>
+        {{hsn_table_header}}
+      </thead>
+      <tbody>
+        {{hsn_summary_rows}}
+      </tbody>
+    </table>
+
+    <div style="margin-top:4px;border:0.5px solid #000;padding:4px;">
+      <span class="bold">Tax Amount (in words) :</span> {{tax_amount_in_words}}
+    </div>
+
+    <div class="bottom-3">
+      <div>
+        <div class="bold">Declaration</div>
+        {{declaration_text}}
+      </div>
+      <div>
+        {{balance_summary}}
+      </div>
+      <div>
+        <div class="bold">Company's Bank Details</div>
+        {{bank_details}}
+        {{upi_qr_block}}
+      </div>
+    </div>
+
+    <div class="sign-row">
+      <div>
+        <div class="bold">Customer's Seal and Signature</div>
+        <div style="height:36px;"></div>
+      </div>
+      <div style="text-align:right;">
+        <div>for <span class="bold">{{company_name}}</span></div>
+        <div style="height:28px;">{{signature_html}}</div>
+        <div class="bold">Authorised Signatory</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div>{{jurisdiction_line}}</div>
+      <div>This is a Computer Generated Invoice</div>
+    </div>
+  </div>
+</body>
+</html>

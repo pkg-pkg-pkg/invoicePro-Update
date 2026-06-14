@@ -1,0 +1,14 @@
+{
+  "name": "@pve/utils",
+  "version": "1.0.0",
+  "description": "Shared utility helpers for PVE Systems (uuid, date formatting only)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  }
+}

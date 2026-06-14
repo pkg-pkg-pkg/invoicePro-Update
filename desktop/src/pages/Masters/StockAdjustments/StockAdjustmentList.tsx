@@ -20,6 +20,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { stockAdjustmentService } from '../../../services/masters/stockAdjustmentService';
 import { inventoryItemService } from '../../../services/masters/inventoryItemService';
 import { godownService } from '../../../services/masters/godownService';
+import { reasonTypeLabel } from '../../../constants/stockAdjustmentReasons';
 import { StockAdjustment } from '../../../types/masters';
 import { usePermission } from '../../../hooks/usePermission';
 import { formatDate } from '../../../utils/formatters';
@@ -88,6 +89,7 @@ export default function StockAdjustmentList() {
               <TableCell>Item</TableCell>
               <TableCell>Type</TableCell>
               <TableCell>Qty</TableCell>
+              <TableCell>Direction</TableCell>
               <TableCell>Godown</TableCell>
               <TableCell>Reason</TableCell>
             </TableRow>
@@ -101,13 +103,22 @@ export default function StockAdjustmentList() {
                   <Chip label={row.type} size="small" />
                 </TableCell>
                 <TableCell>{row.quantity}</TableCell>
+                <TableCell>
+                  {row.direction === 'DECREASE' ? (
+                    <Chip label="Decrease" size="small" color="warning" variant="outlined" />
+                  ) : (
+                    <Chip label="Increase" size="small" color="success" variant="outlined" />
+                  )}
+                </TableCell>
                 <TableCell>{row.godownId ? godownNames[row.godownId] ?? row.godownId : '—'}</TableCell>
-                <TableCell>{row.reason || '—'}</TableCell>
+                <TableCell>
+                  {row.reasonType ? reasonTypeLabel(row.reasonType) : row.notes || row.reason || '—'}
+                </TableCell>
               </TableRow>
             ))}
             {sorted.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                <TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>
                   No stock adjustments recorded yet.
                 </TableCell>
               </TableRow>

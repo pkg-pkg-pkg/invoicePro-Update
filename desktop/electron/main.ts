@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, Menu, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, Menu, shell, dialog, net } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
@@ -13,6 +13,9 @@ const companyProfileDb = require('./companyProfileDb.cjs');
 const { registerSessionIpc } = require('./registerSessionIpc.cjs');
 const { registerPincodeIpc } = require('./registerPincodeIpc.cjs');
 const whatsappBridge = require('./whatsappBridge.cjs');
+const errorLoggerMain = require('./errorLoggerMain.cjs');
+const { registerSuperAdminIpc } = require('./superAdminIpc.cjs');
+const { registerPrintPreviewIpc, writeHtmlToTempFile } = require('./printPreview.cjs');
 registerPincodeIpc();
 let sessionStore: typeof import('./sessionStore.cjs');
 try {
@@ -290,6 +293,20 @@ npm run electron</pre>`;
     console.log('Window ready to show');
     closeSplashWindow();
     mainWindow?.show();
+    setTimeout(() => {
+      try {
+        dataPathManager.init(app, companyRegistry);
+      } catch (deferErr) {
+        console.warn('[startup] deferred dataPathManager.init failed:', deferErr);
+      }
+    }, 0);
+    setTimeout(() => {
+      try {
+        startEmbeddedMobileSync();
+      } catch (syncErr) {
+        console.warn('[startup] deferred mobile sync failed:', syncErr);
+      }
+    }, 5000);
   });
 
   mainWindow.on('closed', () => {
@@ -312,6 +329,25 @@ npm run electron</pre>`;
   });
 }
 
+let networkWasOnline = true;
+
+/** Notify renderer when connectivity is restored (middleware sync drain). */
+function startNetworkOnlineMonitor() {
+  setInterval(() => {
+    try {
+      const online = typeof net.isOnline === 'function' ? net.isOnline() : true;
+      if (online && !networkWasOnline && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('network-online');
+      }
+      networkWasOnline = online;
+    } catch {
+      /* ignore */
+    }
+  }, 3000);
+}
+
+let activeDbCompanyId: string | null = null;
+
 function closeDatabase() {
   try {
     if (db) db.close();
@@ -319,43 +355,69 @@ function closeDatabase() {
     /* ignore */
   }
   db = null;
+  activeDbCompanyId = null;
+}
+
+function applyDatabasePragmas(database: { pragma: (sql: string) => unknown }) {
+  try {
+    database.pragma('journal_mode = WAL');
+    database.pragma('synchronous = NORMAL');
+    database.pragma('cache_size = 5000');
+    database.pragma('temp_store = MEMORY');
+  } catch (pragmaErr) {
+    console.warn('[db] pragma apply failed:', pragmaErr);
+  }
+}
+
+function deferProfileMigration(companyId: string) {
+  setTimeout(() => {
+    try {
+      if (!db || activeDbCompanyId !== companyId) return;
+      const migration = companyProfileDb.migrateFromLocalJsonIfNeeded(
+        app,
+        db,
+        companyRegistry,
+        dataPathManager
+      );
+      profileDebug.appendLog(app, 'profile_db_migration', migration);
+    } catch (migrationErr) {
+      console.warn('[profile-debug] deferred migration failed:', migrationErr);
+    }
+  }, 0);
 }
 
 function initDatabase(companyId?: string) {
   try {
-    closeDatabase();
     companyRegistry.ensureInitialized(app, null);
     const id = companyId || companyRegistry.readActiveId(app);
+    if (db && activeDbCompanyId === id) {
+      return;
+    }
+    closeDatabase();
     const dbPath = companyRegistry.getCompanyDbPath(app, id);
     const legacyDbPath = dataPathManager.getLegacyDbPath(app);
     const companyLegacyDb = path.join(path.dirname(dbPath), 'gst-billing.db');
     if (!fs.existsSync(dbPath) && fs.existsSync(companyLegacyDb) && companyLegacyDb !== dbPath) {
       fs.mkdirSync(path.dirname(dbPath), { recursive: true });
       fs.copyFileSync(companyLegacyDb, dbPath);
-      profileDebug.appendLog(app, 'db_reuse_company_legacy', { from: companyLegacyDb, to: dbPath, companyId: id });
     } else if (!fs.existsSync(dbPath) && fs.existsSync(legacyDbPath)) {
       fs.mkdirSync(path.dirname(dbPath), { recursive: true });
       fs.copyFileSync(legacyDbPath, dbPath);
-      profileDebug.appendLog(app, 'db_reuse_legacy', { from: legacyDbPath, to: dbPath, companyId: id });
-      console.log('[profile-debug] Reused legacy SQLite at', dbPath);
     }
-    console.log('[profile-debug] Initializing SQLite at:', dbPath, 'userData:', app.getPath('userData'));
     db = new Database(dbPath);
+    applyDatabasePragmas(db);
     companyProfileDb.ensureSchema(db);
-    const migration = companyProfileDb.migrateFromLocalJsonIfNeeded(
-      app,
-      db,
-      companyRegistry,
-      dataPathManager
-    );
-    profileDebug.appendLog(app, 'profile_db_migration', migration);
-    profileDebug.appendLog(app, 'db_init', {
-      companyId: id,
-      dbPath,
-      userDataPath: app.getPath('userData'),
-      exists: fs.existsSync(dbPath),
-    });
-    console.log('[profile-debug] SQLite ready for company', id);
+    activeDbCompanyId = id;
+    deferProfileMigration(id);
+    setTimeout(() => {
+      profileDebug.appendLog(app, 'db_init', {
+        companyId: id,
+        dbPath,
+        userDataPath: app.getPath('userData'),
+        exists: fs.existsSync(dbPath),
+      });
+    }, 0);
+    console.log('[profile-debug] SQLite open for company', id);
   } catch (error) {
     console.error('[profile-debug] Database initialization failed:', error);
     profileDebug.appendLog(app, 'db_init_failed', {
@@ -680,7 +742,6 @@ ipcMain.handle('data-storage-get-config', () => {
 
 ipcMain.handle('data-storage-get-diagnostics', () => {
   try {
-    dataPathManager.init(app, companyRegistry);
     return { success: true, diagnostics: dataPathManager.getStartupDiagnostics(app, companyRegistry) };
   } catch (err: unknown) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -790,6 +851,49 @@ ipcMain.handle('mobile-entitlements-sync', async (_event, payload: unknown) => {
   writeKvSyncState('mobile_user_entitlements_v1', payload);
   return true;
 });
+
+const FIREBASE_PROJECT_ID = process.env.VITE_FIREBASE_PROJECT_ID || 'invoicepro-105ba';
+const FIREBASE_FUNCTIONS_REGION = process.env.VITE_FIREBASE_FUNCTIONS_REGION || 'us-central1';
+
+/** Proxy Firebase https.onCall from main process — avoids browser CORS on 127.0.0.1 dev origins. */
+ipcMain.handle(
+  'firebase-callable',
+  async (_event, payload: { name?: string; data?: unknown; idToken?: string }) => {
+    const name = String(payload?.name || '').trim();
+    const idToken = String(payload?.idToken || '').trim();
+    if (!name) return { ok: false, error: 'Function name required' };
+    if (!idToken) return { ok: false, error: 'Sign in required' };
+
+    const url = `https://${FIREBASE_FUNCTIONS_REGION}-${FIREBASE_PROJECT_ID}.cloudfunctions.net/${name}`;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ data: payload?.data ?? {} }),
+      });
+      const json = (await res.json()) as {
+        result?: unknown;
+        error?: { message?: string; status?: string };
+      };
+      if (json.error) {
+        return {
+          ok: false,
+          error: json.error.message || 'Callable failed',
+          code: json.error.status,
+        };
+      }
+      if (!res.ok) {
+        return { ok: false, error: `Callable HTTP ${res.status}` };
+      }
+      return { ok: true, result: json.result };
+    } catch (err: unknown) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+);
 
 ipcMain.handle('mobile-snapshot-publish', async (_event, snapshot: unknown) => {
   writeKvSyncState('mobile_data_snapshot_v1', {
@@ -997,12 +1101,385 @@ ipcMain.handle('whatsapp-open-chat', async (_event, phone: string, message: stri
   whatsappBridge.openWhatsAppChat(phone, message)
 );
 
-ipcMain.handle('print:pdf', async (_event, payload: { html?: string; fileName?: string; landscape?: boolean }) => {
+function readCompanyJsonFile(filePath: string): unknown {
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function formatBackupSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return 'N/A';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const DB_INLINE_LIMIT_BYTES = 80 * 1024 * 1024;
+
+function createCompanyRestorePoint(): { restorePointId: string; path: string } | null {
+  try {
+    const active = companyRegistry.getActiveCompany(app);
+    const companyId = active?.company?.id || companyRegistry.readActiveId(app);
+    if (!companyId) return null;
+
+    const companyDir = companyRegistry.getCompanyDir(app, companyId);
+    const dbPath = dataPathManager.getDatabasePath(app);
+    const root = path.join(dataPathManager.getConfig(app).backupPath, 'restore_points');
+    const restorePointId = String(Date.now());
+    const pointDir = path.join(root, restorePointId);
+    fs.mkdirSync(pointDir, { recursive: true });
+
+    const copyIfExists = (src: string, destName: string) => {
+      if (fs.existsSync(src)) {
+        fs.copyFileSync(src, path.join(pointDir, destName));
+      }
+    };
+
+    copyIfExists(path.join(companyDir, 'company_profile.json'), 'company_profile.json');
+    copyIfExists(path.join(companyDir, 'settings.json'), 'settings.json');
+    copyIfExists(path.join(companyDir, 'company_local_storage.json'), 'company_local_storage.json');
+    if (fs.existsSync(dbPath)) {
+      copyIfExists(dbPath, path.basename(dbPath));
+    }
+
+    fs.writeFileSync(
+      path.join(pointDir, 'manifest.json'),
+      JSON.stringify({ companyId, createdAt: new Date().toISOString() }, null, 2),
+      'utf8'
+    );
+
+    return { restorePointId, path: pointDir };
+  } catch (err) {
+    console.error('createCompanyRestorePoint failed', err);
+    return null;
+  }
+}
+
+function rollbackCompanyRestorePoint(restorePointId: string): { success: boolean; error?: string } {
+  try {
+    const pointDir = path.join(
+      dataPathManager.getConfig(app).backupPath,
+      'restore_points',
+      String(restorePointId)
+    );
+    if (!fs.existsSync(pointDir)) {
+      return { success: false, error: 'Restore point not found.' };
+    }
+
+    const active = companyRegistry.getActiveCompany(app);
+    const companyId = active?.company?.id || companyRegistry.readActiveId(app);
+    if (!companyId) return { success: false, error: 'No active company.' };
+
+    const companyDir = companyRegistry.getCompanyDir(app, companyId);
+    const dbPath = dataPathManager.getDatabasePath(app);
+
+    const restoreFile = (name: string, target: string) => {
+      const src = path.join(pointDir, name);
+      if (fs.existsSync(src)) {
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.copyFileSync(src, target);
+      }
+    };
+
+    restoreFile('company_profile.json', path.join(companyDir, 'company_profile.json'));
+    restoreFile('settings.json', path.join(companyDir, 'settings.json'));
+    restoreFile('company_local_storage.json', path.join(companyDir, 'company_local_storage.json'));
+    const dbName = path.basename(dbPath);
+    restoreFile(dbName, dbPath);
+
+    return { success: true };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+const os = require('os');
+
+ipcMain.handle('app-system-info', () => {
+  try {
+    const active = companyRegistry.getActiveCompany(app);
+    const companyId = active?.company?.id || companyRegistry.readActiveId(app);
+    const companyDir = companyRegistry.getCompanyDir(app, companyId);
+    const profileName = String(active?.profile?.name || active?.company?.name || '');
+
+    return {
+      appVersion: app.getVersion(),
+      applicationPath: app.isPackaged ? path.dirname(process.execPath) : app.getAppPath(),
+      execPath: process.execPath,
+      userDataPath: app.getPath('userData'),
+      companyDataPath: companyDir,
+      companyId: String(companyId || ''),
+      companyName: profileName,
+      platform: process.platform,
+      osLabel: `${os.type()} ${os.release()}`,
+      hostName: os.hostname(),
+      totalMemoryGb: Math.round((os.totalmem() / 1024 ** 3) * 10) / 10,
+      arch: process.arch,
+    };
+  } catch (err: unknown) {
+    return { error: String((err as Error)?.message || err) };
+  }
+});
+
+ipcMain.handle('dialog-pick-folder', async (_event, payload: { title?: string; defaultPath?: string }) => {
+  const result = await dialog.showOpenDialog(mainWindow || undefined, {
+    title: payload?.title || 'Select backup folder',
+    defaultPath: payload?.defaultPath || undefined,
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (result.canceled || !result.filePaths?.length) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle('dialog-pick-backup-file', async (_event, payload: { title?: string; defaultPath?: string }) => {
+  const result = await dialog.showOpenDialog(mainWindow || undefined, {
+    title: payload?.title || 'Select backup file',
+    defaultPath: payload?.defaultPath || undefined,
+    filters: [
+      { name: 'InvoicePro Backup', extensions: ['ipbak'] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+    properties: ['openFile'],
+  });
+  if (result.canceled || !result.filePaths?.length) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle('shell-show-item-in-folder', async (_event, targetPath: string) => {
+  try {
+    const p = String(targetPath || '').trim();
+    if (!p) return false;
+    shell.showItemInFolder(p);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+ipcMain.handle('backup-create-manual', async (_event, payload: { targetDir?: string; allowSkipDatabase?: boolean }) => {
+  try {
+    const targetDir = String(payload?.targetDir || '').trim();
+    if (!targetDir) {
+      return { success: false, error: 'Please choose a backup folder first.' };
+    }
+
+    const active = companyRegistry.getActiveCompany(app);
+    const companyId = active?.company?.id || companyRegistry.readActiveId(app);
+    if (!companyId) {
+      return { success: false, error: 'No active company found.' };
+    }
+
+    const companyDir = companyRegistry.getCompanyDir(app, companyId);
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const fileName = `InvoicePro_Backup_${stamp}.ipbak`;
+    const filePath = path.join(targetDir, fileName);
+
+    const backupPayload: Record<string, unknown> = {
+      version: '3.6.0',
+      format: 'invoicepro-ipbak',
+      createdAt: new Date().toISOString(),
+      companyId,
+      companyName: String(active?.profile?.name || active?.company?.name || 'Company'),
+      sections: ['companies', 'masters', 'inventory', 'vouchers', 'settings'],
+      destinations: {
+        local: true,
+        googleDrive: false,
+        firebase: false,
+      },
+      files: {
+        profile: readCompanyJsonFile(path.join(companyDir, 'company_profile.json')),
+        settings: readCompanyJsonFile(path.join(companyDir, 'settings.json')),
+        localData: readCompanyJsonFile(path.join(companyDir, 'company_local_storage.json')),
+      },
+    };
+
+    const dbPath = dataPathManager.getDatabasePath(app);
+    let databaseSkipped = false;
+    if (fs.existsSync(dbPath)) {
+      const dbStat = fs.statSync(dbPath);
+      if (dbStat.size <= DB_INLINE_LIMIT_BYTES) {
+        backupPayload.database = {
+          fileName: path.basename(dbPath),
+          base64: fs.readFileSync(dbPath).toString('base64'),
+          sizeBytes: dbStat.size,
+        };
+      } else if (payload?.allowSkipDatabase) {
+        databaseSkipped = true;
+        backupPayload.database = {
+          fileName: path.basename(dbPath),
+          skipped: true,
+          reason: 'Database exceeds 80 MB inline backup limit',
+          sizeBytes: dbStat.size,
+        };
+      } else {
+        return {
+          success: false,
+          requiresDatabaseConfirmation: true,
+          dbSizeBytes: dbStat.size,
+          dbSizeLabel: formatBackupSize(dbStat.size),
+          error: `Database (${formatBackupSize(dbStat.size)}) exceeds the 80 MB inline limit. Cancel or continue without the database.`,
+        };
+      }
+    }
+
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(backupPayload, null, 2), 'utf8');
+    const stat = fs.statSync(filePath);
+
+    return {
+      success: true,
+      partial: databaseSkipped,
+      databaseSkipped,
+      warning: databaseSkipped
+        ? 'Backup created WITHOUT database. Restore will not recover vouchers/inventory from SQLite.'
+        : undefined,
+      fileName,
+      filePath,
+      location: targetDir,
+      sizeBytes: stat.size,
+      sizeLabel: formatBackupSize(stat.size),
+    };
+  } catch (error) {
+    console.error('backup-create-manual failed', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Manual backup failed',
+    };
+  }
+});
+
+ipcMain.handle('backup-preview-file', async (_event, payload: { filePath?: string }) => {
+  try {
+    const filePath = String(payload?.filePath || '').trim();
+    if (!filePath || !fs.existsSync(filePath)) {
+      return { success: false, error: 'Backup file not found.' };
+    }
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const data = JSON.parse(raw);
+    return {
+      success: true,
+      meta: {
+        version: String(data.version || ''),
+        createdAt: String(data.createdAt || ''),
+        companyId: String(data.companyId || ''),
+        companyName: String(data.companyName || ''),
+        sections: Array.isArray(data.sections) ? data.sections : Object.keys(data.files || {}),
+        hasDatabase: Boolean(data.database?.base64),
+        databaseSkipped: Boolean(data.database?.skipped),
+        databaseSizeBytes: Number(data.database?.sizeBytes ?? 0) || undefined,
+        restoreWarnings: [
+          ...(data.database?.skipped ? ['Backup file does not include the SQLite database.'] : []),
+          ...(!data.database?.base64 && !data.database?.skipped ? ['No database section found in backup.'] : []),
+        ],
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Could not read backup file',
+    };
+  }
+});
+
+ipcMain.handle('backup-restore-from-file', async (_event, payload: { filePath?: string }) => {
+  try {
+    const filePath = String(payload?.filePath || '').trim();
+    if (!filePath || !fs.existsSync(filePath)) {
+      return { success: false, error: 'Backup file not found.' };
+    }
+
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const data = JSON.parse(raw);
+
+    if (data.database?.skipped) {
+      return {
+        success: false,
+        error:
+          'This backup does not include the database. Restore aborted to prevent partial data loss.',
+      };
+    }
+    if (!data.database?.base64 && !data.files?.localData) {
+      return {
+        success: false,
+        error: 'Backup file is missing both database and local data sections.',
+      };
+    }
+
+    const restorePoint = createCompanyRestorePoint();
+    const active = companyRegistry.getActiveCompany(app);
+    const companyId = active?.company?.id || companyRegistry.readActiveId(app);
+    if (!companyId) {
+      return { success: false, error: 'No active company found.' };
+    }
+
+    const companyDir = companyRegistry.getCompanyDir(app, companyId);
+    const restoredSections: string[] = [];
+
+    const writeJson = (name: string, content: unknown) => {
+      if (content == null) return;
+      const target = path.join(companyDir, name);
+      fs.mkdirSync(companyDir, { recursive: true });
+      fs.writeFileSync(target, JSON.stringify(content, null, 2), 'utf8');
+    };
+
+    if (data.files?.profile) {
+      writeJson('company_profile.json', data.files.profile);
+      restoredSections.push('companies');
+    }
+    if (data.files?.settings) {
+      writeJson('settings.json', data.files.settings);
+      restoredSections.push('settings');
+    }
+    if (data.files?.localData) {
+      writeJson('company_local_storage.json', data.files.localData);
+      restoredSections.push('masters');
+    }
+
+    if (data.database?.base64) {
+      const dbPath = dataPathManager.getDatabasePath(app);
+      const preRestore = `${dbPath}.pre-restore-${Date.now()}.bak`;
+      if (fs.existsSync(dbPath)) {
+        fs.copyFileSync(dbPath, preRestore);
+      }
+      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+      fs.writeFileSync(dbPath, Buffer.from(String(data.database.base64), 'base64'));
+      restoredSections.push('inventory', 'vouchers', 'masters');
+    }
+
+    return {
+      success: true,
+      requiresReload: true,
+      restoredSections: Array.from(new Set(restoredSections)),
+      restorePointId: restorePoint?.restorePointId,
+      restorePointPath: restorePoint?.path,
+    };
+  } catch (error) {
+    console.error('backup-restore-from-file failed', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Restore failed',
+    };
+  }
+});
+
+ipcMain.handle('backup-rollback-restore-point', async (_event, payload: { restorePointId?: string }) => {
+  const restorePointId = String(payload?.restorePointId || '').trim();
+  if (!restorePointId) return { success: false, error: 'Restore point id required.' };
+  return rollbackCompanyRestorePoint(restorePointId);
+});
+
+ipcMain.handle('print:pdf', async (_event, payload: { html?: string; fileName?: string; landscape?: boolean; pageSize?: string }) => {
   const html = String(payload?.html ?? '');
   const suggested = String(payload?.fileName || `invoice-${Date.now()}.pdf`);
   if (!html) return null;
 
+  const pageSize = String(payload?.pageSize || 'A4').toUpperCase() === 'A5' ? 'A5' : 'A4';
   let printWindow: any = null;
+  let tmpPath: string | null = null;
   try {
     printWindow = new BrowserWindow(createAppChildWindowOptions({
       show: false,
@@ -1011,11 +1488,12 @@ ipcMain.handle('print:pdf', async (_event, payload: { html?: string; fileName?: 
       },
     }));
 
-    await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    tmpPath = writeHtmlToTempFile(app, html, 'pve-pdf');
+    await printWindow.loadFile(tmpPath);
     const pdfBuffer = await printWindow.webContents.printToPDF({
       printBackground: true,
-      landscape: Boolean(payload?.landscape),
-      pageSize: 'A4',
+      landscape: false,
+      pageSize,
       margins: { marginType: 'default' },
     });
     const saveResult = await dialog.showSaveDialog(mainWindow || undefined, {
@@ -1033,48 +1511,26 @@ ipcMain.handle('print:pdf', async (_event, payload: { html?: string; fileName?: 
     if (printWindow && !printWindow.isDestroyed()) {
       printWindow.close();
     }
-  }
-});
-
-const wrapPrintPreviewHtml = (html: string): string => {
-  if (html.includes('pve-print-toolbar')) return html;
-  const logoUri = getPrintToolbarLogoDataUri();
-  const logoHtml = logoUri
-    ? `<img src="${logoUri}" alt="PVE" style="width:24px;height:24px;border-radius:5px;object-fit:contain;background:#fff;padding:2px;" />`
-    : `<span style="display:inline-flex;width:24px;height:24px;border-radius:5px;background:#fff;color:#1f4e79;font-weight:800;font-size:10px;align-items:center;justify-content:center;">PVE</span>`;
-  const toolbar = `<div id="pve-print-toolbar" style="position:sticky;top:0;z-index:9999;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:10px 14px;background:#1f4e79;color:#fff;font-family:Segoe UI,Arial,sans-serif;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.15);"><div style="display:flex;align-items:center;gap:10px;">${logoHtml}<div><strong style="display:block;line-height:1.2;">PVE InvoicePro 360</strong><span style="font-size:12px;opacity:.88;font-weight:500;">Print Preview</span></div></div><div style="display:flex;gap:8px;"><button type="button" onclick="window.print()" style="cursor:pointer;padding:6px 14px;border:none;border-radius:4px;background:#fff;color:#1f4e79;font-weight:600;">Print</button><button type="button" onclick="window.close()" style="cursor:pointer;padding:6px 14px;border:1px solid #fff;border-radius:4px;background:transparent;color:#fff;">Close</button></div></div>`;
-  if (/<body[^>]*>/i.test(html)) {
-    return html.replace(/<body([^>]*)>/i, `<body$1>${toolbar}`);
-  }
-  return `<!doctype html><html><head><meta charset="utf-8" /></head><body>${toolbar}${html}</body></html>`;
-};
-
-ipcMain.handle('print:open-preview', async (_event, payload: { html?: string }) => {
-  const html = String(payload?.html ?? '');
-  if (!html) return false;
-  let previewWindow: BrowserWindow | null = null;
-  try {
-    previewWindow = new BrowserWindow(createAppChildWindowOptions({
-      show: true,
-      width: 980,
-      height: 920,
-      title: 'PVE InvoicePro 360 — Print Preview',
-      webPreferences: { sandbox: false },
-    }));
-    const doc = wrapPrintPreviewHtml(html);
-    await previewWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(doc)}`);
-    previewWindow.on('closed', () => {
-      previewWindow = null;
-    });
-    return true;
-  } catch (error) {
-    console.error('print:open-preview failed', error);
-    if (previewWindow && !previewWindow.isDestroyed()) {
-      previewWindow.close();
+    if (tmpPath) {
+      try {
+        fs.unlinkSync(tmpPath);
+      } catch {
+        // ignore
+      }
     }
-    return false;
   }
 });
+
+registerPrintPreviewIpc({
+  app,
+  ipcMain,
+  BrowserWindow,
+  createAppChildWindowOptions,
+  getPrintPreviewPreloadPath: () => path.join(__dirname, 'printPreviewPreload.cjs'),
+});
+
+const { getDeviceFingerprintPayload } = require('./deviceFingerprint.cjs');
+ipcMain.handle('device-fingerprint', () => getDeviceFingerprintPayload());
 
 ipcMain.handle('print:direct', async (_event, payload: { html?: string; silent?: boolean }) => {
   const html = String(payload?.html ?? '');
@@ -1088,11 +1544,11 @@ ipcMain.handle('print:direct', async (_event, payload: { html?: string; silent?:
       title: 'PVE InvoicePro 360 — Print',
       webPreferences: { sandbox: false },
     }));
-    const doc = wrapPrintPreviewHtml(html);
+    const tmpPath = writeHtmlToTempFile(app, html, 'pve-direct-print');
     await new Promise<void>((resolve, reject) => {
       printWindow!.webContents.once('did-finish-load', () => resolve());
       printWindow!.webContents.once('did-fail-load', (_e, code, desc) => reject(new Error(`${code}: ${desc}`)));
-      void printWindow!.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(doc)}`);
+      void printWindow!.loadFile(tmpPath);
     });
     await new Promise<void>((resolve, reject) => {
       printWindow!.webContents.print(
@@ -1122,14 +1578,16 @@ ipcMain.handle('print:direct', async (_event, payload: { html?: string; silent?:
 
 app.whenReady().then(() => {
   console.log('App is ready, initializing...');
-  dataPathManager.init(app, companyRegistry);
+  errorLoggerMain.init(app);
+  errorLoggerMain.registerIpc(app, ipcMain);
+  registerSuperAdminIpc({ app, getDb: () => db, dataPathManager, companyRegistry });
+  startNetworkOnlineMonitor();
   registerSessionIpc(app, sessionStore, companyRegistry);
   if (process.platform !== 'darwin') {
     Menu.setApplicationMenu(null);
   }
   companyRegistry.ensureInitialized(app, null);
   initDatabase(companyRegistry.readActiveId(app));
-  startEmbeddedMobileSync();
   createSplashWindow();
   createWindow();
   console.log('Initialization complete');

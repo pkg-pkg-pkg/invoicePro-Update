@@ -38,12 +38,14 @@ import {
   deleteScheme,
   setSelectedScheme,
   toggleSchemes,
+  loadSchemesFromStorage,
 } from '../store/slices/schemeSlice';
 import type { Scheme } from '../services/schemeService';
 import { inventoryItemService } from '../services/masters/inventoryItemService';
 import type { InventoryItem } from '../types/masters';
 import SchemeForm from '../components/SchemeForm';
 import SmartSchemeEngine from './Schemes/SmartSchemeEngine';
+import { WrapTabScrollButton } from '../components/mui/WrapTabScrollButton';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 export default function Schemes() {
@@ -92,6 +94,7 @@ export default function Schemes() {
   };
 
   useEffect(() => {
+    dispatch(loadSchemesFromStorage());
     if (companyId) {
       dispatch(fetchSchemes({ companyId }));
     }
@@ -227,7 +230,14 @@ export default function Schemes() {
 
       {/* Tab Navigation */}
       <Box sx={{ mb: 3 }}>
-        <Tabs value={activeTab} onChange={handleTabChange}>
+        <Tabs
+          value={activeTab}
+          onChange={handleTabChange}
+          variant="scrollable"
+          scrollButtons="auto"
+          allowScrollButtonsMobile
+          ScrollButtonComponent={WrapTabScrollButton}
+        >
           <Tab 
             label="Traditional Schemes" 
             icon={<AssessmentIcon />}
@@ -251,7 +261,7 @@ export default function Schemes() {
       </Box>
 
       {/* Tab Content */}
-      {activeTab === 0 && (
+      <Box sx={{ display: activeTab === 0 ? 'block' : 'none' }}>
         <>
           {/* Traditional Schemes Header */}
           <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
@@ -305,8 +315,8 @@ export default function Schemes() {
             </Alert>
           )}
 
-          {/* Loading State */}
-          {loading && (
+          {/* Loading State — only block UI when no cached schemes */}
+          {loading && schemes.length === 0 && (
             <Box display="flex" justifyContent="center" alignItems="center" minHeight={300}>
               <CircularProgress />
             </Box>
@@ -340,7 +350,7 @@ export default function Schemes() {
           )}
 
           {/* Schemes Table */}
-          {!loading && schemes.length > 0 && (
+          {schemes.length > 0 && (
             <Paper>
               <Table>
                 <TableHead>
@@ -503,9 +513,11 @@ export default function Schemes() {
             </DialogActions>
           </Dialog>
         </>
-      )}
+      </Box>
 
-      {activeTab === 1 && <SmartSchemeEngine initialTabFromQuery={new URLSearchParams(location.search).get('tab') || undefined} />}
+      <Box sx={{ display: activeTab === 1 ? 'block' : 'none' }}>
+        <SmartSchemeEngine initialTabFromQuery={new URLSearchParams(location.search).get('tab') || undefined} />
+      </Box>
     </Box>
   );
 }

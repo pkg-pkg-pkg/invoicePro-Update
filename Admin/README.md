@@ -31,7 +31,7 @@ If it exists, the user is treated as an Admin.
 1. **Firestore rules** (fix “Missing or insufficient permissions” on admin check):
    ```bash
    cd desktop
-   firebase deploy --only firestore:rules
+   firebase deploy --only firestore:rules --project invoicepro-105ba
    ```
    Rules must allow `get` on `admins/{uid}` for the signed-in user (see `desktop/firestore.rules`).
 

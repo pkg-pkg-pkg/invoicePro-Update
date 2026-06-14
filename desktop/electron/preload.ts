@@ -72,6 +72,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   mobileSyncRetry: () => ipcRenderer.invoke('mobile-sync-retry'),
   mobileSyncPublishChange: (change: unknown) => ipcRenderer.invoke('mobile-sync-publish-change', change),
   mobileEntitlementsSync: (payload: unknown) => ipcRenderer.invoke('mobile-entitlements-sync', payload),
+  firebaseCallable: (payload: { name: string; data?: unknown; idToken: string }) =>
+    ipcRenderer.invoke('firebase-callable', payload),
   mobileSnapshotPublish: (snapshot: unknown) => ipcRenderer.invoke('mobile-snapshot-publish', snapshot),
   onMobileDeviceBound: (callback: (data: unknown) => void) => {
     const handler = (_: unknown, data: unknown) => callback(data);
@@ -111,11 +113,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeAllListeners: (event: string) => {
     ipcRenderer.removeAllListeners(event);
   },
-  printToPDF: (payload: { html: string; fileName?: string; landscape?: boolean }) =>
+  printToPDF: (payload: { html: string; fileName?: string; landscape?: boolean; pageSize?: string }) =>
     ipcRenderer.invoke('print:pdf', payload),
   printDirect: (payload: { html: string; silent?: boolean }) =>
     ipcRenderer.invoke('print:direct', payload),
-  openPrintPreview: (payload: { html: string }) => ipcRenderer.invoke('print:open-preview', payload),
+  openPrintPreview: (payload: { html: string; pageSize?: string }) =>
+    ipcRenderer.invoke('print:open-preview', payload),
 
   windowMinimize: () => ipcRenderer.invoke('window-minimize'),
   windowToggleMaximize: () => ipcRenderer.invoke('window-toggle-maximize'),
@@ -126,18 +129,41 @@ contextBridge.exposeInMainWorld('electronAPI', {
   whatsappOpenChat: (phone: string, message: string) =>
     ipcRenderer.invoke('whatsapp-open-chat', phone, message),
   getAppSystemInfo: () => ipcRenderer.invoke('app-system-info'),
+  getDeviceFingerprint: () => ipcRenderer.invoke('device-fingerprint'),
+  superAdminGetRuntime: () => ipcRenderer.invoke('superadmin-get-runtime'),
+  superAdminGetDbStatus: () => ipcRenderer.invoke('superadmin-get-db-status'),
+  superAdminGetNetwork: () => ipcRenderer.invoke('superadmin-get-network'),
+  superAdminOpenPath: (targetPath: string) => ipcRenderer.invoke('superadmin-open-path', targetPath),
+  superAdminOpenDbFolder: () => ipcRenderer.invoke('superadmin-open-db-folder'),
+  superAdminOpenLogFolder: () => ipcRenderer.invoke('superadmin-open-log-folder'),
+  superAdminRelaunch: () => ipcRenderer.invoke('superadmin-relaunch'),
+  superAdminAppendLog: (payload: { level: string; message: string; ts: number }) =>
+    ipcRenderer.invoke('superadmin-append-log', payload),
+  superAdminGetLogPath: () => ipcRenderer.invoke('superadmin-get-log-path'),
+  superAdminReadLogFile: () => ipcRenderer.invoke('superadmin-read-log-file'),
   dialogPickFolder: (options?: { title?: string; defaultPath?: string }) =>
     ipcRenderer.invoke('dialog-pick-folder', options ?? {}),
   dialogPickBackupFile: (options?: { title?: string; defaultPath?: string }) =>
     ipcRenderer.invoke('dialog-pick-backup-file', options ?? {}),
-  backupCreateManual: (payload: { targetDir: string }) =>
+  backupCreateManual: (payload: { targetDir: string; allowSkipDatabase?: boolean }) =>
     ipcRenderer.invoke('backup-create-manual', payload),
+  backupPreviewFile: (payload: { filePath: string }) =>
+    ipcRenderer.invoke('backup-preview-file', payload),
+  backupRestoreFromFile: (payload: { filePath: string }) =>
+    ipcRenderer.invoke('backup-restore-from-file', payload),
+  backupRollbackRestorePoint: (payload: { restorePointId: string }) =>
+    ipcRenderer.invoke('backup-rollback-restore-point', payload),
   shellShowItemInFolder: (targetPath: string) =>
     ipcRenderer.invoke('shell-show-item-in-folder', targetPath),
   onWindowStateChanged: (callback: (maximized: boolean) => void) => {
     const fn = (_e: unknown, maxed: unknown) => callback(Boolean(maxed));
     ipcRenderer.on('window-state-changed', fn);
     return () => ipcRenderer.removeListener('window-state-changed', fn);
+  },
+  onNetworkOnline: (callback: () => void) => {
+    const fn = () => callback();
+    ipcRenderer.on('network-online', fn);
+    return () => ipcRenderer.removeListener('network-online', fn);
   },
 });
 

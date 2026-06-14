@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import type { InventoryItem, ItemCategory, UnitOfMeasure } from '../../../types/masters';
+import { parseAdditionalBarcodes } from '../../../services/barcode/barcodeValidation';
 
 export const INVENTORY_BULK_SHEET = 'Inventory Items';
 
@@ -97,7 +98,15 @@ export function applyInventoryErpAliases(o: Record<string, unknown>): void {
     'item',
   ]);
   setStr('sku', ['sku', 'itemcode', 'stockitemcode', 'productcode', 'code', 'skucode', 'alias']);
-  setStr('barcode', ['barcode', 'barcodenumber', 'ean']);
+  setStr('barcode', ['barcode', 'barcodenumber', 'ean', 'primarybarcode']);
+  setStr('additionalbarcodes', [
+    'additionalbarcodes',
+    'additionalbarcode',
+    'extrabarcodes',
+    'altbarcodes',
+    'innerboxbarcode',
+    'mastercartonbarcode',
+  ]);
   setStr('brand', ['brand', 'manufacturer', 'make']);
   setStr('category', ['category', 'stockgroup', 'group', 'itemcategory', 'productcategory']);
   setStr('categoryid', ['categoryid']);
@@ -252,6 +261,9 @@ function buildPartialFromRow(
 
   const barcode = str(g('barcode'));
   if (barcode) out.barcode = barcode;
+
+  const additional = parseAdditionalBarcodes(g('additionalbarcodes'));
+  if (additional.length) out.additionalBarcodes = additional;
 
   const brand = str(g('brand'));
   if (brand) out.brand = brand;

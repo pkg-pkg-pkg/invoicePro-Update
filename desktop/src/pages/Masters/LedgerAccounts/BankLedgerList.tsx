@@ -291,16 +291,18 @@ const BankLedgerList = () => {
                     </TableCell>
                     <TableCell align="center">
                       <Tooltip title="Edit Details">
-                        <IconButton
-                          onClick={() => navigate(`/masters/ledger-accounts/${account.id}/edit`)}
-                          disabled={!canManage}
-                          sx={(theme) => ({
-                            border: `1px solid ${alpha(theme.palette.text.primary, 0.2)}`,
-                            '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.14), color: theme.palette.primary.main },
-                          })}
-                        >
-                          <EditIcon fontSize="small" />
-                        </IconButton>
+                        <span style={{ display: 'inline-flex' }}>
+                          <IconButton
+                            onClick={() => navigate(`/masters/ledger-accounts/${account.id}/edit`)}
+                            disabled={!canManage}
+                            sx={(theme) => ({
+                              border: `1px solid ${alpha(theme.palette.text.primary, 0.2)}`,
+                              '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.14), color: theme.palette.primary.main },
+                            })}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </span>
                       </Tooltip>
                     </TableCell>
                   </TableRow>

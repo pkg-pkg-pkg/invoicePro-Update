@@ -1,70 +1,89 @@
 import React, { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { TextInput, Button, Text, Surface, HelperText } from 'react-native-paper';
+import { Pressable, View, StyleSheet } from 'react-native';
+import { TextInput, Button, Text, Surface, HelperText, Snackbar } from 'react-native-paper';
 import { useDispatch } from 'react-redux';
-import { setCredentials } from '../store/slices/authSlice';
-import { loginViaDesktopSync } from '../services/mobileDesktopAuthService';
-import { readSyncConfig } from '../services/sync/storage';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { setCredentials, setSuperAdminMode } from '../store/slices/authSlice';
 import { saveAuthSession } from '../services/authStorage';
-import { mobileSyncWorker } from '../services/sync/mobileSyncWorker';
+import { apiLogin } from '../services/api/invoiceProClient';
+import { setMobileAuthToken } from '../services/api';
+import { middlewareSync } from '../services/sync/middlewareSync';
+import { auth } from '../firebase/firebase';
+import { checkSuperAdminUid } from '../services/superAdminService';
 
 export default function LoginScreen() {
   const dispatch = useDispatch();
-  const [loginId, setLoginId] = useState('');
-  const [pin, setPin] = useState('');
-  const [syncEndpoint, setSyncEndpoint] = useState('');
-  const [syncToken, setSyncToken] = useState('');
+  const [mobileNo, setMobileNo] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-
-  React.useEffect(() => {
-    void (async () => {
-      const cfg = await readSyncConfig();
-      setSyncEndpoint(cfg.endpointBase);
-      setSyncToken(cfg.token);
-    })();
-  }, []);
+  const [showSuperAdminLogin, setShowSuperAdminLogin] = useState(false);
+  const [adminEmail, setAdminEmail] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [toast, setToast] = useState('');
 
   const handleLogin = async () => {
-    if (!loginId.trim() || !pin.trim()) {
-      setError('Email/mobile and PIN are required.');
-      return;
-    }
-    if (!syncEndpoint.trim() || !syncToken.trim()) {
-      setError('Set Desktop Sync URL and token first (ask admin / desktop About → Mobile Sync).');
+    const digits = mobileNo.replace(/\D/g, '');
+    if (digits.length < 10) {
+      setError('Enter a valid 10-digit mobile number.');
       return;
     }
     try {
       setLoading(true);
       setError('');
-      await mobileSyncWorker.configure({
-        endpointBase: syncEndpoint.trim(),
-        token: syncToken.trim(),
-      });
-      const data = await loginViaDesktopSync({ loginId: loginId.trim(), pin: pin.trim() });
+      const data = await apiLogin({ mobile_no: digits });
+      if (!data.success || !data.token) {
+        throw new Error(data.error || 'Login failed');
+      }
+
+      const token = data.token || data.jwt || '';
+      const refreshToken = data.refreshToken || token;
+      const apiUser = data.user;
       const user = {
-        id: data.user.id,
-        username: data.user.email,
-        fullName: data.user.displayName || data.user.email,
-        email: data.user.email,
-        mobile: data.user.mobile,
-        role: 'MOBILE_USER',
-        companyId: 'desktop',
-        validUntilMs: data.user.validUntilMs,
+        id: String(apiUser.id),
+        username: apiUser.username || apiUser.email || digits,
+        name: apiUser.name || apiUser.fullName,
+        fullName: apiUser.fullName || apiUser.name,
+        mobileNumber: apiUser.mobileNumber,
+        role: apiUser.role,
+        companyId: apiUser.companyId ? String(apiUser.companyId) : undefined,
+        permissions: apiUser.permissions,
+        mobilePermissions: apiUser.mobilePermissions,
       };
-      await saveAuthSession({
-        token: data.sessionToken,
-        user,
-      });
-      dispatch(
-        setCredentials({
-          user,
-          token: data.sessionToken,
-        })
-      );
-      await mobileSyncWorker.retryNow();
+
+      await saveAuthSession({ token, refreshToken, user });
+      setMobileAuthToken(token);
+      dispatch(setCredentials({ user, token }));
+      await middlewareSync.syncNow();
     } catch (e: unknown) {
-      setError(String((e as Error)?.message || 'Login failed'));
+      const err = e as { response?: { data?: { error?: string } }; message?: string };
+      setError(err.response?.data?.error || err.message || 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSuperAdminLogin = async () => {
+    if (!auth) {
+      setError('Firebase is not configured on mobile (.env FIREBASE_*).');
+      return;
+    }
+    try {
+      setLoading(true);
+      setError('');
+      const cred = await signInWithEmailAndPassword(
+        auth,
+        adminEmail.trim().toLowerCase(),
+        adminPassword
+      );
+      const allowed = await checkSuperAdminUid(cred.user.uid);
+      if (!allowed) {
+        setError('Not authorized as super admin.');
+        return;
+      }
+      dispatch(setSuperAdminMode(true));
+      setToast('Super admin access granted');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Super admin login failed');
     } finally {
       setLoading(false);
     }
@@ -73,50 +92,67 @@ export default function LoginScreen() {
   return (
     <View style={styles.container}>
       <Surface style={styles.surface}>
-        <Text variant="headlineMedium" style={styles.title}>
-          PVE InvoicePro 360
-        </Text>
+        <Pressable onLongPress={() => setShowSuperAdminLogin((v) => !v)} delayLongPress={1200}>
+          <Text variant="headlineMedium" style={styles.title}>
+            PVE InvoicePro 360
+          </Text>
+        </Pressable>
         <Text variant="bodyMedium" style={styles.subtitle}>
           Mobile — connects to your desktop while it is running
         </Text>
-        <TextInput
-          label="Desktop Sync URL"
-          value={syncEndpoint}
-          onChangeText={setSyncEndpoint}
-          mode="outlined"
-          style={styles.input}
-          autoCapitalize="none"
-        />
-        <TextInput
-          label="Sync Token"
-          value={syncToken}
-          onChangeText={setSyncToken}
-          mode="outlined"
-          style={styles.input}
-          autoCapitalize="none"
-        />
-        <TextInput
-          label="Email or mobile"
-          value={loginId}
-          onChangeText={setLoginId}
-          mode="outlined"
-          style={styles.input}
-          autoCapitalize="none"
-        />
-        <TextInput
-          label="PIN (from admin)"
-          value={pin}
-          onChangeText={setPin}
-          mode="outlined"
-          secureTextEntry
-          keyboardType="number-pad"
-          style={styles.input}
-        />
-        <Button mode="contained" onPress={handleLogin} style={styles.button} loading={loading} disabled={loading}>
-          Sign In
-        </Button>
+
+        {showSuperAdminLogin ? (
+          <>
+            <Text variant="labelLarge" style={styles.adminHint}>
+              Super Admin (Firebase)
+            </Text>
+            <TextInput
+              label="Email"
+              value={adminEmail}
+              onChangeText={setAdminEmail}
+              mode="outlined"
+              style={styles.input}
+              autoCapitalize="none"
+            />
+            <TextInput
+              label="Password"
+              value={adminPassword}
+              onChangeText={setAdminPassword}
+              mode="outlined"
+              secureTextEntry
+              style={styles.input}
+            />
+            <Button
+              mode="contained"
+              onPress={() => void handleSuperAdminLogin()}
+              loading={loading}
+              disabled={loading}
+            >
+              Super Admin Sign In
+            </Button>
+          </>
+        ) : (
+          <>
+            <TextInput
+              label="Mobile number"
+              value={mobileNo}
+              onChangeText={setMobileNo}
+              mode="outlined"
+              style={styles.input}
+              autoCapitalize="none"
+              keyboardType="phone-pad"
+            />
+            <Button mode="contained" onPress={() => void handleLogin()} style={styles.button} loading={loading} disabled={loading}>
+              Sign In
+            </Button>
+          </>
+        )}
+
         {!!error && <HelperText type="error">{error}</HelperText>}
       </Surface>
+      <Snackbar visible={Boolean(toast)} onDismiss={() => setToast('')} duration={3000}>
+        {toast}
+      </Snackbar>
     </View>
   );
 }
@@ -141,6 +177,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 24,
     color: '#666',
+  },
+  adminHint: {
+    marginBottom: 8,
+    color: '#334155',
   },
   input: {
     marginBottom: 16,

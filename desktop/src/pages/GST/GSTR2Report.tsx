@@ -22,6 +22,7 @@ import {
 } from '@mui/material';
 import { FileDownload as FileDownloadIcon } from '@mui/icons-material';
 import { gstService, GSTR2Response } from '../../services/gstService';
+import { VoucherNumberLink } from '../../components/Vouchers/VoucherNumberLink';
 
 const MONTHS = [
   { value: 1, label: 'January' },
@@ -211,7 +212,17 @@ export default function GSTR2Report() {
                   <TableBody>
                     {data.b2b.map((item, index) => (
                       <TableRow key={index}>
-                        <TableCell>{item.invoiceNumber}</TableCell>
+                        <TableCell>
+                          {item.voucherId ? (
+                            <VoucherNumberLink
+                              voucherId={item.voucherId}
+                              voucherType="PURCHASE"
+                              voucherNumber={item.invoiceNumber}
+                            />
+                          ) : (
+                            item.invoiceNumber
+                          )}
+                        </TableCell>
                         <TableCell>{new Date(item.invoiceDate).toLocaleDateString()}</TableCell>
                         <TableCell>{item.supplierGSTIN}</TableCell>
                         <TableCell>{item.supplierName}</TableCell>

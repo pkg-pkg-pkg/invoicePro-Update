@@ -26,6 +26,11 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { generateId } from "../../../../utils/id";
+import {
+  voucherLineCellSx,
+  voucherLineCompactFieldSx,
+  voucherLineNumericInputSx,
+} from '../../../../theme/voucherLineItemTableStyles';
 
 export interface AdditionalChargeState {
   chargeId: string;
@@ -120,7 +125,7 @@ const AdditionalCharges = memo(({ charges, onChange, readOnly = false }: Additio
                     <TableCell sx={{ fontWeight: 600 }} align="center">
                       Taxable?
                     </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 600 }}>
+                    <TableCell align="center" sx={{ ...voucherLineCellSx('gstPercent'), fontWeight: 600 }}>
                       GST %
                     </TableCell>
                     <TableCell align="right" sx={{ fontWeight: 600 }}>
@@ -171,7 +176,7 @@ const AdditionalCharges = memo(({ charges, onChange, readOnly = false }: Additio
                               size="small"
                               variant="standard"
                               inputProps={{ min: 0, step: '0.01' }}
-                              sx={{ maxWidth: 100 }}
+                              sx={{ ...voucherLineNumericInputSx, minWidth: 88, width: 88, maxWidth: 88 }}
                             />
                           )}
                         </TableCell>
@@ -186,7 +191,7 @@ const AdditionalCharges = memo(({ charges, onChange, readOnly = false }: Additio
                             />
                           )}
                         </TableCell>
-                        <TableCell align="center">
+                        <TableCell align="center" sx={voucherLineCellSx('gstPercent')}>
                           {readOnly ? (
                             <Typography variant="body2">{charge.gstPercent}%</Typography>
                           ) : (
@@ -198,7 +203,7 @@ const AdditionalCharges = memo(({ charges, onChange, readOnly = false }: Additio
                               size="small"
                               variant="standard"
                               inputProps={{ min: 0, max: 28, step: '0.01' }}
-                              sx={{ maxWidth: 60 }}
+                              sx={voucherLineCompactFieldSx('gstPercent', 'percent')}
                             />
                           )}
                         </TableCell>

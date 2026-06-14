@@ -28,6 +28,7 @@ import { restoreCompanyDetailsFromCloud, saveCompanyDetailsToCloud, archiveCompa
 import { APP_DISPLAY_NAME, APP_TAGLINE } from '../constants/appBranding';
 import { usePincodeAutofill } from '../hooks/usePincodeAutofill';
 import PincodeTextField from './PincodeTextField';
+import { IfscField } from './forms/IfscField';
 import {
   getActiveCompanyProfileRow,
   markCompanyProfileCompleted,
@@ -704,14 +705,15 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ open, onComplete, onRestoreBa
           />
         </Grid>
         <Grid item xs={12} md={6}>
-          <TextField
-            fullWidth
+          <IfscField
             label="IFSC Code"
             value={companyData.ifscCode}
-            onChange={(e) => updateCompanyData('ifscCode', e.target.value)}
-            error={!!errors.ifscCode}
-            helperText={errors.ifscCode}
-            placeholder="ABCD0123456"
+            onChange={(v) => updateCompanyData('ifscCode', v)}
+            onResolved={(data) => {
+              updateCompanyData('bankName', data.bankName);
+              updateCompanyData('branch', data.branchName);
+            }}
+            size="medium"
           />
         </Grid>
         <Grid item xs={12} md={6}>

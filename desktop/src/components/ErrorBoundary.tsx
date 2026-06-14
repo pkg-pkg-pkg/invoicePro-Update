@@ -1,5 +1,6 @@
 import { Component, ErrorInfo, ReactNode } from 'react';
 import { Box, Typography, Button, Paper } from '@mui/material';
+import { captureCrash } from '../services/privacy/crashReportService';
 
 interface Props {
   children: ReactNode;
@@ -22,6 +23,7 @@ class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error:', error, errorInfo);
+    captureCrash(error, errorInfo.componentStack ?? undefined);
   }
 
   private handleReload = () => {
@@ -47,12 +49,30 @@ class ErrorBoundary extends Component<Props, State> {
             <Typography variant="body1" sx={{ mb: 2 }}>
               {this.state.error?.message || 'An unexpected error occurred'}
             </Typography>
+            {this.state.error?.stack ? (
+              <Typography
+                variant="caption"
+                component="pre"
+                sx={{
+                  mb: 2,
+                  p: 1,
+                  bgcolor: 'grey.100',
+                  overflow: 'auto',
+                  maxHeight: 160,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {this.state.error.stack}
+              </Typography>
+            ) : null}
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              A crash report prompt has been opened. You can review and choose whether to send it to
+              PVE.
+            </Typography>
             <Button variant="contained" onClick={this.handleReload}>
               Reload Page
             </Button>
-            <Typography variant="caption" display="block" sx={{ mt: 2, color: 'text.secondary' }}>
-              Check the browser console for more details
-            </Typography>
           </Paper>
         </Box>
       );
@@ -63,4 +83,3 @@ class ErrorBoundary extends Component<Props, State> {
 }
 
 export default ErrorBoundary;
-

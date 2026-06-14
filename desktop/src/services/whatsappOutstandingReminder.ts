@@ -2,6 +2,7 @@ import type { CustomerSummary } from '../types/dashboard';
 import { getNormalizedCompanyProfile } from '../utils/companyProfile';
 import { ledgerAccountService } from './masters/ledgerAccountService';
 import { partyService } from './masters/partyService';
+import { getWhatsAppTemplate, renderWhatsAppTemplate } from './whatsappMessageTemplates';
 
 export interface OutstandingReminderDraft {
   customerId: string;
@@ -14,18 +15,15 @@ export interface OutstandingReminderDraft {
 export function buildOutstandingReminderMessage(
   customerName: string,
   amount: number,
-  companyName: string
+  companyName: string,
+  dueDate?: string
 ): string {
-  return `Dear ${customerName},
-
-This is a friendly reminder about your outstanding payment.
-
-Outstanding amount: ₹${amount.toLocaleString('en-IN')}
-
-Please arrange payment at your earliest convenience.
-
-Thank you,
-${companyName}`;
+  return renderWhatsAppTemplate(getWhatsAppTemplate('paymentReminder'), {
+    customerName,
+    outstandingAmount: amount.toLocaleString('en-IN'),
+    dueDate: dueDate ? new Date(dueDate).toLocaleDateString('en-IN') : '',
+    companyName,
+  });
 }
 
 export async function resolvePartyPhone(ledgerId: string, ledgerName: string): Promise<string | null> {

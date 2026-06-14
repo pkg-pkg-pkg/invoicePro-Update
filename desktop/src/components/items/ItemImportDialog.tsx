@@ -30,6 +30,7 @@ import {
   downloadItemImportTemplate,
   importValidRows,
   type ItemImportPreview,
+  type ItemImportResult,
 } from '../../services/items/itemImportService';
 
 type Props = {
@@ -38,7 +39,7 @@ type Props = {
   units: UnitOfMeasure[];
   godowns: Godown[];
   onClose: () => void;
-  onImported: (summary: { created: number; updated: number; errors: string[] }) => void;
+  onImported: (summary: ItemImportResult) => void;
 };
 
 export function ItemImportDialog({ open, categories, units, godowns, onClose, onImported }: Props) {
@@ -49,6 +50,7 @@ export function ItemImportDialog({ open, categories, units, godowns, onClose, on
   const [parseError, setParseError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [previewTab, setPreviewTab] = useState(0);
+  const [importResult, setImportResult] = useState<ItemImportResult | null>(null);
   const [imageResult, setImageResult] = useState<string | null>(null);
 
   const reset = () => {
@@ -57,6 +59,7 @@ export function ItemImportDialog({ open, categories, units, godowns, onClose, on
     setParseError(null);
     setPreviewTab(0);
     setImageResult(null);
+    setImportResult(null);
   };
 
   const handleClose = () => {
@@ -97,8 +100,8 @@ export function ItemImportDialog({ open, categories, units, godowns, onClose, on
         defaultUnitId,
         defaultGodownId: defaultGodown?.id ?? null,
       });
+      setImportResult(result);
       onImported(result);
-      handleClose();
     } catch (err) {
       setParseError((err as Error).message);
     } finally {
@@ -168,6 +171,22 @@ export function ItemImportDialog({ open, categories, units, godowns, onClose, on
           ) : null}
 
           {parseError ? <Alert severity="error">{parseError}</Alert> : null}
+          {importResult ? (
+            <Alert severity={importResult.failed > 0 ? 'warning' : 'success'}>
+              Imported: {importResult.imported} · Updated: {importResult.updated} · Failed:{' '}
+              {importResult.failed}
+              {importResult.errors.length ? (
+                <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2 }}>
+                  {importResult.errors.slice(0, 8).map((e) => (
+                    <li key={e}>
+                      <Typography variant="caption">{e}</Typography>
+                    </li>
+                  ))}
+                </Box>
+              ) : null}
+            </Alert>
+          ) : null}
+
           {imageResult ? <Alert severity="success">{imageResult}</Alert> : null}
 
           {importing ? <LinearProgress /> : null}
@@ -278,11 +297,11 @@ export function ItemImportDialog({ open, categories, units, godowns, onClose, on
       </DialogContent>
       <DialogActions sx={{ px: 2.5, py: 1.5 }}>
         <Button onClick={handleClose} disabled={importing}>
-          Cancel
+          {importResult ? 'Done' : 'Cancel'}
         </Button>
         <Button
           variant="contained"
-          disabled={importing || !preview?.valid.length}
+          disabled={importing || importResult !== null || !preview?.valid.length}
           onClick={() => void handleImport()}
         >
           {importing ? 'Importing…' : `Import ${preview?.valid.length ?? 0} valid item(s)`}

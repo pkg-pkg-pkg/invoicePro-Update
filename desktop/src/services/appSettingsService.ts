@@ -12,6 +12,9 @@ export interface FinancialYearConfig {
   endDate: PeriodIsoDate;
 }
 
+import type { VoucherNumberingSettings } from '../types/voucherNumbering';
+import { createDefaultVoucherNumberingSettings } from '../types/voucherNumbering';
+
 export interface InvoiceNumberingConfig {
   prefix?: string;
   suffix?: string;
@@ -23,6 +26,7 @@ export interface AppSettings {
   lockDate?: PeriodIsoDate;
   features: AppFeatureToggles;
   invoiceNumbering?: InvoiceNumberingConfig;
+  voucherNumbering?: VoucherNumberingSettings;
 }
 
 const STORAGE_KEY = 'pve_app_settings';
@@ -88,6 +92,7 @@ export const getAppSettings = (): AppSettings => {
   const fy = (parsed as any)?.financialYear ?? {};
   const features = (parsed as any)?.features ?? {};
   const inv = (parsed as any)?.invoiceNumbering ?? {};
+  const voucherNum = (parsed as any)?.voucherNumbering ?? null;
 
   const out: AppSettings = {
     financialYear: {
@@ -106,6 +111,16 @@ export const getAppSettings = (): AppSettings => {
       suffix: String(inv?.suffix ?? base.invoiceNumbering?.suffix ?? ''),
       startingNumber: Number(inv?.startingNumber ?? base.invoiceNumbering?.startingNumber ?? 1),
     },
+    voucherNumbering: voucherNum
+      ? {
+          ...createDefaultVoucherNumberingSettings(),
+          ...voucherNum,
+          types: {
+            ...createDefaultVoucherNumberingSettings().types,
+            ...(voucherNum.types ?? {}),
+          },
+        }
+      : createDefaultVoucherNumberingSettings(),
   };
 
   return out;

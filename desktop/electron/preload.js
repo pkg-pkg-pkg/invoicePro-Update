@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   mobileSyncRetry: () => ipcRenderer.invoke('mobile-sync-retry'),
   mobileSyncPublishChange: (change) => ipcRenderer.invoke('mobile-sync-publish-change', change),
   mobileEntitlementsSync: (payload) => ipcRenderer.invoke('mobile-entitlements-sync', payload),
+  firebaseCallable: (payload) => ipcRenderer.invoke('firebase-callable', payload),
   mobileSnapshotPublish: (snapshot) => ipcRenderer.invoke('mobile-snapshot-publish', snapshot),
   onMobileDeviceBound: (callback) => {
     const handler = (_, data) => callback(data);
@@ -109,13 +110,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
   whatsappCheckStatus: () => ipcRenderer.invoke('whatsapp-check-status'),
   whatsappOpenChat: (phone, message) => ipcRenderer.invoke('whatsapp-open-chat', phone, message),
   getAppSystemInfo: () => ipcRenderer.invoke('app-system-info'),
+  getDeviceFingerprint: () => ipcRenderer.invoke('device-fingerprint'),
+  superAdminGetRuntime: () => ipcRenderer.invoke('superadmin-get-runtime'),
+  superAdminGetDbStatus: () => ipcRenderer.invoke('superadmin-get-db-status'),
+  superAdminGetNetwork: () => ipcRenderer.invoke('superadmin-get-network'),
+  superAdminOpenPath: (targetPath) => ipcRenderer.invoke('superadmin-open-path', targetPath),
+  superAdminOpenDbFolder: () => ipcRenderer.invoke('superadmin-open-db-folder'),
+  superAdminOpenLogFolder: () => ipcRenderer.invoke('superadmin-open-log-folder'),
+  superAdminRelaunch: () => ipcRenderer.invoke('superadmin-relaunch'),
+  superAdminAppendLog: (payload) => ipcRenderer.invoke('superadmin-append-log', payload),
+  superAdminGetLogPath: () => ipcRenderer.invoke('superadmin-get-log-path'),
+  superAdminReadLogFile: () => ipcRenderer.invoke('superadmin-read-log-file'),
   dialogPickFolder: (options) => ipcRenderer.invoke('dialog-pick-folder', options ?? {}),
   dialogPickBackupFile: (options) => ipcRenderer.invoke('dialog-pick-backup-file', options ?? {}),
   backupCreateManual: (payload) => ipcRenderer.invoke('backup-create-manual', payload),
+  backupPreviewFile: (payload) => ipcRenderer.invoke('backup-preview-file', payload),
+  backupRestoreFromFile: (payload) => ipcRenderer.invoke('backup-restore-from-file', payload),
+  backupRollbackRestorePoint: (payload) => ipcRenderer.invoke('backup-rollback-restore-point', payload),
   shellShowItemInFolder: (targetPath) => ipcRenderer.invoke('shell-show-item-in-folder', targetPath),
   onWindowStateChanged: (callback) => {
     const fn = (_e, maxed) => callback(Boolean(maxed));
     ipcRenderer.on('window-state-changed', fn);
     return () => ipcRenderer.removeListener('window-state-changed', fn);
+  },
+  onNetworkOnline: (callback) => {
+    const fn = () => callback();
+    ipcRenderer.on('network-online', fn);
+    return () => ipcRenderer.removeListener('network-online', fn);
   },
 });

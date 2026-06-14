@@ -22,6 +22,14 @@ import { isElectronRuntime } from "../../utils/runtime";
 import { withTimeout } from "../../utils/withTimeout";
 import { syncBusinessProfileOnLogin } from "../../services/businessProfileService";
 import { getCachedCompanyProfile } from "../../services/companyProfileDbService";
+import {
+  clearAuthStorage,
+  persistAuthSession,
+  readStoredAuthToken,
+  readStoredAuthUserRaw,
+  updateStoredAuthUser,
+} from "../../utils/authStorage";
+import { auditService } from "../../services/audit/auditService";
 
 interface Company {
   id: string;
@@ -63,7 +71,7 @@ function enrichCompletedBusinessProfile(user: User): User {
     return { ...user, completedBusinessProfile: true };
   }
   try {
-    const savedUser = localStorage.getItem('user');
+    const savedUser = readStoredAuthUserRaw();
     if (savedUser) {
       const parsed = JSON.parse(savedUser) as User;
       if (parsed.completedBusinessProfile) {
@@ -108,28 +116,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             const authUser = sessionUserToAuthUser(session.user as SessionUser);
             setToken(session.sessionToken);
             setUser(authUser);
-            localStorage.setItem('token', session.sessionToken);
-            localStorage.setItem('user', JSON.stringify(authUser));
+            persistAuthSession(
+              session.sessionToken,
+              JSON.stringify(authUser),
+              localStorage.getItem('remember_me') === '1'
+            );
             setLoading(false);
-            void syncBusinessProfileOnLogin(authUser.email).then((completed) => {
-              if (!completed) return;
-              setUser((prev) => {
-                if (!prev || prev.completedBusinessProfile) return prev;
-                const next = { ...prev, completedBusinessProfile: true };
-                try {
-                  localStorage.setItem('user', JSON.stringify(next));
-                } catch {
-                  // ignore
-                }
-                return next;
+            setTimeout(() => {
+              void syncBusinessProfileOnLogin(authUser.email).then((completed) => {
+                if (!completed) return;
+                setUser((prev) => {
+                  if (!prev || prev.completedBusinessProfile) return prev;
+                  const next = { ...prev, completedBusinessProfile: true };
+                  updateStoredAuthUser(JSON.stringify(next));
+                  return next;
+                });
               });
-            });
+            }, 3000);
             return;
           }
         }
 
-        const savedToken = localStorage.getItem("token");
-        const savedUser = localStorage.getItem("user");
+        const savedToken = readStoredAuthToken();
+        const savedUser = readStoredAuthUserRaw();
 
         if (savedToken && savedUser) {
           const parsedUser: User = JSON.parse(savedUser);
@@ -144,8 +153,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               const authUser = sessionUserToAuthUser(legacy.user as SessionUser);
               setToken(legacy.sessionToken);
               setUser(authUser);
-              localStorage.setItem('token', legacy.sessionToken);
-              localStorage.setItem('user', JSON.stringify(authUser));
+              persistAuthSession(
+                legacy.sessionToken,
+                JSON.stringify(authUser),
+                localStorage.getItem('remember_me') === '1'
+              );
               setLoading(false);
               return;
             }
@@ -157,8 +169,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
       } catch (err) {
         console.error("Failed to restore session", err);
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
+        clearAuthStorage();
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -176,11 +187,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser((prev) => {
         if (!prev || prev.fullName === name) return prev;
         const next = { ...prev, fullName: name };
-        try {
-          localStorage.setItem('user', JSON.stringify(next));
-        } catch {
-          // ignore
-        }
+        updateStoredAuthUser(JSON.stringify(next));
         return next;
       });
     });
@@ -189,15 +196,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const login = useCallback(async (newToken: string, newUser: User) => {
     setToken(newToken);
     setUser(newUser);
-    localStorage.setItem("token", newToken);
-    localStorage.setItem("user", JSON.stringify(newUser));
+    persistAuthSession(
+      newToken,
+      JSON.stringify(newUser),
+      localStorage.getItem('remember_me') === '1'
+    );
+    void auditService.logLogin();
   }, []);
 
   const logout = useCallback(() => {
+    void auditService.logLogout();
     setToken(null);
     setUser(null);
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
+    clearAuthStorage();
     void logoutDesktopSession();
     void signOut(auth).catch(() => undefined);
     void syncHostMultiUserLanFromCloud(false);

@@ -80,7 +80,7 @@ export default function PriceListList() {
         <Button
           variant="outlined"
           startIcon={<AssessmentIcon />}
-          onClick={() => navigate('/masters/price-lists/report')}
+          onClick={() => navigate('/items/price-lists')}
         >
           Report
         </Button>

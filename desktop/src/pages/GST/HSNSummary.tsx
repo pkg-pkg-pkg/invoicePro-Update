@@ -18,6 +18,7 @@ import {
 } from '@mui/material';
 // Using native date input instead of DatePicker for simplicity
 import { gstService, HSNSummaryResponse } from '../../services/gstService';
+import { GstReportExportMenu } from '../../components/gst/GstReportExportMenu';
 
 export default function HSNSummary() {
   const [fromDate, setFromDate] = useState<Date | null>(new Date(new Date().getFullYear(), 0, 1));
@@ -46,6 +47,14 @@ export default function HSNSummary() {
       setLoading(false);
     }
   };
+
+  const exportSections = data
+    ? [
+        { heading: 'All HSN', sheetName: 'All', rows: data.hsnSummary as Record<string, unknown>[] },
+        { heading: 'B2B HSN', sheetName: 'B2B', rows: (data.b2bHsnSummary || []) as Record<string, unknown>[] },
+        { heading: 'B2C HSN', sheetName: 'B2C', rows: (data.b2cHsnSummary || []) as Record<string, unknown>[] },
+      ]
+    : [];
 
   return (
     <Box>
@@ -81,9 +90,17 @@ export default function HSNSummary() {
               onClick={handleGenerate}
               disabled={loading}
               fullWidth
+              sx={{ mb: 1 }}
             >
               {loading ? <CircularProgress size={24} /> : 'Generate Report'}
             </Button>
+            {data && (
+              <GstReportExportMenu
+                title="HSN Summary"
+                baseFileName={`HSN_${fromDate?.toISOString().slice(0, 10)}_${toDate?.toISOString().slice(0, 10)}`}
+                sections={exportSections}
+              />
+            )}
           </Grid>
         </Grid>
       </Paper>

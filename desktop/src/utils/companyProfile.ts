@@ -20,6 +20,8 @@ export interface NormalizedCompanyProfile {
   bank: string;
   accountNo: string;
   ifsc: string;
+  upiId?: string;
+  upiPayeeName?: string;
 }
 
 export { preloadCompanyProfile };

@@ -1,23 +1,27 @@
 import type { SvgIconComponent } from '@mui/icons-material';
 import BusinessIcon from '@mui/icons-material/Business';
 import SecurityIcon from '@mui/icons-material/Security';
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import PrivacyTipIcon from '@mui/icons-material/PrivacyTip';
 import BackupIcon from '@mui/icons-material/Backup';
 import LanIcon from '@mui/icons-material/Lan';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
-import PrintIcon from '@mui/icons-material/Print';
 import PeopleIcon from '@mui/icons-material/People';
 import InfoIcon from '@mui/icons-material/Info';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import StorageIcon from '@mui/icons-material/Storage';
+import InventoryIcon from '@mui/icons-material/Inventory2';
 
 export type SettingsSectionId =
   | 'company'
+  | 'voucher-numbers'
   | 'security'
+  | 'privacy'
   | 'backup'
   | 'data-storage'
+  | 'inventory'
   | 'network'
   | 'whatsapp'
-  | 'print'
   | 'gst-eway'
   | 'users'
   | 'about';
@@ -39,11 +43,25 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     keywords: ['company', 'profile', 'gstin', 'logo', 'business', 'switch', 'create'],
   },
   {
+    id: 'voucher-numbers',
+    label: 'Voucher Numbers',
+    icon: ReceiptLongIcon,
+    emoji: '🔢',
+    keywords: ['voucher', 'number', 'prefix', 'sequence', 'invoice', 'format', 'sales', 'purchase'],
+  },
+  {
     id: 'security',
     label: 'Security',
     icon: SecurityIcon,
     emoji: '🔒',
     keywords: ['security', 'password', 'session', 'login', 'logout', 'timeout'],
+  },
+  {
+    id: 'privacy',
+    label: 'Privacy & Diagnostics',
+    icon: PrivacyTipIcon,
+    emoji: '🛡️',
+    keywords: ['privacy', 'diagnostics', 'feedback', 'crash', 'analytics', 'telemetry', 'improvement'],
   },
   {
     id: 'backup',
@@ -60,6 +78,13 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     keywords: ['data', 'storage', 'database', 'path', 'folder', 'location', 'appdata', 'custom', 'install'],
   },
   {
+    id: 'inventory',
+    label: 'Inventory',
+    icon: InventoryIcon,
+    emoji: '📦',
+    keywords: ['inventory', 'stock', 'barcode', 'low stock', 'reorder', 'threshold'],
+  },
+  {
     id: 'network',
     label: 'Network & Multi User',
     icon: LanIcon,
@@ -72,13 +97,6 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     icon: WhatsAppIcon,
     emoji: '📱',
     keywords: ['whatsapp', 'message', 'reminder', 'invoice share'],
-  },
-  {
-    id: 'print',
-    label: 'Print Setup',
-    icon: PrintIcon,
-    emoji: '🖨️',
-    keywords: ['print', 'printer', 'invoice template', 'thermal', 'paper'],
   },
   {
     id: 'gst-eway',

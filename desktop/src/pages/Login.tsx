@@ -32,7 +32,10 @@ import {
   checkDeviceTransfer,
   surrenderOldDevice,
   verifyActivationKey,
-  validateOnLoginOrStart,
+  finalizeLoginFromLocalCache,
+  migrateLicenseCacheIfNeeded,
+  readLocalLicenseCache,
+  LOCAL_LICENSE_CACHE_KEY,
 } from "../services/licenseService";
 import { bindCurrentDevice } from "../services/deviceChangeDetector";
 import Logo from "../components/Logo";
@@ -41,6 +44,8 @@ import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth } from "../firebase/firebase";
 import { resetUserPassword, sendPasswordResetEmail } from "../services/passwordResetService";
 import { APP_DISPLAY_NAME, APP_TAGLINE } from "../constants/appBranding";
+import { clearTrialStartDate, setTrialGatePassed } from "../services/localTrialService";
+import { TRIAL_EMAIL, isTrialEmail } from "../constants/trialCredentials";
 import { loginDesktopSession, registerDesktopSession } from "../services/sessionManager";
 import { isElectronRuntime } from "../utils/runtime";
 import { listCompaniesEnriched, switchCompany } from "../services/companyRegistryService";
@@ -54,8 +59,17 @@ import {
   isBusinessProfileCompleteOnDb,
   syncBusinessProfileOnLogin,
 } from "../services/businessProfileService";
+import { checkSuperAdminUid, markSuperAdminPanelOpen } from "../services/superAdminService";
 
-const LOCAL_LICENSE_CACHE_KEY = "enc_license_cache_v1";
+function toExpiryMs(raw: unknown): number | null {
+  if (raw == null) return null;
+  if (typeof raw === "number") return raw;
+  if (typeof (raw as { toMillis?: () => number }).toMillis === "function") {
+    return Number((raw as { toMillis: () => number }).toMillis());
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
@@ -84,6 +98,7 @@ const Login: React.FC = () => {
     newDeviceId: string;
     oldDeviceInfo?: any;
   } | null>(null);
+  const [showTrialCard, setShowTrialCard] = useState(false);
 
   useEffect(() => {
     const lastEmail = localStorage.getItem("lastLoginEmail");
@@ -131,6 +146,11 @@ const Login: React.FC = () => {
     },
     plainPassword: string
   ) => {
+    try {
+      sessionStorage.setItem('pve_session_start', new Date().toISOString());
+    } catch {
+      // ignore
+    }
     await syncBusinessProfileOnLogin(userPayload.email);
     const mergedPayload = {
       ...userPayload,
@@ -218,6 +238,13 @@ const Login: React.FC = () => {
     e.preventDefault();
     setError(null);
 
+    const normalizedEmail = email.trim().toLowerCase();
+    if (isTrialEmail(normalizedEmail)) {
+      setTrialGatePassed();
+      navigate("/trial", { replace: true });
+      return;
+    }
+
     if (!email.trim() || !password.trim()) {
       setError("Please enter email and password");
       return;
@@ -226,8 +253,6 @@ const Login: React.FC = () => {
     try {
       setLoading(true);
       localStorage.setItem("lastLoginEmail", email.trim());
-
-      const normalizedEmail = email.trim().toLowerCase();
 
       // Desktop: try offline local DB first (no internet required if previously activated on this PC)
       if (isElectronRuntime()) {
@@ -287,6 +312,9 @@ const Login: React.FC = () => {
       try {
         userCredential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
         await userCredential.user.getIdToken(true);
+        if (await checkSuperAdminUid(userCredential.user.uid)) {
+          markSuperAdminPanelOpen();
+        }
       } catch (authError: any) {
         console.error('❌ Firebase auth error:', authError);
         if (authError.code === 'auth/wrong-password' || authError.code === 'auth/invalid-credential') {
@@ -296,6 +324,69 @@ const Login: React.FC = () => {
         } else {
           setError(authError.message || "Authentication failed");
         }
+        setLoading(false);
+        return;
+      }
+
+      console.log('🔐 Step 2: Checking permanent local licence cache...');
+      const deviceIdForCache = await getDeviceId();
+      await migrateLicenseCacheIfNeeded(deviceIdForCache);
+      const permanentCache = await readLocalLicenseCache(deviceIdForCache);
+      const cacheKey = permanentCache?.licenseKey || permanentCache?.activationKey;
+      const cacheEmail = String(permanentCache?.email ?? '').trim().toLowerCase();
+
+      if (
+        permanentCache?.permanently_activated &&
+        cacheKey &&
+        cacheEmail === normalizedEmail
+      ) {
+        console.log('✅ Permanent local licence — skipping cloud validation');
+        const token = await userCredential.user.getIdToken();
+        const gate = await finalizeLoginFromLocalCache({
+          uid: userCredential.user.uid,
+          email: normalizedEmail,
+          licenseKey: String(cacheKey),
+          token,
+          licenseExpiry: permanentCache.licenseExpiry ?? null,
+          multiUserLan: Boolean(permanentCache.multiUserLan),
+        });
+        if (!gate.ok) {
+          await signOut(auth).catch(() => undefined);
+          setError(String((gate as { reason?: string }).reason || 'Local licence check failed.'));
+          setLoading(false);
+          return;
+        }
+
+        const fbName = String(userCredential.user.displayName ?? "").trim();
+        const emailLocal = normalizedEmail.split("@")[0] || "";
+        const prettyLocal =
+          emailLocal.length > 0 ? emailLocal.charAt(0).toUpperCase() + emailLocal.slice(1) : "";
+        const profileName = await fetchUserDisplayName(
+          userCredential.user.uid,
+          normalizedEmail,
+          fbName || prettyLocal || normalizedEmail
+        );
+        const displayName = pickBestDisplayName(
+          [profileName, fbName],
+          normalizedEmail,
+          fbName || prettyLocal || normalizedEmail
+        );
+
+        await finishAuthAndNavigate(
+          {
+            id: userCredential.user.uid,
+            username: normalizedEmail,
+            email: normalizedEmail,
+            fullName: displayName,
+            role: 'admin',
+            companyId: '',
+            company: null,
+            completedBusinessProfile: Boolean(gate.completedBusinessProfile),
+          },
+          password
+        );
+        await clearTrialStartDate();
+        console.log('✅ Login successful (local licence)');
         setLoading(false);
         return;
       }
@@ -367,18 +458,24 @@ const Login: React.FC = () => {
         emailLocal.length > 0 ? emailLocal.charAt(0).toUpperCase() + emailLocal.slice(1) : "";
       const resolvedName = licName || fbName || prettyLocal || normalizedEmail;
 
-      let gate: Awaited<ReturnType<typeof validateOnLoginOrStart>>;
-      try {
-        gate = await validateOnLoginOrStart();
-      } catch (e: any) {
-        await signOut(auth).catch(() => undefined);
-        setError(e?.message || 'License check failed. Try again.');
-        setLoading(false);
-        return;
-      }
+      const token = await userCredential.user.getIdToken();
+      const expiryMs =
+        verifyResult.licenseData?.expiryDate != null
+          ? toExpiryMs(verifyResult.licenseData.expiryDate)
+          : null;
+
+      const gate = await finalizeLoginFromLocalCache({
+        uid: userCredential.user.uid,
+        email: normalizedEmail,
+        licenseKey: activationKey,
+        token,
+        licenseExpiry: expiryMs,
+        completedBusinessProfile: Boolean(fromProfile.profile?.completedBusinessProfile),
+        multiUserLan: Boolean(fromProfile.profile?.multiUserLan),
+      });
       if (!gate.ok) {
         await signOut(auth).catch(() => undefined);
-        setError(String((gate as { reason?: string }).reason || 'Could not validate license on this device.'));
+        setError(String((gate as { reason?: string }).reason || 'Could not save licence on this device.'));
         setLoading(false);
         return;
       }
@@ -409,6 +506,8 @@ const Login: React.FC = () => {
         },
         password
       );
+
+      await clearTrialStartDate();
 
       console.log('✅ Login successful');
 
@@ -471,6 +570,10 @@ const Login: React.FC = () => {
         licenseKey: transferData.activationKey.trim().toUpperCase(),
         licenseExpiry: result.expiryDateMs ?? null,
         cachedAt: Date.now(),
+        permanently_activated: true,
+        activated_at: new Date().toISOString(),
+        activation_device_id: transferData.newDeviceId,
+        last_online_verify_at: new Date().toISOString(),
       });
       await bindCurrentDevice(tEmailNorm);
 
@@ -668,6 +771,52 @@ const Login: React.FC = () => {
                 "Sign In"
               )}
             </Button>
+
+            <Divider sx={{ my: 2 }}>OR</Divider>
+
+            <Button
+              type="button"
+              fullWidth
+              variant="outlined"
+              size="large"
+              onClick={() => setShowTrialCard((open) => !open)}
+              sx={{ py: 1.35, fontSize: "1rem", borderRadius: 2, fontWeight: 700 }}
+            >
+              Start 7-Day Free Trial
+            </Button>
+
+            {showTrialCard && (
+            <Paper
+              variant="outlined"
+              sx={{
+                mt: 2,
+                p: 2,
+                borderRadius: 2,
+                bgcolor: "#f8fafc",
+                borderColor: "#cbd5e1",
+              }}
+            >
+              <Typography variant="subtitle1" fontWeight={800} gutterBottom>
+                7-Day Free Trial
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                <strong>Email:</strong> {TRIAL_EMAIL}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                Use the trial email above with your chosen password, then click <strong>Sign In</strong> to verify your mobile with OTP.
+              </Typography>
+              <Button
+                type="button"
+                fullWidth
+                variant="contained"
+                onClick={() => {
+                  setEmail(TRIAL_EMAIL);
+                }}
+              >
+                Fill Trial Email
+              </Button>
+            </Paper>
+            )}
 
             <Divider sx={{ my: 2 }} />
 

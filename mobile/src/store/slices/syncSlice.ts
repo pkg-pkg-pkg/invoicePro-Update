@@ -24,7 +24,7 @@ const initialState: SyncState = {
   isSyncing: false,
   pendingChanges: 0,
   error: null,
-  endpointBase: 'http://localhost:3399/mobile-sync',
+  endpointBase: 'invoicepro-api',
   lastError: null,
 };
 

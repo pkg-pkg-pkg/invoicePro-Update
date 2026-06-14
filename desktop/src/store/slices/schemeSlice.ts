@@ -336,7 +336,7 @@ const schemeSlice = createSlice({
     // fetchSchemes
     builder
       .addCase(fetchSchemes.pending, (state) => {
-        state.loading = true;
+        state.loading = state.items.length === 0;
         state.error = null;
       })
       .addCase(fetchSchemes.fulfilled, (state, action) => {

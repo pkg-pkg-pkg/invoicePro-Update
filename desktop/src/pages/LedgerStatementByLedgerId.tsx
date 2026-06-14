@@ -18,6 +18,7 @@ import {
   Typography,
 } from '@mui/material';
 import { ledgerReportService, LedgerStatement } from '../services/reports/ledgerReportService';
+import { VoucherNumberLink } from '../components/Vouchers/VoucherNumberLink';
 
 const VOUCHERS_CHANGED_EVENT = 'pve:vouchers-changed';
 
@@ -224,9 +225,12 @@ export default function LedgerStatementByLedgerId() {
                             <Typography variant="body2" fontWeight={600}>
                               {txn.voucherType}
                             </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              #{txn.voucherId}
-                            </Typography>
+                            <VoucherNumberLink
+                              voucherId={txn.voucherId}
+                              voucherType={txn.voucherType}
+                              voucherNumber={(txn.meta as { voucherNumber?: string } | undefined)?.voucherNumber}
+                              fontWeight={500}
+                            />
                           </TableCell>
                           <TableCell align="right">{formatCurrency(txn.debit)}</TableCell>
                           <TableCell align="right">{formatCurrency(txn.credit)}</TableCell>

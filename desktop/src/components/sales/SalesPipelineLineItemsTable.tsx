@@ -19,6 +19,13 @@ import type { SalesPipelineLineItem } from '../../types/salesDocuments';
 import { calcSalesLine } from '../../services/sales/salesPipelineCalc';
 import { formatCurrency } from '../../utils/formatters';
 import { generateId } from '../../utils/id';
+import {
+  voucherLineCellSx,
+  voucherLineCompactFieldSx,
+  voucherLineTableContainerSx,
+  voucherLineTableSx,
+  voucherLineAmountDisplaySx,
+} from '../../theme/voucherLineItemTableStyles';
 
 type Props = {
   lines: SalesPipelineLineItem[];
@@ -82,19 +89,19 @@ export function SalesPipelineLineItemsTable({
   };
 
   return (
-    <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'auto' }}>
-      <Table size="small">
+    <Box sx={voucherLineTableContainerSx}>
+      <Table size="small" sx={voucherLineTableSx}>
         <TableHead>
-          <TableRow sx={{ bgcolor: 'action.hover' }}>
+          <TableRow>
             <TableCell>#</TableCell>
             <TableCell>Item</TableCell>
             {showHsn ? <TableCell>HSN</TableCell> : null}
             <TableCell>Description</TableCell>
-            <TableCell align="right">Qty</TableCell>
-            <TableCell>Unit</TableCell>
-            <TableCell align="right">Rate (₹)</TableCell>
-            <TableCell align="right">Disc %</TableCell>
-            <TableCell align="right">GST %</TableCell>
+            <TableCell align="right" sx={voucherLineCellSx('qty')}>Qty</TableCell>
+            <TableCell sx={voucherLineCellSx('unit')}>Unit</TableCell>
+            <TableCell align="right" sx={voucherLineCellSx('rate')}>Rate (₹)</TableCell>
+            <TableCell align="right" sx={voucherLineCellSx('discPercent')}>Disc %</TableCell>
+            <TableCell align="right" sx={voucherLineCellSx('gstPercent')}>GST %</TableCell>
             <TableCell align="right">Amount (₹)</TableCell>
             {showFulfillment ? (
               <>
@@ -142,33 +149,37 @@ export function SalesPipelineLineItemsTable({
                 <TableCell>
                   <TextField size="small" fullWidth value={line.description ?? ''} onChange={(e) => updateLine(index, { description: e.target.value })} />
                 </TableCell>
-                <TableCell align="right">
+                <TableCell align="right" sx={voucherLineCellSx('qty')}>
                   <TextField
                     size="small"
                     type="number"
-                    sx={{ width: 72 }}
+                    sx={voucherLineCompactFieldSx('qty', 'percent')}
                     value={line.qty}
                     onChange={(e) => updateLine(index, { qty: Number(e.target.value) })}
                     error={overStock}
                   />
                 </TableCell>
-                <TableCell>
-                  <TextField size="small" sx={{ width: 72 }} value={line.unit ?? ''} onChange={(e) => updateLine(index, { unit: e.target.value })} />
+                <TableCell sx={voucherLineCellSx('unit')}>
+                  <TextField size="small" sx={voucherLineCompactFieldSx('unit')} value={line.unit ?? ''} onChange={(e) => updateLine(index, { unit: e.target.value })} />
+                </TableCell>
+                <TableCell align="right" sx={voucherLineCellSx('rate')}>
+                  <TextField size="small" type="number" sx={voucherLineCompactFieldSx('rate')} value={line.rate} onChange={(e) => updateLine(index, { rate: Number(e.target.value) })} />
+                </TableCell>
+                <TableCell align="right" sx={voucherLineCellSx('discPercent')}>
+                  <TextField size="small" type="number" sx={voucherLineCompactFieldSx('discPercent', 'percent')} value={line.discountPercent} onChange={(e) => updateLine(index, { discountPercent: Number(e.target.value) })} />
+                </TableCell>
+                <TableCell align="right" sx={voucherLineCellSx('gstPercent')}>
+                  <TextField size="small" type="number" sx={voucherLineCompactFieldSx('gstPercent', 'percent')} value={line.gstPercent} onChange={(e) => updateLine(index, { gstPercent: Number(e.target.value) })} />
                 </TableCell>
                 <TableCell align="right">
-                  <TextField size="small" type="number" sx={{ width: 88 }} value={line.rate} onChange={(e) => updateLine(index, { rate: Number(e.target.value) })} />
+                  <Typography component="span" sx={voucherLineAmountDisplaySx}>
+                    {formatCurrency(line.amount)}
+                  </Typography>
                 </TableCell>
-                <TableCell align="right">
-                  <TextField size="small" type="number" sx={{ width: 72 }} value={line.discountPercent} onChange={(e) => updateLine(index, { discountPercent: Number(e.target.value) })} />
-                </TableCell>
-                <TableCell align="right">
-                  <TextField size="small" type="number" sx={{ width: 72 }} value={line.gstPercent} onChange={(e) => updateLine(index, { gstPercent: Number(e.target.value) })} />
-                </TableCell>
-                <TableCell align="right">{formatCurrency(line.amount)}</TableCell>
                 {showFulfillment ? (
                   <>
-                    <TableCell align="right">
-                      <TextField size="small" type="number" sx={{ width: 72 }} value={line.qtyDispatched ?? 0} onChange={(e) => updateLine(index, { qtyDispatched: Number(e.target.value) })} />
+                    <TableCell align="right" sx={voucherLineCellSx('qty')}>
+                      <TextField size="small" type="number" sx={voucherLineCompactFieldSx('qty', 'percent')} value={line.qtyDispatched ?? 0} onChange={(e) => updateLine(index, { qtyDispatched: Number(e.target.value) })} />
                     </TableCell>
                     <TableCell align="right">{line.qtyPending ?? 0}</TableCell>
                   </>

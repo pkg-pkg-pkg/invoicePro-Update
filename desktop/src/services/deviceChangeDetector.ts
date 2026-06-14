@@ -3,6 +3,7 @@ import { getEncryptedItem } from './secureStorage';
 import { auth, db } from '../firebase/firebase';
 import { signOut } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
+import { removeEncryptedItem } from './secureStorage';
 
 const DEVICE_BINDING_KEY = 'device_binding_v1';
 const LOCAL_LICENSE_CACHE_KEY = 'enc_license_cache_v1';
@@ -110,7 +111,7 @@ export async function forceLogoutDueToDeviceChange(reason: string): Promise<void
   localStorage.removeItem('token');
   localStorage.removeItem('user');
   localStorage.removeItem(DEVICE_BINDING_KEY);
-  localStorage.removeItem(LOCAL_LICENSE_CACHE_KEY);
+  removeEncryptedItem(LOCAL_LICENSE_CACHE_KEY);
   localStorage.removeItem('lastLoginEmail');
   localStorage.removeItem('lastLoginMobile');
   
@@ -169,4 +170,42 @@ export function subscribeToLicenseDeactivation(params: {
   } catch {
     return () => undefined;
   }
+}
+
+/** Pause Firestore listener when app is minimized; resume on focus. */
+export function subscribeToLicenseDeactivationWithVisibility(params: {
+  licenseKey: string;
+  onDeactivated: (reason: string) => void;
+}): () => void {
+  if (typeof document === 'undefined') {
+    return subscribeToLicenseDeactivation(params);
+  }
+
+  let innerUnsub: (() => void) | undefined;
+  let listening = false;
+
+  const start = () => {
+    if (listening) return;
+    listening = true;
+    innerUnsub = subscribeToLicenseDeactivation(params);
+  };
+
+  const stop = () => {
+    listening = false;
+    innerUnsub?.();
+    innerUnsub = undefined;
+  };
+
+  const onVisibility = () => {
+    if (document.visibilityState === 'visible') start();
+    else stop();
+  };
+
+  document.addEventListener('visibilitychange', onVisibility);
+  if (document.visibilityState === 'visible') start();
+
+  return () => {
+    document.removeEventListener('visibilitychange', onVisibility);
+    stop();
+  };
 }

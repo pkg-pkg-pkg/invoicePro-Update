@@ -24,7 +24,7 @@ function serializeValue(v: unknown): unknown {
 }
 
 const INTERNAL_HINT =
-  'Open Firebase Console → Functions → Logs (same time as this request). Common fixes: deploy functions (`firebase deploy --only functions`), set `license.secret` (`firebase functions:config:set license.secret="..."`), enable Firestore/APIs, or fix an uncaught error in the function.';
+  'Cloud Function crashed or is not deployed. Check Firebase Console → Functions → Logs. Deploy: `cd desktop && firebase deploy --only functions --project invoicepro-105ba`. Set secret: `firebase functions:secrets:set LICENSE_SECRET` (or `firebase functions:config:set license.secret="..."`). Ensure your UID exists in Firestore `admins/{uid}`.';
 
 export function formatCallableError(e: unknown): string {
   const err = e as { code?: string; message?: string };

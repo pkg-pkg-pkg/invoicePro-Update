@@ -22,6 +22,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import DownloadIcon from '@mui/icons-material/Download';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
+import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import PeopleOutlineIcon from '@mui/icons-material/PeopleOutline';
 import type { Party } from '../../types/party';
 import type { CustomerFilterKey } from '../../services/customers/customersApi';
@@ -233,6 +234,9 @@ type ToolbarProps = {
   onExport: () => void;
   onBulkUpload: () => void;
   onBulkDelete: () => void;
+  onBulkReminders: () => void;
+  onBulkMarkActive: () => void;
+  onBulkMarkInactive: () => void;
   selectedCount: number;
 };
 
@@ -247,6 +251,9 @@ export function CustomersListToolbar({
   onExport,
   onBulkUpload,
   onBulkDelete,
+  onBulkReminders,
+  onBulkMarkActive,
+  onBulkMarkInactive,
   selectedCount,
 }: ToolbarProps) {
   const theme = useTheme();
@@ -256,11 +263,11 @@ export function CustomersListToolbar({
     <>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }} flexWrap="wrap" gap={1}>
         <Typography variant="h5" fontWeight={800} color={tok.text}>
-          Customers
+          Debtors
         </Typography>
         <Stack direction="row" spacing={1} flexWrap="wrap">
           <Button variant="contained" startIcon={<AddIcon />} onClick={onNew}>
-            New Customer
+            New Debtor
           </Button>
           <Button variant="outlined" startIcon={<DownloadIcon />} onClick={onExport}>
             Download Excel
@@ -268,8 +275,17 @@ export function CustomersListToolbar({
           <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={onBulkUpload}>
             Bulk Upload
           </Button>
+          <Button variant="outlined" startIcon={<WhatsAppIcon />} disabled={selectedCount === 0} onClick={onBulkReminders}>
+            Send Reminder
+          </Button>
+          <Button variant="outlined" disabled={selectedCount === 0} onClick={onBulkMarkActive}>
+            Mark Active
+          </Button>
+          <Button variant="outlined" disabled={selectedCount === 0} onClick={onBulkMarkInactive}>
+            Mark Inactive
+          </Button>
           <Button variant="outlined" color="error" startIcon={<DeleteOutlineIcon />} disabled={selectedCount === 0} onClick={onBulkDelete}>
-            Bulk Delete
+            Bulk Inactivate
           </Button>
           <IconButton onClick={onRefresh} title="Refresh">
             <RefreshIcon />
@@ -280,7 +296,7 @@ export function CustomersListToolbar({
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }} sx={{ mb: 2 }}>
         <TextField
           size="small"
-          placeholder="Search customers..."
+          placeholder="Search debtors..."
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
           sx={{ minWidth: 260 }}
@@ -293,7 +309,7 @@ export function CustomersListToolbar({
           onChange={(e) => onFilterChange(e.target.value as CustomerFilterKey)}
           sx={{ minWidth: 180 }}
         >
-          <MenuItem value="ALL">All Customers</MenuItem>
+          <MenuItem value="ALL">All Debtors</MenuItem>
           <MenuItem value="ACTIVE">Active</MenuItem>
           <MenuItem value="INACTIVE">Inactive</MenuItem>
           <MenuItem value="OVERDUE">Overdue</MenuItem>

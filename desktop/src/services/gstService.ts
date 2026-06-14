@@ -26,6 +26,15 @@ export interface GSTR1Response {
   b2b: any[];
   b2c: any[];
   hsnSummary: any[];
+  nilRated?: any[];
+  exempted?: any[];
+  exportSales?: any[];
+  taxLiability?: {
+    igst: number;
+    cgst: number;
+    sgst: number;
+    total: number;
+  };
   summary: {
     totalB2BInvoices: number;
     totalB2CInvoices: number;
@@ -137,6 +146,7 @@ export interface HSNSummaryResponse {
 }
 
 type StoredInvoice = {
+  voucherId?: string;
   invoiceNumber?: string;
   date?: string;
   supplyType?: 'INTRA' | 'INTER';
@@ -152,6 +162,7 @@ type StoredInvoice = {
 };
 
 type StoredPurchaseInvoice = {
+  voucherId?: string;
   invoiceNumber?: string;
   date?: string;
   supplyType?: 'INTRA' | 'INTER';
@@ -261,6 +272,7 @@ const loadInvoices = async (): Promise<StoredInvoice[]> => {
       });
 
       return {
+        voucherId: voucher.id,
         invoiceNumber: voucher.number,
         date: voucher.date,
         supplyType,
@@ -343,6 +355,7 @@ const loadPurchaseInvoices = async (): Promise<StoredPurchaseInvoice[]> => {
       });
 
       return {
+        voucherId: voucher.id,
         invoiceNumber: voucher.number,
         date: voucher.date,
         supplyType,
@@ -435,6 +448,40 @@ const makeHsnSummaryFromPurchase = (invoices: StoredPurchaseInvoice[]) =>
     }))
   );
 
+const buildSupplySegments = (invoices: StoredInvoice[]) => {
+  const nilRated: any[] = [];
+  const exempted: any[] = [];
+  const exportSales: any[] = [];
+
+  for (const inv of invoices) {
+    const items = Array.isArray(inv.items) ? inv.items : [];
+    for (const it of items) {
+      const gstRate = Number(it.gstRate ?? 0);
+      const taxable = Number(it.taxableAmount ?? 0);
+      const tax = Number(it.gstAmount ?? 0);
+      if (taxable <= 0) continue;
+      const row = {
+        invoiceNumber: inv.invoiceNumber ?? '',
+        invoiceDate: inv.date ?? '',
+        customerName: inv.billTo?.name ?? '',
+        hsn: String(it.hsn ?? ''),
+        taxableValue: taxable,
+        gstRate,
+      };
+      if (gstRate === 0 && tax === 0) {
+        exempted.push(row);
+        if ((inv.supplyType ?? 'INTRA') === 'INTER') {
+          exportSales.push({ ...row, supplyType: inv.supplyType });
+        } else {
+          nilRated.push(row);
+        }
+      }
+    }
+  }
+
+  return { nilRated, exempted, exportSales };
+};
+
 export const gstService = {
   async getGSTR1(month: number, year: number): Promise<GSTR1Response> {
     if (isOfflineRuntime()) {
@@ -448,6 +495,7 @@ export const gstService = {
       for (const inv of invoices) {
         const { taxable, igst, cgst, sgst, tax } = sumTaxes(inv);
         const row = {
+          voucherId: inv.voucherId ?? '',
           invoiceNumber: inv.invoiceNumber ?? '',
           invoiceDate: inv.date ?? '',
           customerName: inv.billTo?.name ?? '',
@@ -474,11 +522,22 @@ export const gstService = {
         { totalTaxableValue: 0, totalIGST: 0, totalCGST: 0, totalSGST: 0 }
       );
 
+      const segments = buildSupplySegments(invoices);
+
       return {
         period: { month, year },
         b2b,
         b2c,
         hsnSummary: makeHsnSummary(invoices),
+        nilRated: segments.nilRated,
+        exempted: segments.exempted,
+        exportSales: segments.exportSales,
+        taxLiability: {
+          igst: summaryTotals.totalIGST,
+          cgst: summaryTotals.totalCGST,
+          sgst: summaryTotals.totalSGST,
+          total: summaryTotals.totalIGST + summaryTotals.totalCGST + summaryTotals.totalSGST,
+        },
         summary: {
           totalB2BInvoices: b2b.length,
           totalB2CInvoices: b2c.length,
@@ -513,6 +572,7 @@ export const gstService = {
             items: inv.items,
           });
           return {
+            voucherId: inv.voucherId ?? '',
             supplierGSTIN: String(inv.supplier?.gstin || ''),
             supplierName: String(inv.supplier?.name || ''),
             invoiceNumber: String(inv.invoiceNumber || ''),
@@ -680,8 +740,10 @@ export const gstService = {
 
   async exportGSTR1(month: number, year: number, gstin?: string): Promise<Blob> {
     if (isOfflineRuntime()) {
-      const payload = { month, year, gstin, offline: true };
-      return new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const payload = await this.getGSTR1(month, year);
+      return new Blob([JSON.stringify({ ...payload, gstin, exportedAt: new Date().toISOString() }, null, 2)], {
+        type: 'application/json',
+      });
     }
     const response = await api.get('/gst/gstr1/export', {
       params: { month, year, gstin },
@@ -692,8 +754,10 @@ export const gstService = {
 
   async exportGSTR2(month: number, year: number, gstin?: string): Promise<Blob> {
     if (isOfflineRuntime()) {
-      const payload = { month, year, gstin, offline: true };
-      return new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const payload = await this.getGSTR2(month, year);
+      return new Blob([JSON.stringify({ ...payload, gstin, exportedAt: new Date().toISOString() }, null, 2)], {
+        type: 'application/json',
+      });
     }
     const response = await api.get('/gst/gstr2/export', {
       params: { month, year, gstin },

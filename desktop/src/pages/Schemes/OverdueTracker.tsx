@@ -154,9 +154,13 @@ const OverdueTracker = () => {
         <Typography variant="h4" sx={{ fontWeight: 600 }}>
           ⚠️ Overdue & At-Risk Tracker
         </Typography>
-        <IconButton onClick={handleRefresh} disabled={refreshing}>
-          <RefreshIcon sx={{ ...(refreshing && { animation: 'spin 1s linear infinite' }) }} />
-        </IconButton>
+        <Tooltip title="Refresh">
+          <span style={{ display: 'inline-flex' }}>
+            <IconButton onClick={handleRefresh} disabled={refreshing}>
+              <RefreshIcon sx={{ ...(refreshing && { animation: 'spin 1s linear infinite' }) }} />
+            </IconButton>
+          </span>
+        </Tooltip>
       </Box>
 
       {error && (
@@ -338,29 +342,35 @@ const OverdueTracker = () => {
                     <Box sx={{ display: 'flex', gap: 1 }}>
                       {retailer.phone && (
                         <Tooltip title="Call Retailer">
-                          <IconButton size="small" color="primary">
-                            <PhoneIcon />
-                          </IconButton>
+                          <span style={{ display: 'inline-flex' }}>
+                            <IconButton size="small" color="primary">
+                              <PhoneIcon />
+                            </IconButton>
+                          </span>
                         </Tooltip>
                       )}
                       {retailer.email && (
                         <Tooltip title="Send Email">
-                          <IconButton size="small" color="info">
-                            <EmailIcon />
-                          </IconButton>
+                          <span style={{ display: 'inline-flex' }}>
+                            <IconButton size="small" color="info">
+                              <EmailIcon />
+                            </IconButton>
+                          </span>
                         </Tooltip>
                       )}
                       <Tooltip title="Freeze Scheme">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => {
-                            setSelectedRetailer(retailer);
-                            setFreezeDialogOpen(true);
-                          }}
-                        >
-                          <BlockIcon />
-                        </IconButton>
+                        <span style={{ display: 'inline-flex' }}>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => {
+                              setSelectedRetailer(retailer);
+                              setFreezeDialogOpen(true);
+                            }}
+                          >
+                            <BlockIcon />
+                          </IconButton>
+                        </span>
                       </Tooltip>
                     </Box>
                   </TableCell>

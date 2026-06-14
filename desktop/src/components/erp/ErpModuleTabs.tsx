@@ -1,5 +1,6 @@
 import { Box, Tab, Tabs } from '@mui/material';
 import { useTheme, alpha } from '@mui/material/styles';
+import { WrapTabScrollButton } from '../mui/WrapTabScrollButton';
 
 export type ErpModuleTab = {
   id: string;
@@ -30,6 +31,7 @@ export function ErpModuleTabs({ tabs, value, onChange }: Props) {
         variant="scrollable"
         scrollButtons="auto"
         allowScrollButtonsMobile
+        ScrollButtonComponent={WrapTabScrollButton}
         sx={{
           minHeight: 44,
           '& .MuiTabs-indicator': {

@@ -1,14 +1,14 @@
 import { Voucher } from '../types/vouchers';
 import { LedgerAccount } from '../types/masters';
-import { getInvoicePrintLayout, getInvoiceTemplateId } from './companySettingsService';
+import type { InvoicePaperSize } from '../templates/invoice/invoiceTemplatesConfig';
+import { normalizePaperSize } from '../templates/invoice/invoiceTemplatesConfig';
 import {
   buildInvoiceHTML,
   CompanyInfo,
+  DEFAULT_INVOICE_PRINT_OPTIONS,
   InvoiceData,
-  PrintFormat,
-  PrintOptions,
+  paperSizeToFormat,
 } from './printService';
-import type { InvoiceTemplateId } from '../templates/invoice/invoiceTemplatesConfig';
 import { buildEwayPrintBlock } from './ewayBillService';
 import { getNormalizedCompanyProfile } from '../utils/companyProfile';
 
@@ -42,62 +42,20 @@ export const voucherGrandTotal = (voucher: Voucher): number => {
   return Math.max(debit, credit);
 };
 
-export const resolvePrintFormatFromLayout = (
-  pageSize: string,
-  orientation: string
-): {
-  format: PrintFormat;
-  landscape: boolean;
-  showSignature: boolean;
-  fontSize: 'compact' | 'normal';
-} => {
-  const uiSettingsRaw = localStorage.getItem('invoice-settings');
-  const uiSettings = uiSettingsRaw ? JSON.parse(uiSettingsRaw) : {};
-  const fontSizeValue: string = uiSettings?.fontSize || '12';
-  const showSignature: boolean = Boolean(uiSettings?.showSignature ?? true);
-  const landscape = orientation === 'landscape';
-  const format: PrintFormat =
-    pageSize === 'THERMAL_80'
-      ? 'THERMAL_80'
-      : pageSize === 'THERMAL_58'
-        ? 'THERMAL_58'
-        : pageSize === 'A5'
-          ? landscape
-            ? 'A5_LANDSCAPE'
-            : 'A5_PORTRAIT'
-          : landscape
-            ? 'A4_LANDSCAPE'
-            : 'A4_PORTRAIT';
-  return { format, landscape, showSignature, fontSize: Number(fontSizeValue) <= 12 ? 'compact' : 'normal' };
-};
-
-export const resolvePrintFormatFromSettings = (): {
-  format: PrintFormat;
-  landscape: boolean;
-  showSignature: boolean;
-  fontSize: 'compact' | 'normal';
-} => {
-  const uiSettingsRaw = localStorage.getItem('invoice-settings');
-  const uiSettings = uiSettingsRaw ? JSON.parse(uiSettingsRaw) : {};
-  const pageSize: string = uiSettings?.pageSize || 'A4';
-  const orientation: string = uiSettings?.orientation || 'portrait';
-  return resolvePrintFormatFromLayout(pageSize, orientation);
-};
-
 export const loadCompanyForPrint = (): CompanyInfo => {
   const p = getNormalizedCompanyProfile();
   return {
-    name: p.businessName || p.name || 'Company',
-    address: p.address,
-    gstin: p.gstin,
-    phone: p.phone,
-    email: p.email,
-    website: p.website,
-    city: p.city,
-    pinCode: p.pinCode,
-    bank: p.bank,
-    accountNo: p.accountNo,
-    ifsc: p.ifsc,
+    name: p.businessName || p.name || '',
+    address: p.address || '',
+    gstin: p.gstin || '',
+    phone: p.phone || '',
+    email: p.email || '',
+    website: p.website || '',
+    city: p.city || '',
+    pinCode: p.pinCode || '',
+    bank: p.bank || '',
+    accountNo: p.accountNo || '',
+    ifsc: p.ifsc || '',
     logo: p.logo || undefined,
     signature: p.signature || undefined,
   };
@@ -118,9 +76,7 @@ export interface BuildSalesVoucherPrintInput {
   itemNameMap: Map<string, string>;
   ledgerNameMap: Map<string, string>;
   customerLedger?: LedgerAccount | null;
-  templateId?: InvoiceTemplateId;
-  pageSize?: string;
-  orientation?: string;
+  pageSize?: InvoicePaperSize | string;
   dueDate?: string;
   termsAndConditions?: string;
   discountTotal?: number;
@@ -132,18 +88,15 @@ export const buildSalesVoucherInvoiceHtml = async (
 ): Promise<{
   html: string;
   fileName: string;
-  landscape: boolean;
 }> => {
-  const { voucher, itemNameMap, ledgerNameMap, customerLedger, templateId, dueDate, termsAndConditions } = input;
+  const { voucher, itemNameMap, ledgerNameMap, customerLedger, dueDate, termsAndConditions } = input;
   const company = loadCompanyForPrint();
-  const layoutPage = input.pageSize || getInvoicePrintLayout().pageSize;
-  const layoutOrient = input.orientation || getInvoicePrintLayout().orientation;
-  const { format, landscape, showSignature, fontSize } = resolvePrintFormatFromLayout(layoutPage, layoutOrient);
+  const format = paperSizeToFormat(input.pageSize || 'A4');
 
   const customerLine = voucher.lines.find((line) => (line.debit ?? 0) > 0);
   const customerName =
     customerLedger?.name ||
-    (customerLine ? ledgerLabel(customerLine.ledgerId, ledgerNameMap) : 'Customer');
+    (customerLine ? ledgerLabel(customerLine.ledgerId, ledgerNameMap) : '');
 
   const itemLines = voucher.lines.filter((line) => line.itemId && Number(line.quantity || 0) > 0);
   const subtotal = itemLines.reduce((sum, line) => sum + Number(line.credit || line.debit || 0), 0);
@@ -162,6 +115,7 @@ export const buildSalesVoucherInvoiceHtml = async (
   });
 
   const grandTotal = voucherGrandTotal(voucher);
+  const prevBalance = Number(customerLedger?.currentBalance ?? NaN);
   const items = itemLines.map((line) => {
     const qty = Number(line.quantity || 0);
     const amount = Number(line.credit || line.debit || 0);
@@ -178,15 +132,6 @@ export const buildSalesVoucherInvoiceHtml = async (
       igst: Number(line.igstAmount || 0),
     };
   });
-
-  const printOptions: PrintOptions = {
-    showTaxBreakup: true,
-    showSignature,
-    showDeclaration: true,
-    logoPosition: 'top-left',
-    fontSize,
-    margin: 'normal',
-  };
 
   const roundOffLine = voucher.lines.find((l) =>
     ledgerLabel(l.ledgerId, ledgerNameMap).toUpperCase().includes('ROUND')
@@ -218,17 +163,13 @@ export const buildSalesVoucherInvoiceHtml = async (
     declaration:
       'We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',
     ewayBillBlock: buildEwayPrintBlock(voucher.ewayBill),
+    buyerState: '',
+    prevBalance: Number.isFinite(prevBalance) ? prevBalance : undefined,
   };
 
-  const html = await buildInvoiceHTML(
-    format,
-    company,
-    invoiceData,
-    printOptions,
-    templateId || getInvoiceTemplateId()
-  );
+  const html = await buildInvoiceHTML(format, company, invoiceData, DEFAULT_INVOICE_PRINT_OPTIONS);
   const safeNumber = voucher.number.replace(/[^\w.-]+/g, '_');
-  return { html, fileName: `${safeNumber}.pdf`, landscape };
+  return { html, fileName: `${safeNumber}.pdf` };
 };
 
 export const buildWhatsAppShareUrl = (voucher: Voucher, phone?: string): string => {

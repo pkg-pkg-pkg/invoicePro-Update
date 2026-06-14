@@ -173,7 +173,11 @@ function appendStartupLog(app, payload) {
   }
 }
 
+let startupLogEmitted = false;
+
 function logStartup(app, config, companyRegistry) {
+  if (startupLogEmitted) return;
+  startupLogEmitted = true;
   let diagnostics = {};
   try {
     diagnostics = getStartupDiagnostics(app, companyRegistry);

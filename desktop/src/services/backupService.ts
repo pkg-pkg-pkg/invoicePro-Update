@@ -3,25 +3,38 @@
 import { APP_DISPLAY_NAME } from '../constants/appBranding';
 import { isElectronRuntime } from '../utils/runtime';
 import { getNormalizedCompanyProfile } from '../utils/companyProfile';
+import { trackFeatureUsage } from './privacy/featureAnalyticsService';
 
 const MANUAL_LOCATION_KEY = 'manualBackupLocation';
+const BACKUP_DESTINATION_KEY = 'backupDestinationConfig';
+
+export type BackupDestination = 'local' | 'googleDrive' | 'firebase';
 
 interface AutoBackupConfig {
   enabled: boolean;
   frequency: 'daily' | 'weekly' | 'monthly';
-  time: string; // HH:MM format
+  time: string;
   location: string;
   retentionDays: number;
+  destination: BackupDestination;
+}
+
+interface BackupDestinationConfig {
+  local: boolean;
+  googleDrive: boolean;
+  firebase: boolean;
 }
 
 class BackupService {
   private autoBackupInterval: NodeJS.Timeout | null = null;
+  private lastAutoBackupKey = 'lastAutoBackupAt';
   private config: AutoBackupConfig = {
     enabled: false,
     frequency: 'daily',
     time: '23:00',
     location: '',
     retentionDays: 7,
+    destination: 'local',
   };
 
   constructor() {
@@ -50,6 +63,23 @@ class BackupService {
     this.restartAutoBackup();
   }
 
+  public getDestinationConfig(): BackupDestinationConfig {
+    try {
+      const raw = localStorage.getItem(BACKUP_DESTINATION_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch {
+      /* ignore */
+    }
+    return { local: true, googleDrive: false, firebase: false };
+  }
+
+  public setDestinationConfig(config: BackupDestinationConfig) {
+    localStorage.setItem(BACKUP_DESTINATION_KEY, JSON.stringify(config));
+    this.updateConfig({
+      destination: config.local ? 'local' : config.googleDrive ? 'googleDrive' : 'firebase',
+    });
+  }
+
   public getManualBackupLocation(): string {
     try {
       const saved = localStorage.getItem(MANUAL_LOCATION_KEY);
@@ -76,28 +106,11 @@ class BackupService {
   }
 
   private startAutoBackup() {
-    if (!this.config.enabled) return;
-
-    // Clear existing interval
-    if (this.autoBackupInterval) {
-      clearInterval(this.autoBackupInterval);
+    if (!this.autoBackupInterval) {
+      this.autoBackupInterval = setInterval(() => {
+        void this.checkAndRunAutoBackup();
+      }, 60000);
     }
-
-    // Calculate next backup time
-    const nextBackup = this.calculateNextBackupTime();
-
-    console.log('Auto-backup scheduled for:', nextBackup.toLocaleString());
-
-    // Set up interval to check every minute
-    this.autoBackupInterval = setInterval(() => {
-      const now = new Date();
-      if (now >= nextBackup) {
-        this.performAutoBackup();
-        // Schedule next backup
-        const newNextBackup = this.calculateNextBackupTime();
-        console.log('Next auto-backup scheduled for:', newNextBackup.toLocaleString());
-      }
-    }, 60000); // Check every minute
   }
 
   private restartAutoBackup() {
@@ -111,19 +124,17 @@ class BackupService {
     let nextBackup = new Date(now);
     nextBackup.setHours(hours, minutes, 0, 0);
 
-    // If the time has already passed today, schedule for next occurrence
     if (nextBackup <= now) {
       switch (this.config.frequency) {
         case 'daily':
           nextBackup.setDate(nextBackup.getDate() + 1);
           break;
-        case 'weekly':
-          // Next Monday
+        case 'weekly': {
           const daysUntilMonday = (8 - nextBackup.getDay()) % 7 || 7;
           nextBackup.setDate(nextBackup.getDate() + daysUntilMonday);
           break;
+        }
         case 'monthly':
-          // Next month, 1st
           nextBackup.setMonth(nextBackup.getMonth() + 1, 1);
           break;
       }
@@ -132,71 +143,81 @@ class BackupService {
     return nextBackup;
   }
 
+  private shouldRunAutoBackup(now: Date): boolean {
+    if (!this.config.enabled) return false;
+    const next = this.calculateNextBackupTime();
+    if (now < next) return false;
+
+    const lastRaw = localStorage.getItem(this.lastAutoBackupKey);
+    if (!lastRaw) return true;
+    const last = new Date(lastRaw);
+    const msSince = now.getTime() - last.getTime();
+    if (this.config.frequency === 'daily') return msSince >= 20 * 60 * 60 * 1000;
+    if (this.config.frequency === 'weekly') return msSince >= 6 * 24 * 60 * 60 * 1000;
+    return msSince >= 25 * 24 * 60 * 60 * 1000;
+  }
+
+  private async checkAndRunAutoBackup() {
+    const now = new Date();
+    if (!this.shouldRunAutoBackup(now)) return;
+    await this.performAutoBackup();
+  }
+
   private async performAutoBackup() {
-    try {
-      console.log('Starting auto-backup...');
+    const dest = this.getDestinationConfig();
+    if (!dest.local) {
+      console.log('[backup] Auto-backup skipped — only local folder is active (cloud destinations are future-ready).');
+      return;
+    }
 
-      const loadCount = (key: string) => {
-        try {
-          const raw = localStorage.getItem(key);
-          if (!raw) return 0;
-          const parsed = JSON.parse(raw);
-          return Array.isArray(parsed) ? parsed.length : 0;
-        } catch {
-          return 0;
-        }
-      };
+    const location = this.getManualBackupLocation();
+    if (!location) {
+      console.warn('[backup] Auto-backup skipped — no backup folder configured.');
+      return;
+    }
 
-      const invoiceCount = loadCount('pve_invoicepro_invoices');
-      const customerCount = loadCount('pve_customers');
-      const supplierCount = loadCount('pve_suppliers');
-      const productCount = loadCount('pve_products');
-
-      // Overwrite strategy: keep a single latest backup by default
-      const fileName = `InvoicePro_Backup_Latest.ipbak`;
-
-      // Create backup entry
-      const backupEntry = {
-        id: Date.now().toString(),
-        fileName,
-        createdAt: new Date().toISOString(),
-        size: 'N/A',
-        type: 'auto' as const,
-        companyName: getNormalizedCompanyProfile().businessName || 'Your Company',
-        invoiceCount,
-        customerCount,
-        supplierCount,
-        productCount,
-        location: this.config.location,
-      };
-
-      // Save backup entry to localStorage (in real app, this would be in a database)
-      localStorage.setItem('backupHistory', JSON.stringify([backupEntry]));
-
-      console.log('Auto-backup completed:', fileName);
-
-      // Show notification (in Electron, this would be a system notification)
-      if (typeof window !== 'undefined' && 'Notification' in window) {
-        if (Notification.permission === 'granted') {
-          new Notification(`${APP_DISPLAY_NAME} Auto-Backup`, {
-            body: `Backup created successfully: ${fileName}`,
-            icon: '/invoicepro-logo.png'
-          });
-        }
+    const result = await this.createManualBackup(location, 'auto');
+    if (!result.success) {
+      if (result.requiresDatabaseConfirmation) {
+        console.warn('[backup] Auto-backup skipped — database exceeds 80 MB inline limit.');
       }
-
-    } catch (error) {
-      console.error('Auto-backup failed:', error);
+      return;
+    }
+    localStorage.setItem(this.lastAutoBackupKey, new Date().toISOString());
+    this.enforceRetention(location);
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      new Notification(`${APP_DISPLAY_NAME} Auto-Backup`, {
+        body: `Backup created: ${result.fileName || 'InvoicePro_Backup.ipbak'}`,
+      });
     }
   }
 
-  public async createManualBackup(location: string): Promise<{
+  private enforceRetention(location: string) {
+    const history = this.getBackupHistory().filter(
+      (b: { location?: string }) => b.location === location || !b.location
+    );
+    const cutoff = Date.now() - this.config.retentionDays * 24 * 60 * 60 * 1000;
+    const kept = history.filter((b: { createdAt: string }) => new Date(b.createdAt).getTime() >= cutoff);
+    localStorage.setItem('backupHistory', JSON.stringify(kept.slice(0, 20)));
+  }
+
+  public async createManualBackup(
+    location: string,
+    type: 'manual' | 'auto' = 'manual',
+    options?: { allowSkipDatabase?: boolean }
+  ): Promise<{
     success: boolean;
     fileName?: string;
     filePath?: string;
     location?: string;
     size?: string;
     error?: string;
+    partial?: boolean;
+    databaseSkipped?: boolean;
+    warning?: string;
+    requiresDatabaseConfirmation?: boolean;
+    dbSizeBytes?: number;
+    dbSizeLabel?: string;
   }> {
     try {
       const targetDir = location.trim();
@@ -205,7 +226,19 @@ class BackupService {
       }
 
       if (isElectronRuntime() && window.electronAPI?.backupCreateManual) {
-        const result = await window.electronAPI.backupCreateManual({ targetDir });
+        const result = await window.electronAPI.backupCreateManual({
+          targetDir,
+          allowSkipDatabase: options?.allowSkipDatabase,
+        });
+        if (result.requiresDatabaseConfirmation) {
+          return {
+            success: false,
+            requiresDatabaseConfirmation: true,
+            dbSizeBytes: result.dbSizeBytes,
+            dbSizeLabel: result.dbSizeLabel,
+            error: result.error || 'Database exceeds the 80 MB inline backup limit.',
+          };
+        }
         if (!result.success) {
           return { success: false, error: result.error || 'Manual backup failed' };
         }
@@ -215,7 +248,7 @@ class BackupService {
           fileName: result.fileName || 'InvoicePro_Backup.ipbak',
           createdAt: new Date().toISOString(),
           size: result.sizeLabel || 'N/A',
-          type: 'manual' as const,
+          type,
           companyName: getNormalizedCompanyProfile().businessName || 'Your Company',
           invoiceCount: 0,
           customerCount: 0,
@@ -229,6 +262,7 @@ class BackupService {
         history.unshift(backupEntry);
         localStorage.setItem('backupHistory', JSON.stringify(history.slice(0, 20)));
         this.setManualBackupLocation(result.location || targetDir);
+        trackFeatureUsage('backupCreated');
 
         return {
           success: true,
@@ -236,43 +270,50 @@ class BackupService {
           filePath: result.filePath,
           location: result.location || targetDir,
           size: backupEntry.size,
+          partial: result.partial,
+          databaseSkipped: result.databaseSkipped,
+          warning: result.warning,
         };
       }
 
-      const fileName = `InvoicePro_Backup_Latest.ipbak`;
-      const loadCount = (key: string) => {
-        try {
-          const raw = localStorage.getItem(key);
-          if (!raw) return 0;
-          const parsed = JSON.parse(raw);
-          return Array.isArray(parsed) ? parsed.length : 0;
-        } catch {
-          return 0;
-        }
-      };
-
-      const backupEntry = {
-        id: Date.now().toString(),
-        fileName,
-        createdAt: new Date().toISOString(),
-        size: 'N/A',
-        type: 'manual' as const,
-        companyName: getNormalizedCompanyProfile().businessName || 'Your Company',
-        invoiceCount: loadCount('pve_invoicepro_invoices'),
-        customerCount: loadCount('pve_customers'),
-        supplierCount: loadCount('pve_suppliers'),
-        productCount: loadCount('pve_products'),
-        location: targetDir,
-      };
-
-      localStorage.setItem('backupHistory', JSON.stringify([backupEntry]));
-      this.setManualBackupLocation(targetDir);
-
-      return { success: true, fileName, location: targetDir };
+      return { success: false, error: 'Backup requires the desktop app.' };
     } catch (error) {
       console.error('Manual backup failed:', error);
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
+  }
+
+  public async previewBackupFile(filePath: string) {
+    if (!isElectronRuntime() || !window.electronAPI?.backupPreviewFile) {
+      return { success: false, error: 'Preview requires the desktop app.' };
+    }
+    return window.electronAPI.backupPreviewFile({ filePath });
+  }
+
+  public async restoreBackupFile(filePath: string) {
+    if (!isElectronRuntime() || !window.electronAPI?.backupRestoreFromFile) {
+      return { success: false, error: 'Restore requires the desktop app.' };
+    }
+    const { auditService } = await import('./audit/auditService');
+    const result = await window.electronAPI.backupRestoreFromFile({ filePath });
+    if (result?.success) {
+      trackFeatureUsage('restorePerformed');
+      await auditService.logBackupRestore(filePath, {
+        restoredSections: result.restoredSections,
+        restorePointId: result.restorePointId,
+      });
+      const { billReferenceService } = await import('./settlement/billReferenceService');
+      await billReferenceService.ensureMigrated();
+      await billReferenceService.runSettlementAuditAfterChange('restore');
+    }
+    return result;
+  }
+
+  public async rollbackRestorePoint(restorePointId: string) {
+    if (!isElectronRuntime() || !window.electronAPI?.backupRollbackRestorePoint) {
+      return { success: false, error: 'Rollback requires the desktop app.' };
+    }
+    return window.electronAPI.backupRollbackRestorePoint({ restorePointId });
   }
 
   public getBackupHistory() {
@@ -292,5 +333,4 @@ class BackupService {
   }
 }
 
-// Export singleton instance
 export const backupService = new BackupService();

@@ -13,12 +13,20 @@ import type { ItemTransactionRow } from '../../services/items/itemsApi';
 import type { StockAdjustment } from '../../types/masters';
 import { ItemsListPanel } from '../../components/items/ItemsListPanel';
 import { ItemsTablePanel } from '../../components/items/ItemsTablePanel';
-import { ItemsToolbar } from '../../components/items/ItemsToolbar';
+import { ItemsToolbar, type BrandFilterKey } from '../../components/items/ItemsToolbar';
 import { ItemDetailPanel } from '../../components/items/ItemDetailPanel';
 import { ItemFormModal, formValuesToPayload, type ItemFormValues } from '../../components/items/ItemFormModal';
+import { ItemNotFoundDialog } from '../../components/items/ItemNotFoundDialog';
+import { PrintBarcodeLabelDialog } from '../../components/items/PrintBarcodeLabelDialog';
+import { findItemsByBarcode, searchInventoryItems } from '../../services/barcode/barcodeLookup';
+import { playScanBeep } from '../../services/barcode/scanBeep';
+import { trackFeatureUsage } from '../../services/privacy/featureAnalyticsService';
+import { useBarcodeWedge } from '../../hooks/useBarcodeWedge';
 import { usePermission } from '../../hooks/usePermission';
 import { ItemImportDialog } from '../../components/items/ItemImportDialog';
+import { BulkBarcodePrintButton } from '../../components/items/BulkBarcodePrintButton';
 import { exportItemsCsv, exportItemsExcel } from '../../services/items/itemImportService';
+import { isBarcodeDuplicateError } from '../../services/barcode/barcodeUniqueness';
 import { getItemsModuleTokens } from '../../theme/itemsModuleTheme';
 
 type FilterKey = 'ALL' | 'ACTIVE' | 'INACTIVE' | string;
@@ -38,6 +46,8 @@ export default function ItemsWorkspace() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<FilterKey>('ALL');
+  const [brandFilter, setBrandFilter] = useState<BrandFilterKey>('ALL');
+  const [brandOptions, setBrandOptions] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -45,14 +55,30 @@ export default function ItemsWorkspace() {
   const [history, setHistory] = useState<ItemHistoryEntry[]>([]);
   const [adjustments, setAdjustments] = useState<StockAdjustment[]>([]);
   const [formOpen, setFormOpen] = useState(false);
-  const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
-  const [editItemId, setEditItemId] = useState<string | null>(null);
+  const [formItemId, setFormItemId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importMessage, setImportMessage] = useState<string | null>(null);
+  const [scanNotFoundOpen, setScanNotFoundOpen] = useState(false);
+  const [pendingScanBarcode, setPendingScanBarcode] = useState('');
+  const [printItem, setPrintItem] = useState<InventoryItem | null>(null);
 
   const unitMap = useMemo(() => new Map(units.map((u) => [u.id, u.symbol || u.name])), [units]);
   const categoryMap = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
+
+  const loadBrandOptions = useCallback(async () => {
+    const brands = await inventoryItemService.listDistinctBrands();
+    setBrandOptions(brands);
+  }, []);
+
+  const registerNewBrand = useCallback((brand: string) => {
+    const name = brand.trim();
+    if (!name) return;
+    setBrandOptions((prev) => {
+      if (prev.some((b) => b.toLowerCase() === name.toLowerCase())) return prev;
+      return [...prev, name].sort((a, b) => a.localeCompare(b));
+    });
+  }, []);
 
   const loadItems = useCallback(async () => {
     try {
@@ -60,10 +86,17 @@ export default function ItemsWorkspace() {
         filter === 'ACTIVE' ? 'ACTIVE' : filter === 'INACTIVE' ? 'INACTIVE' : undefined;
       const categoryId =
         filter !== 'ALL' && filter !== 'ACTIVE' && filter !== 'INACTIVE' ? filter : undefined;
+      const brand =
+        brandFilter === 'ALL'
+          ? undefined
+          : brandFilter === 'PRIMARY'
+            ? null
+            : brandFilter;
       const list = await itemsApi.list({
         includeInactive: filter === 'INACTIVE' || filter === 'ALL',
         status,
         categoryId: categoryId ?? undefined,
+        brand,
         search: search.trim() || undefined,
       });
       setItems(list);
@@ -71,11 +104,18 @@ export default function ItemsWorkspace() {
     } catch (err) {
       setError((err as Error).message);
     }
-  }, [filter, search, selectedId]);
+  }, [filter, brandFilter, search, selectedId]);
 
   useEffect(() => {
     if (searchParams.get('new') === '1') {
-      setFormMode('create');
+      setFormItemId(null);
+      setFormOpen(true);
+      setSearchParams({}, { replace: true });
+    }
+    const editId = searchParams.get('edit');
+    if (editId) {
+      setFormItemId(editId);
+      setSelectedId(editId);
       setFormOpen(true);
       setSearchParams({}, { replace: true });
     }
@@ -103,22 +143,22 @@ export default function ItemsWorkspace() {
   }, [reloadCategories]);
 
   useEffect(() => {
+    void loadBrandOptions();
+  }, [loadBrandOptions]);
+
+  useEffect(() => {
     void loadItems();
   }, [loadItems]);
 
-  useInventoryItemsChanged(loadItems);
+  useInventoryItemsChanged(useCallback(() => {
+    void loadBrandOptions();
+    void loadItems();
+  }, [loadBrandOptions, loadItems]));
 
   const selectedItem = useMemo(
     () => items.find((i) => i.id === selectedId) ?? null,
     [items, selectedId]
   );
-
-  const formItem = useMemo(() => {
-    if (formMode === 'edit') {
-      return items.find((i) => i.id === (editItemId ?? selectedId)) ?? selectedItem;
-    }
-    return null;
-  }, [formMode, editItemId, selectedId, selectedItem, items]);
 
   const loadDetail = useCallback(async (id: string) => {
     setDetailLoading(true);
@@ -144,11 +184,28 @@ export default function ItemsWorkspace() {
     }
   }, [selectedId, loadDetail]);
 
-  const filteredItems = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((i) => `${i.name} ${i.sku} ${i.hsnCode ?? ''}`.toLowerCase().includes(q));
-  }, [items, search]);
+  const filteredItems = useMemo(() => searchInventoryItems(items, search), [items, search]);
+
+  useBarcodeWedge({
+    enabled: !formOpen && !importOpen && !scanNotFoundOpen,
+    onScan: (code) => {
+      const matches = findItemsByBarcode(items, code);
+      if (matches.length === 1) {
+        playScanBeep();
+        trackFeatureUsage('barcodeScan');
+        setSelectedId(matches[0].id);
+        setSearch(code);
+        return;
+      }
+      if (matches.length > 1) {
+        setSearch(code);
+        return;
+      }
+      setPendingScanBarcode(code);
+      setScanNotFoundOpen(true);
+    },
+    isBlocked: () => formOpen || importOpen || scanNotFoundOpen,
+  });
 
   const godownLabel = useCallback(
     (item: InventoryItem) => {
@@ -171,18 +228,21 @@ export default function ItemsWorkspace() {
     setSaving(true);
     setError(null);
     try {
-      const payload = formValuesToPayload(values);
-      if (formMode === 'create') {
+      const payload = formValuesToPayload(values, { isEdit: Boolean(formItemId) });
+      if (formItemId) {
+        await itemsApi.update(formItemId, payload);
+      } else {
         const created = await itemsApi.create(payload);
         setSelectedId(created.id);
-      } else if (formItem) {
-        await itemsApi.update(formItem.id, payload);
+        if (created.barcode?.trim()) setPrintItem(created);
       }
       setFormOpen(false);
-      setEditItemId(null);
+      setFormItemId(null);
+      await loadBrandOptions();
       await loadItems();
       if (selectedId) await loadDetail(selectedId);
     } catch (err) {
+      if (isBarcodeDuplicateError(err)) return;
       setError((err as Error).message);
     } finally {
       setSaving(false);
@@ -197,22 +257,27 @@ export default function ItemsWorkspace() {
   };
 
   const handleExport = async () => {
-    const exportRows = selectedIds.size > 0 ? items.filter((i) => selectedIds.has(i.id)) : items;
+    const exportRows =
+      selectedIds.size > 0
+        ? filteredItems.filter((i) => selectedIds.has(i.id))
+        : filteredItems;
     const catNames = new Map(categories.map((c) => [c.id, c.name]));
     const unitNames = new Map(units.map((u) => [u.id, u.symbol || u.name]));
     await exportItemsExcel(exportRows, catNames, unitNames);
   };
 
   const handleExportCsv = async () => {
-    const exportRows = selectedIds.size > 0 ? items.filter((i) => selectedIds.has(i.id)) : items;
+    const exportRows =
+      selectedIds.size > 0
+        ? filteredItems.filter((i) => selectedIds.has(i.id))
+        : filteredItems;
     const catNames = new Map(categories.map((c) => [c.id, c.name]));
     const unitNames = new Map(units.map((u) => [u.id, u.symbol || u.name]));
     await exportItemsCsv(exportRows, catNames, unitNames);
   };
 
   const openEdit = (id: string) => {
-    setEditItemId(id);
-    setFormMode('edit');
+    setFormItemId(id);
     setFormOpen(true);
   };
 
@@ -274,16 +339,27 @@ export default function ItemsWorkspace() {
           <ItemsToolbar
             compact={splitView}
             categories={categories}
+            brandOptions={brandOptions}
             filter={filter}
+            brandFilter={brandFilter}
             search={search}
             onFilterChange={setFilter}
+            onBrandFilterChange={setBrandFilter}
             onSearchChange={setSearch}
-            onNew={() => { setFormMode('create'); setFormOpen(true); }}
+            onNew={() => { setFormItemId(null); setPendingScanBarcode(''); setFormOpen(true); }}
             onBulkDelete={canManage ? () => void handleBulkDelete() : undefined}
             onExport={() => void handleExport()}
             onExportCsv={() => void handleExportCsv()}
             onImport={canManage ? () => setImportOpen(true) : undefined}
           />
+
+          {selectedIds.size > 0 ? (
+            <Box sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+              <BulkBarcodePrintButton
+                items={items.filter((i) => selectedIds.has(i.id))}
+              />
+            </Box>
+          ) : null}
 
           {splitView ? (
             <ItemsListPanel
@@ -349,6 +425,7 @@ export default function ItemsWorkspace() {
             <ItemDetailPanel
               item={selectedItem}
               categoryName={selectedItem?.categoryId ? categoryMap.get(selectedItem.categoryId) ?? '—' : '—'}
+              brandName={selectedItem?.brand?.trim() || 'Primary'}
               godowns={godowns}
               unitName={selectedItem ? unitMap.get(selectedItem.unitId) ?? '—' : '—'}
               loading={detailLoading}
@@ -388,24 +465,53 @@ export default function ItemsWorkspace() {
         onClose={() => setImportOpen(false)}
         onImported={async (result) => {
           setImportMessage(
-            `Import complete: ${result.created} created, ${result.updated} updated` +
-              (result.errors.length ? ` (${result.errors.length} row errors during save)` : '')
+            `Imported: ${result.imported} · Updated: ${result.updated} · Failed: ${result.failed}`
           );
+          await loadBrandOptions();
           await loadItems();
         }}
       />
 
       <ItemFormModal
         open={formOpen}
-        mode={formMode}
-        item={formItem}
+        itemId={formItemId}
+        initialBarcode={pendingScanBarcode || undefined}
         units={units}
         categories={categories}
         godowns={godowns}
+        brandOptions={brandOptions}
         saving={saving}
-        onClose={() => { setFormOpen(false); setEditItemId(null); }}
+        onClose={() => { setFormOpen(false); setFormItemId(null); setPendingScanBarcode(''); }}
         onSubmit={(v) => void handleSubmit(v)}
+        onOpenExistingItem={(id) => {
+          setFormItemId(id);
+          setPendingScanBarcode('');
+        }}
         onCategoriesChange={() => void reloadCategories()}
+        onGodownsChange={() => {
+          void godownService.list({ includeInactive: false }).then(setGodowns);
+        }}
+        onBrandCreated={registerNewBrand}
+      />
+
+      <ItemNotFoundDialog
+        open={scanNotFoundOpen}
+        barcode={pendingScanBarcode}
+        onCancel={() => {
+          setScanNotFoundOpen(false);
+          setPendingScanBarcode('');
+        }}
+        onConfirm={() => {
+          setScanNotFoundOpen(false);
+          setFormItemId(null);
+          setFormOpen(true);
+        }}
+      />
+
+      <PrintBarcodeLabelDialog
+        open={Boolean(printItem)}
+        item={printItem}
+        onClose={() => setPrintItem(null)}
       />
     </Box>
   );

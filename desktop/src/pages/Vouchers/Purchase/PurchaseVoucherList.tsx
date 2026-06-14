@@ -36,6 +36,7 @@ import { LedgerAccount } from '../../../types/masters';
 import { useMasterList } from '../../../hooks/useMasterList';
 import { usePermission } from '../../../hooks/usePermission';
 import { usePermissions } from '../../../hooks/usePermissions';
+import { VoucherNumberLink } from '../../../components/Vouchers/VoucherNumberLink';
 import { inventoryItemService } from '../../../services/masters/inventoryItemService';
 import { approvalService } from '../../../services/approvals/approvalService';
 import {
@@ -225,7 +226,7 @@ const PurchaseVoucherList = () => {
                 fullWidth
               >
                 <MenuItem value="">
-                  <em>All Suppliers</em>
+                  <em>All Creditors</em>
                 </MenuItem>
                 {ledgers.map((ledger) => (
                   <MenuItem key={ledger.id} value={ledger.id}>
@@ -266,7 +267,7 @@ const PurchaseVoucherList = () => {
                 <TableRow>
                   <TableCell>Date</TableCell>
                   <TableCell>Voucher No.</TableCell>
-                  <TableCell>Supplier</TableCell>
+                  <TableCell>Creditor</TableCell>
                   <TableCell align="right">Items</TableCell>
                   <TableCell align="right">Total</TableCell>
                   <TableCell>Status</TableCell>
@@ -288,7 +289,13 @@ const PurchaseVoucherList = () => {
                     .map((voucher) => (
                       <TableRow key={voucher.id} hover>
                         <TableCell>{new Date(voucher.date).toLocaleDateString()}</TableCell>
-                        <TableCell>{voucher.number}</TableCell>
+                        <TableCell>
+                          <VoucherNumberLink
+                            voucherId={voucher.id}
+                            voucherType="PURCHASE"
+                            voucherNumber={voucher.number}
+                          />
+                        </TableCell>
                         <TableCell>{supplierName(voucher)}</TableCell>
                         <TableCell align="right">
                           {voucher.lines.filter((line) => Boolean(line.itemId) && Number(line.quantity || 0) > 0).length}

@@ -34,7 +34,7 @@ const LEDGER_GROUPS: GroupSeed[] = [
   createGroup('grp-fixed-assets', 'Fixed Assets', 'ASSET', 10, 'grp-assets'),
   createGroup('grp-current-assets', 'Current Assets', 'ASSET', 11, 'grp-assets'),
   createGroup('grp-investments', 'Investments', 'ASSET', 12, 'grp-assets'),
-  createGroup('grp-loans-advances', 'Loans & Advances (Assets)', 'ASSET', 13, 'grp-assets'),
+  createGroup('grp-loans-advances', 'Advances', 'ASSET', 13, 'grp-current-assets'),
   createGroup('grp-suspense-account', 'Suspense Account', 'ASSET', 14, 'grp-assets'),
   createGroup('grp-bank-accounts', 'Bank Accounts', 'ASSET', 20, 'grp-current-assets'),
   createGroup('grp-cash-in-hand', 'Cash-in-Hand', 'ASSET', 21, 'grp-current-assets'),
@@ -46,8 +46,9 @@ const LEDGER_GROUPS: GroupSeed[] = [
   createGroup('grp-capital-account', 'Capital Account', 'LIABILITY', 30, 'grp-liabilities'),
   createGroup('grp-reserves-surplus', 'Reserves & Surplus', 'LIABILITY', 31, 'grp-liabilities'),
   createGroup('grp-current-liabilities', 'Current Liabilities', 'LIABILITY', 32, 'grp-liabilities'),
-  createGroup('grp-secured-loans', 'Secured Loans', 'LIABILITY', 33, 'grp-liabilities'),
-  createGroup('grp-unsecured-loans', 'Unsecured Loans', 'LIABILITY', 34, 'grp-liabilities'),
+  createGroup('grp-loans', 'Loans', 'LIABILITY', 33, 'grp-liabilities'),
+  createGroup('grp-secured-loans', 'Secured Loans', 'LIABILITY', 34, 'grp-loans'),
+  createGroup('grp-unsecured-loans', 'Unsecured Loans', 'LIABILITY', 35, 'grp-loans'),
   createGroup('grp-sundry-creditors', 'Sundry Creditors', 'LIABILITY', 40, 'grp-current-liabilities'),
   createGroup('grp-duties-taxes', 'Duties & Taxes', 'LIABILITY', 41, 'grp-current-liabilities'),
   createGroup('grp-provisions', 'Provisions', 'LIABILITY', 42, 'grp-current-liabilities'),
@@ -90,4 +91,6 @@ export const initMasters = async () => {
   await seedLedgerGroups();
   const { migrateLegacySystemCashLedger } = await import('./autoLedgerService');
   await migrateLegacySystemCashLedger();
+  const { ensureLedgerClassificationMigration } = await import('./ledgerClassificationService');
+  await ensureLedgerClassificationMigration();
 };

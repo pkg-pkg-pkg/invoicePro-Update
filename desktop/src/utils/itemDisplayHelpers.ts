@@ -1,4 +1,5 @@
 import type { InventoryItem, InventoryItemType } from '../types/masters';
+import { effectiveLowStockThreshold } from '../services/inventory/lowStockSettings';
 
 const ITEM_TYPE_LABEL: Record<InventoryItemType | string, string> = {
   SALES: 'Sales Item',
@@ -10,11 +11,28 @@ export function getItemTypeLabel(itemType?: InventoryItemType | null): string {
   return ITEM_TYPE_LABEL[itemType ?? 'BOTH'] ?? 'Sales & Purchase Item';
 }
 
+/** Total on-hand qty — sums godown splits when present, else currentStock. */
+export function getItemTotalStock(item: InventoryItem): number {
+  if (item.godownStocks?.length) {
+    return item.godownStocks.reduce((sum, row) => sum + Number(row.quantity ?? 0), 0);
+  }
+  return Number(item.currentStock ?? 0);
+}
+
+export function formatItemStockQuantity(qty: number, unitAbbrev?: string | null): string {
+  const n = Number(qty);
+  const safe = Number.isFinite(n) ? n : 0;
+  const formatted =
+    Math.abs(safe - Math.round(safe)) < 0.0001 ? String(Math.round(safe)) : safe.toFixed(2);
+  const unit = String(unitAbbrev ?? '').trim() || 'pcs';
+  return `${formatted} ${unit}`;
+}
+
 export function getItemStockStatus(item: InventoryItem): { label: string; color: string } {
-  const qty = Number(item.currentStock ?? 0);
-  const reorder = Number(item.reorderLevel ?? 0);
+  const qty = getItemTotalStock(item);
+  const threshold = effectiveLowStockThreshold(item.reorderLevel);
   if (qty <= 0) return { label: 'Out of stock', color: '#DC2626' };
-  if (reorder > 0 && qty <= reorder) return { label: 'Low stock', color: '#D97706' };
+  if (qty <= threshold) return { label: 'Low stock', color: '#D97706' };
   return { label: 'In stock', color: '#16A34A' };
 }
 

@@ -76,6 +76,22 @@ const BackupRestore: React.FC = () => {
   const [showAutoBackupDialog, setShowAutoBackupDialog] = useState(false);
   const [showBackupInfo, setShowBackupInfo] = useState<BackupInfo | null>(null);
   const [confirmRestore, setConfirmRestore] = useState('');
+  const [showLargeDbDialog, setShowLargeDbDialog] = useState(false);
+  const [largeDbMeta, setLargeDbMeta] = useState<{ dbSizeLabel?: string; error?: string } | null>(null);
+  const [backupWarning, setBackupWarning] = useState<string | null>(null);
+  const [restorePreview, setRestorePreview] = useState<{
+    companyName?: string;
+    createdAt?: string;
+    sections?: string[];
+    hasDatabase?: boolean;
+    databaseSkipped?: boolean;
+    restoreWarnings?: string[];
+  } | null>(null);
+  const [destinations, setDestinations] = useState({
+    local: true,
+    googleDrive: false,
+    firebase: false,
+  });
   const [stats, setStats] = useState<BackupStats>({
     totalBackups: 0,
     totalSize: 'N/A',
@@ -101,12 +117,37 @@ const BackupRestore: React.FC = () => {
     }));
   }, []);
 
-  const handleCreateBackup = async () => {
-    if (!backupLocation.trim()) {
-      setActionError('Choose a backup folder before creating a manual backup.');
-      return;
+  const finishBackupSuccess = (result: {
+    fileName?: string;
+    filePath?: string;
+    location?: string;
+    size?: string;
+    partial?: boolean;
+    databaseSkipped?: boolean;
+    warning?: string;
+  }) => {
+    const rows = backupService.getBackupHistory();
+    setBackups(rows);
+    setStats(prev => ({
+      ...prev,
+      totalBackups: rows.length,
+      lastBackup: new Date().toISOString(),
+      totalSize: result.size ?? prev.totalSize,
+    }));
+    if (result.filePath) {
+      setBackupFile(result.filePath);
     }
+    if (result.partial || result.databaseSkipped) {
+      setBackupWarning(
+        result.warning ||
+          'Backup created without the SQLite database. Restore will not recover vouchers or inventory from the database.'
+      );
+    } else {
+      setBackupWarning(null);
+    }
+  };
 
+  const runManualBackup = async (allowSkipDatabase?: boolean) => {
     setActionError(null);
     setLoading(true);
     setProgress(0);
@@ -122,24 +163,26 @@ const BackupRestore: React.FC = () => {
         });
       }, 300);
 
-      const result = await backupService.createManualBackup(backupLocation);
+      const result = await backupService.createManualBackup(backupLocation, 'manual', {
+        allowSkipDatabase,
+      });
 
       clearInterval(progressInterval);
       setProgress(100);
       setLoading(false);
 
+      if (result.requiresDatabaseConfirmation) {
+        setProgress(0);
+        setLargeDbMeta({
+          dbSizeLabel: result.dbSizeLabel,
+          error: result.error,
+        });
+        setShowLargeDbDialog(true);
+        return;
+      }
+
       if (result.success) {
-        const rows = backupService.getBackupHistory();
-        setBackups(rows);
-        setStats(prev => ({
-          ...prev,
-          totalBackups: rows.length,
-          lastBackup: new Date().toISOString(),
-          totalSize: result.size ?? prev.totalSize,
-        }));
-        if (result.filePath) {
-          setBackupFile(result.filePath);
-        }
+        finishBackupSuccess(result);
       } else {
         setActionError(result.error || 'Backup failed');
         setProgress(0);
@@ -151,14 +194,34 @@ const BackupRestore: React.FC = () => {
     }
   };
 
+  const handleCreateBackup = async () => {
+    if (!backupLocation.trim()) {
+      setActionError('Choose a backup folder before creating a manual backup.');
+      return;
+    }
+    await runManualBackup();
+  };
+
+  const handleContinueWithoutDatabase = async () => {
+    setShowLargeDbDialog(false);
+    await runManualBackup(true);
+  };
+
   const handleBrowseBackupFile = async () => {
     setActionError(null);
+    setRestorePreview(null);
     const picked = await pickBackupFile({
       title: 'Select backup file (.ipbak)',
       defaultPath: backupFile || backupLocation || undefined,
     });
     if (picked) {
       setBackupFile(picked);
+      const preview = await backupService.previewBackupFile(picked);
+      if (preview.success && preview.meta) {
+        setRestorePreview(preview.meta);
+      } else if (preview.error) {
+        setActionError(preview.error);
+      }
       return;
     }
     if (!isElectronRuntime()) {
@@ -182,27 +245,39 @@ const BackupRestore: React.FC = () => {
     }
   };
 
-  const handleRestoreBackup = () => {
-    if (confirmRestore !== 'RESTORE') return;
+  const handleRestoreBackup = async () => {
+    if (confirmRestore !== 'RESTORE' || !backupFile.trim()) return;
 
     setLoading(true);
-    setProgress(0);
+    setProgress(10);
+    setActionError(null);
 
-    // Simulate restore progress
-    const progressInterval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(progressInterval);
-          setLoading(false);
-          setShowRestoreDialog(false);
-          setConfirmRestore('');
-          // In a real app, this would reload the application
-          alert('Backup restored successfully! The application will restart.');
-          return 100;
-        }
-        return prev + 8;
-      });
-    }, 600);
+    try {
+      setProgress(40);
+      const result = await backupService.restoreBackupFile(backupFile);
+      setProgress(100);
+      setLoading(false);
+      setShowRestoreDialog(false);
+      setConfirmRestore('');
+
+      if (!result.success) {
+        setActionError(result.error || 'Restore failed');
+        setProgress(0);
+        return;
+      }
+
+      const sections = (result.restoredSections || []).join(', ') || 'company data';
+      const reload = window.confirm(
+        `Backup restored successfully (${sections}). The app must restart to load restored data. Restart now?`
+      );
+      if (reload) {
+        window.location.reload();
+      }
+    } catch (error) {
+      setLoading(false);
+      setProgress(0);
+      setActionError(String(error));
+    }
   };
 
   const handleDeleteBackup = (backupId: string) => {
@@ -216,6 +291,7 @@ const BackupRestore: React.FC = () => {
   };
 
   const handleSaveAutoBackupSettings = () => {
+    backupService.setDestinationConfig(destinations);
     backupService.updateConfig({
       enabled: stats.autoBackupEnabled,
       frequency: stats.autoBackupFrequency,
@@ -228,6 +304,7 @@ const BackupRestore: React.FC = () => {
   // Load auto-backup config on mount
   useEffect(() => {
     const config = backupService.getConfig();
+    setDestinations(backupService.getDestinationConfig());
     setStats(prev => ({
       ...prev,
       autoBackupEnabled: config.enabled,
@@ -257,6 +334,12 @@ const BackupRestore: React.FC = () => {
         Backup & Restore
       </Typography>
 
+      {backupWarning ? (
+        <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setBackupWarning(null)}>
+          {backupWarning}
+        </Alert>
+      ) : null}
+
       {actionError ? (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError(null)}>
           {actionError}
@@ -273,7 +356,7 @@ const BackupRestore: React.FC = () => {
             </Typography>
 
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Save a backup file (.ipbak) to any folder on your PC — company profile, settings, and local data.
+              Saves companies, masters, inventory, vouchers, and settings to a local .ipbak file (SQLite database included when under 80 MB).
             </Typography>
 
             <Box sx={{ mb: 3 }}>
@@ -469,6 +552,34 @@ const BackupRestore: React.FC = () => {
         </Grid>
       </Grid>
 
+      {/* Large database confirmation */}
+      <Dialog open={showLargeDbDialog} onClose={() => setShowLargeDbDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center' }}>
+          <WarningIcon sx={{ mr: 1, color: 'warning.main' }} />
+          Database Too Large for Backup
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" gutterBottom>
+            Your SQLite database ({largeDbMeta?.dbSizeLabel || 'over 80 MB'}) exceeds the 80 MB inline backup limit.
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Continuing without the database will save company profile, settings, and JSON masters only. Vouchers and
+            inventory stored in SQLite will not be included. Restore from such a backup cannot recover that data.
+          </Typography>
+          {largeDbMeta?.error ? (
+            <Alert severity="warning">{largeDbMeta.error}</Alert>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowLargeDbDialog(false)} autoFocus>
+            Cancel
+          </Button>
+          <Button onClick={() => void handleContinueWithoutDatabase()} color="warning" variant="contained">
+            Continue Without Database
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Restore Confirmation Dialog */}
       <Dialog open={showRestoreDialog} onClose={() => setShowRestoreDialog(false)} maxWidth="md">
         <DialogTitle sx={{ display: 'flex', alignItems: 'center' }}>
@@ -488,6 +599,18 @@ const BackupRestore: React.FC = () => {
               <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
                 {backupFile}
               </Typography>
+              {restorePreview ? (
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                  Company: {restorePreview.companyName || '—'} • Created:{' '}
+                  {restorePreview.createdAt ? formatDate(restorePreview.createdAt) : '—'} • Sections:{' '}
+                  {(restorePreview.sections || []).join(', ') || '—'}
+                  {restorePreview.hasDatabase ? ' • Includes database' : ''}
+                  {restorePreview.databaseSkipped ? ' • Database was skipped in backup' : ''}
+                  {(restorePreview.restoreWarnings || []).length > 0
+                    ? ` • Warnings: ${(restorePreview.restoreWarnings || []).join('; ')}`
+                    : ''}
+                </Typography>
+              ) : null}
             </Box>
           )}
 
@@ -548,7 +671,37 @@ const BackupRestore: React.FC = () => {
 
           {stats.autoBackupEnabled && (
             <>
-              <FormControl fullWidth sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Backup destination
+              </Typography>
+              <FormControlLabel
+                control={
+                  <Switch checked={destinations.local} onChange={(e) => setDestinations((d) => ({ ...d, local: e.target.checked }))} />
+                }
+                label="Local folder (active)"
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={destinations.googleDrive}
+                    onChange={(e) => setDestinations((d) => ({ ...d, googleDrive: e.target.checked }))}
+                    disabled
+                  />
+                }
+                label="Google Drive (future-ready)"
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={destinations.firebase}
+                    onChange={(e) => setDestinations((d) => ({ ...d, firebase: e.target.checked }))}
+                    disabled
+                  />
+                }
+                label="Firebase Storage (optional, coming soon)"
+              />
+
+              <FormControl fullWidth sx={{ mb: 2, mt: 1 }}>
                 <InputLabel>Frequency</InputLabel>
                 <Select
                   value={stats.autoBackupFrequency}

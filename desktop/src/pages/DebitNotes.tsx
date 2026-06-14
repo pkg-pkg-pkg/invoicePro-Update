@@ -28,6 +28,11 @@ import { fetchSuppliers } from '../store/slices/partySlice';
 import { docApi, getHostBaseUrl } from '../services/docApi';
 import { getAppSettings, getDefaultTodayForEntry, validateTransactionDate } from '../services/appSettingsService';
 import { usePermissions } from '../hooks/usePermissions';
+import {
+  voucherLineCellSx,
+  voucherLineNumericInputSx,
+  voucherLinePercentInputSx,
+} from '../theme/voucherLineItemTableStyles';
 
 type PartyDetails = {
   name: string;
@@ -848,10 +853,10 @@ export default function DebitNotes() {
                     <TableRow>
                       <TableCell>Description</TableCell>
                       <TableCell>HSN</TableCell>
-                      <TableCell align="right">Qty</TableCell>
-                      <TableCell align="right">Rate</TableCell>
-                      <TableCell align="right">Disc %</TableCell>
-                      {gstEnabled ? <TableCell align="right">GST %</TableCell> : null}
+                      <TableCell align="right" sx={voucherLineCellSx('qty')}>Qty</TableCell>
+                      <TableCell align="right" sx={voucherLineCellSx('rate')}>Rate</TableCell>
+                      <TableCell align="right" sx={voucherLineCellSx('discPercent')}>Disc %</TableCell>
+                      {gstEnabled ? <TableCell align="right" sx={voucherLineCellSx('gstPercent')}>GST %</TableCell> : null}
                       <TableCell align="right">Taxable</TableCell>
                       {gstEnabled ? <TableCell align="right">GST</TableCell> : null}
                       <TableCell align="right">Total</TableCell>
@@ -896,30 +901,35 @@ export default function DebitNotes() {
                             placeholder="HSN"
                           />
                         </TableCell>
-                        <TableCell align="right" sx={{ minWidth: 90 }}>
+                        <TableCell align="right" sx={voucherLineCellSx('qty')}>
                           <TextField
                             type="number"
+                            size="small"
                             value={it.qty}
                             onChange={(e) =>
                               setReturnItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, qty: e.target.value } : x)))
                             }
                             inputProps={{ min: 0, step: '0.01' }}
                             helperText={typeof it.maxQty === 'number' ? `Max ${it.maxQty}` : ''}
+                            sx={voucherLinePercentInputSx}
                           />
                         </TableCell>
-                        <TableCell align="right" sx={{ minWidth: 110 }}>
+                        <TableCell align="right" sx={voucherLineCellSx('rate')}>
                           <TextField
                             type="number"
+                            size="small"
                             value={it.rate}
                             onChange={(e) =>
                               setReturnItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, rate: e.target.value } : x)))
                             }
                             inputProps={{ min: 0, step: '0.01' }}
+                            sx={voucherLineNumericInputSx}
                           />
                         </TableCell>
-                        <TableCell align="right" sx={{ minWidth: 90 }}>
+                        <TableCell align="right" sx={voucherLineCellSx('discPercent')}>
                           <TextField
                             type="number"
+                            size="small"
                             value={it.discountPercent}
                             onChange={(e) =>
                               setReturnItems((prev) =>
@@ -927,17 +937,20 @@ export default function DebitNotes() {
                               )
                             }
                             inputProps={{ min: 0, step: '0.01' }}
+                            sx={voucherLinePercentInputSx}
                           />
                         </TableCell>
                         {gstEnabled ? (
-                          <TableCell align="right" sx={{ minWidth: 90 }}>
+                          <TableCell align="right" sx={voucherLineCellSx('gstPercent')}>
                             <TextField
                               type="number"
+                              size="small"
                               value={it.gstRate}
                               onChange={(e) =>
                                 setReturnItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, gstRate: e.target.value } : x)))
                               }
                               inputProps={{ min: 0, step: '0.01' }}
+                              sx={voucherLinePercentInputSx}
                             />
                           </TableCell>
                         ) : null}

@@ -1,23 +1,29 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
+export type AuthUser = {
+  id: string;
+  username: string;
+  name?: string;
+  fullName?: string;
+  mobileNumber?: string;
+  role?: string;
+  companyId?: string;
+  permissions?: string[];
+  mobilePermissions?: Record<string, unknown>;
+};
+
 interface AuthState {
-  user: {
-    id: string;
-    username: string;
-    fullName?: string;
-    mobileNumber?: string;
-    role?: string;
-    companyId?: string;
-    mobilePermissions?: Record<string, unknown>;
-  } | null;
+  user: AuthUser | null;
   token: string | null;
   isAuthenticated: boolean;
+  superAdminMode: boolean;
 }
 
 const initialState: AuthState = {
   user: null,
   token: null,
   isAuthenticated: false,
+  superAdminMode: false,
 };
 
 const authSlice = createSlice({
@@ -26,7 +32,7 @@ const authSlice = createSlice({
   reducers: {
     setCredentials: (
       state,
-      action: PayloadAction<{ user: AuthState['user']; token: string }>
+      action: PayloadAction<{ user: AuthUser; token: string }>
     ) => {
       state.user = action.payload.user;
       state.token = action.payload.token;
@@ -36,10 +42,16 @@ const authSlice = createSlice({
       state.user = null;
       state.token = null;
       state.isAuthenticated = false;
+      state.superAdminMode = false;
+    },
+    setSuperAdminMode: (state, action: PayloadAction<boolean>) => {
+      state.superAdminMode = action.payload;
+    },
+    clearSuperAdminMode: (state) => {
+      state.superAdminMode = false;
     },
   },
 });
 
-export const { setCredentials, logout } = authSlice.actions;
+export const { setCredentials, logout, setSuperAdminMode, clearSuperAdminMode } = authSlice.actions;
 export default authSlice.reducer;
-

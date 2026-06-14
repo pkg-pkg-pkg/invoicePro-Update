@@ -5,7 +5,12 @@ import {
   Button, 
   Card, 
   CardContent, 
+  FormControl,
+  FormControlLabel,
+  FormLabel,
   Grid, 
+  Radio,
+  RadioGroup,
   Stack, 
   Table, 
   TableBody, 
@@ -27,7 +32,6 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
-import PersonIcon from '@mui/icons-material/Person';
 import dayjs from 'dayjs';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
@@ -38,6 +42,11 @@ import { ledgerAccountService } from '../../../services/masters/ledgerAccountSer
 import { ledgerGroupService } from '../../../services/masters/ledgerGroupService';
 import type { LedgerAccount } from '../../../types/masters';
 import { fetchOutstandingInvoices, type OutstandingInvoice } from '../../../services/payments/paymentService';
+import { billReferenceService, settlementParseUtils } from '../../../services/settlement/billReferenceService';
+import type { PartySettlementInput, SettlementMode } from '../../../types/billReference';
+import { PartyPickerModal } from '../../../components/parties/PartyPickerModal';
+import { PartyPickerField } from '../../../components/parties/PartyPickerField';
+import { APP_VERSION } from '../../../constants/appBranding';
 import { 
   ledgerTouchesExpenseTree, 
   ledgerTouchesIncomeTree, 
@@ -114,6 +123,9 @@ const PaymentReceiptVoucherPage = ({
   const [pendingInvoicesLoading, setPendingInvoicesLoading] = useState(false);
   const [pendingInvoicesError, setPendingInvoicesError] = useState<string | null>(null);
   const [pendingInvoices, setPendingInvoices] = useState<OutstandingInvoice[]>([]);
+  const [settlementMode, setSettlementMode] = useState<SettlementMode>('AGAINST_REF');
+  const [editAllocationsApplied, setEditAllocationsApplied] = useState(false);
+  const [partyPickerEntryId, setPartyPickerEntryId] = useState<number | null>(null);
 
   // Load accounts and particulars
   useEffect(() => {
@@ -234,6 +246,7 @@ const PaymentReceiptVoucherPage = ({
 
   useEffect(() => {
     setEditHydrated(false);
+    setEditAllocationsApplied(false);
   }, [derivedEditVoucherId]);
 
   useEffect(() => {
@@ -290,10 +303,51 @@ const PaymentReceiptVoucherPage = ({
         number: existing.number,
         narration: String(existing.narration ?? ''),
       });
+      const parsedMode = settlementParseUtils.parseSettlementMode(existing.narration) ?? 'AGAINST_REF';
+      setSettlementMode(parsedMode);
       setPaymentEntries(nextRows);
       setEditHydrated(true);
     })().catch((e) => setError(e instanceof Error ? e.message : 'Failed to load voucher'));
   }, [isEditMode, editHydrated, allLedgers, derivedEditVoucherId, voucherType]);
+
+  useEffect(() => {
+    if (!isEditMode || !editHydrated || editAllocationsApplied || settlementMode !== 'AGAINST_REF') return;
+    if (!derivedEditVoucherId || pendingInvoices.length === 0) return;
+
+    (async () => {
+      const adjs = await billReferenceService.getAdjustmentsForVoucher(derivedEditVoucherId);
+      if (adjs.length === 0) {
+        const allocMap = settlementParseUtils.parseInvoiceAllocations(formState.narration);
+        if (Object.keys(allocMap).length === 0) {
+          setEditAllocationsApplied(true);
+          return;
+        }
+        setPendingInvoices((prev) =>
+          prev.map((inv) => {
+            const amt = allocMap[inv.number] ?? 0;
+            return amt > 0 ? { ...inv, paymentAmount: amt, isSelected: true } : inv;
+          })
+        );
+      } else {
+        const byRef = new Map(adjs.map((a) => [a.referenceId, a.amount]));
+        setPendingInvoices((prev) =>
+          prev.map((inv) => {
+            const amt = byRef.get(inv.id) ?? 0;
+            return amt > 0 ? { ...inv, paymentAmount: amt, isSelected: true } : inv;
+          })
+        );
+      }
+      setEditAllocationsApplied(true);
+    })().catch(() => setEditAllocationsApplied(true));
+  }, [
+    isEditMode,
+    editHydrated,
+    editAllocationsApplied,
+    settlementMode,
+    derivedEditVoucherId,
+    pendingInvoices.length,
+    formState.narration,
+  ]);
 
   // Update voucher number when type changes
   useEffect(() => {
@@ -357,6 +411,17 @@ const PaymentReceiptVoucherPage = ({
     [pendingInvoices]
   );
 
+  const billWiseEligible = useMemo(
+    () =>
+      paymentEntries.length > 0 &&
+      paymentEntries.every((entry) => {
+        if (!entry.particular) return false;
+        const gid = String(entry.particular?.groupId ?? '');
+        return gid === 'grp-sundry-debtors' || gid === 'grp-sundry-creditors';
+      }),
+    [paymentEntries]
+  );
+
   useEffect(() => {
     let cancelled = false;
 
@@ -367,6 +432,13 @@ const PaymentReceiptVoucherPage = ({
 
     // Clear allocation if not eligible (e.g. expense-ledger particulars)
     if (!billWiseEligible) {
+      setPendingInvoices([]);
+      setPendingInvoicesError(null);
+      setPendingInvoicesLoading(false);
+      return;
+    }
+
+    if (settlementMode !== 'AGAINST_REF') {
       setPendingInvoices([]);
       setPendingInvoicesError(null);
       setPendingInvoicesLoading(false);
@@ -453,30 +525,32 @@ const PaymentReceiptVoucherPage = ({
     return () => {
       cancelled = true;
     };
-  }, [paymentEntries, voucherType]);
+  }, [paymentEntries, voucherType, settlementMode]);
 
-  /** Filter particulars based on voucher type. */
-  const particularsOptions = useMemo(() => {
-    if (!includeExpenseLedgersInParticulars) return availableParticulars;
-    
-    if (voucherType === 'RECEIPT') {
-      // For Receipts: Show Customers, Suppliers, and Income ledgers
-      return availableParticulars.filter(
-        (l) => 
-          l.groupId === 'grp-sundry-debtors' || 
-          l.groupId === 'grp-sundry-creditors' || 
-          ledgerTouchesIncomeTree(l.groupId, particularGroupById)
-      );
-    } else {
-      // For Payments: Show Customers, Suppliers, and Expense ledgers
-      return availableParticulars.filter(
-        (l) => 
-          l.groupId === 'grp-sundry-debtors' || 
-          l.groupId === 'grp-sundry-creditors' || 
-          ledgerTouchesExpenseTree(l.groupId, particularGroupById)
-      );
-    }
-  }, [availableParticulars, voucherType, includeExpenseLedgersInParticulars, particularGroupById]);
+  const partyPickerScope = voucherType === 'RECEIPT' ? ('receipt' as const) : ('payment' as const);
+
+  const openPartyPicker = (entryId: number) => {
+    setPartyPickerEntryId(entryId);
+  };
+
+  const partyPickerModal = (
+    <PartyPickerModal
+      open={partyPickerEntryId !== null}
+      onClose={() => setPartyPickerEntryId(null)}
+      scope={partyPickerScope}
+      title={
+        voucherType === 'RECEIPT'
+          ? 'Select Debtor, Creditor, or Income'
+          : 'Select Debtor, Creditor, or Expense'
+      }
+      onSelect={(ledger) => {
+        if (partyPickerEntryId !== null) {
+          handleParticularChange(partyPickerEntryId, ledger);
+        }
+        setPartyPickerEntryId(null);
+      }}
+    />
+  );
 
   // Add new payment row
   const addPaymentRow = () => {
@@ -536,12 +610,22 @@ const PaymentReceiptVoucherPage = ({
     updatePaymentEntry(id, 'particular', particular);
   };
 
+  const updateInvoiceAllocation = (referenceId: string, rawValue: string) => {
+    const amount = Math.max(0, parseFloat(rawValue) || 0);
+    setPendingInvoices((rows) =>
+      rows.map((inv) =>
+        inv.id === referenceId ? { ...inv, paymentAmount: amount, isSelected: amount > 0 } : inv
+      )
+    );
+  };
+
   // Handle voucher type change
   const handleVoucherTypeChange = (_event: React.SyntheticEvent, newValue: 'PAYMENT' | 'RECEIPT') => {
     setVoucherType(newValue);
     // Reset entries when type changes
     setPendingInvoices([]);
     setPendingInvoicesError(null);
+    setSettlementMode('AGAINST_REF');
     setPaymentEntries([{ id: 1, account: defaultAccount, particular: null, amount: '', debit: 0, credit: 0 }]);
   };
 
@@ -591,7 +675,11 @@ const PaymentReceiptVoucherPage = ({
         if (!p) return false;
         return !!partyTypeFromParticular(p);
       });
-      return billWiseEligible ? (!pendingInvoicesLoading && !pendingInvoicesError) : true;
+      return billWiseEligible
+        ? settlementMode === 'AGAINST_REF'
+          ? !pendingInvoicesLoading && !pendingInvoicesError
+          : true
+        : true;
     })();
 
   // Handle form submission
@@ -648,13 +736,20 @@ const PaymentReceiptVoucherPage = ({
         }
       });
 
-      const invoiceAllocTokens = pendingInvoices
-        .filter((inv) => Number(inv.paymentAmount ?? 0) > 0)
-        .map((inv) => `INVALLOC[${inv.number}]=${Number(inv.paymentAmount ?? 0).toFixed(2)}`);
+      const invoiceAllocTokens =
+        settlementMode === 'AGAINST_REF'
+          ? pendingInvoices
+              .filter((inv) => Number(inv.paymentAmount ?? 0) > 0)
+              .map((inv) => `INVALLOC[${inv.number}]=${Number(inv.paymentAmount ?? 0).toFixed(2)}`)
+          : [];
 
-      const narrationFinal = invoiceAllocTokens.length
-        ? `${formState.narration ? String(formState.narration).trim() + ' ' : ''}${invoiceAllocTokens.join('; ')}`
-        : formState.narration;
+      const modeToken = `SETTLEMODE=${settlementMode}`;
+      const narrationParts = [
+        formState.narration ? String(formState.narration).trim() : '',
+        modeToken,
+        ...invoiceAllocTokens,
+      ].filter(Boolean);
+      const narrationFinal = narrationParts.join(' ');
 
       // Create voucher
       const voucher = {
@@ -666,10 +761,51 @@ const PaymentReceiptVoucherPage = ({
         status: 'ACTIVE' as const,
       };
 
+      const byParty = new Map<string, { partyType: 'CUSTOMER' | 'SUPPLIER'; partyLedgerId: string; amount: number }>();
+      paymentEntries.forEach((entry) => {
+        const amt = parseFloat(String(entry.amount ?? '')) || 0;
+        if (amt <= 0 || !entry.particular) return;
+        const partyLedgerId = String(entry.particular.id ?? '');
+        const partyType = partyTypeFromParticular(entry.particular);
+        if (!partyLedgerId || !partyType) return;
+        const existing = byParty.get(partyLedgerId);
+        if (existing) existing.amount += amt;
+        else byParty.set(partyLedgerId, { partyType, partyLedgerId, amount: amt });
+      });
+
+      const settlements: PartySettlementInput[] = [];
+      for (const [, grp] of byParty) {
+        if (settlementMode === 'AGAINST_REF') {
+          settlements.push({
+            partyId: grp.partyLedgerId,
+            partyType: grp.partyType,
+            mode: 'AGAINST_REF',
+            totalAmount: grp.amount,
+            allocations: pendingInvoices
+              .filter(
+                (inv) =>
+                  inv.partyLedgerId === grp.partyLedgerId && Number(inv.paymentAmount ?? 0) > 0
+              )
+              .map((inv) => ({
+                referenceId: inv.id,
+                amount: Number(inv.paymentAmount ?? 0),
+              })),
+          });
+        } else {
+          settlements.push({
+            partyId: grp.partyLedgerId,
+            partyType: grp.partyType,
+            mode: settlementMode,
+            totalAmount: grp.amount,
+          });
+        }
+      }
+
+      let savedVoucher;
       if (isEditMode && derivedEditVoucherId) {
-        await voucherService.update(derivedEditVoucherId, voucher);
+        savedVoucher = await voucherService.update(derivedEditVoucherId, voucher, { settlements });
       } else {
-        await voucherService.create(voucher);
+        savedVoucher = await voucherService.create(voucher, { settlements });
       }
       
       // Reset form
@@ -701,6 +837,7 @@ const PaymentReceiptVoucherPage = ({
       setPendingInvoices([]);
       setPendingInvoicesError(null);
       setPendingInvoicesLoading(false);
+      setSettlementMode('AGAINST_REF');
       if (isEditMode) {
         navigate(voucherType === 'RECEIPT' ? '/vouchers/receipt-vouchers' : '/vouchers/payment-vouchers');
       }
@@ -737,10 +874,7 @@ const PaymentReceiptVoucherPage = ({
                 : 'Payment Voucher'}
             </Typography>
             <Typography variant="body1" sx={{ opacity: 0.9 }}>
-              {voucherType === 'RECEIPT' 
-                ? 'Record money coming in'
-                : 'Record money going out'
-              }
+              {voucherType === 'RECEIPT' ? 'Record money coming in' : 'Record money going out'} · v{APP_VERSION}
             </Typography>
           </Box>
           <Avatar sx={{ 
@@ -812,7 +946,7 @@ const PaymentReceiptVoucherPage = ({
             <TableHead>
               <TableRow sx={{ bgcolor: '#f8fafc' }}>
                 <TableCell sx={{ fontWeight: 800, py: 2 }}>Account (Bank/Cash)</TableCell>
-                <TableCell sx={{ fontWeight: 800, py: 2 }}>Particulars (Party/Expense)</TableCell>
+                <TableCell sx={{ fontWeight: 800, py: 2 }}>Particulars (Party / Expense)</TableCell>
                 <TableCell sx={{ fontWeight: 800, py: 2 }}>Amount (₹)</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 800, color: 'success.main', py: 2 }}>Debit (Dr)</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 800, color: 'error.main', py: 2 }}>Credit (Cr)</TableCell>
@@ -850,29 +984,12 @@ const PaymentReceiptVoucherPage = ({
                     </Box>
                   </TableCell>
                   <TableCell>
-                    <Autocomplete
-                      options={particularsOptions}
-                      getOptionLabel={(option) => option.name ?? '—'}
-                      value={entry.particular}
-                      onChange={(_, newValue) => handleParticularChange(entry.id, newValue)}
+                    <PartyPickerField
+                      size="small"
+                      displayValue={entry.particular?.name ?? ''}
+                      placeholder="Select party or expense"
                       disabled={!entry.account}
-                      renderOption={(props, option) => (
-                        <li {...props} title={option.name ?? ''}>
-                          {option.name ?? '—'}
-                        </li>
-                      )}
-                      renderInput={(params) => (
-                        <TextField
-                          {...params}
-                          placeholder="Select Party/Expense"
-                          InputProps={{
-                            ...params.InputProps,
-                            startAdornment: (
-                              <PersonIcon sx={{ color: 'secondary.main', mr: 1, opacity: 0.7 }} />
-                            )
-                          }}
-                        />
-                      )}
+                      onOpen={() => openPartyPicker(entry.id)}
                     />
                     <Box sx={{ minHeight: 54, pt: 0.5 }}>
                       {entry.particular && (
@@ -977,73 +1094,124 @@ const PaymentReceiptVoucherPage = ({
         </CardContent>
       </Card>
 
-      {/* Pending invoices & allocation */}
-      {(pendingInvoicesLoading || pendingInvoices.length > 0 || !!pendingInvoicesError) && (
-        <Box sx={{ mt: 2 }}>
-          {pendingInvoicesLoading && (
-            <Alert severity="info" sx={{ mb: 2 }}>
-              Loading pending invoices...
-            </Alert>
-          )}
-          {!pendingInvoicesLoading && pendingInvoicesError && (
-            <Alert severity="warning" sx={{ mb: 2 }}>
-              {pendingInvoicesError}
-            </Alert>
-          )}
+      {/* Bill-wise settlement */}
+      {billWiseEligible && (
+        <Card variant="outlined">
+          <CardContent>
+            <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>
+              Settlement
+            </Typography>
+            <FormControl component="fieldset" sx={{ mb: 2 }}>
+              <FormLabel component="legend">Settlement type</FormLabel>
+              <RadioGroup
+                row
+                value={settlementMode}
+                onChange={(e) => setSettlementMode(e.target.value as SettlementMode)}
+              >
+                <FormControlLabel value="AGAINST_REF" control={<Radio size="small" />} label="Against Ref" />
+                <FormControlLabel value="ADVANCE" control={<Radio size="small" />} label="Advance" />
+                <FormControlLabel value="ON_ACCOUNT" control={<Radio size="small" />} label="On Account" />
+              </RadioGroup>
+            </FormControl>
 
-          {!pendingInvoicesLoading && overdueInvoices.length > 0 && (
-            <Alert severity="warning" sx={{ mb: 2 }}>
-              {overdueInvoices
-                .slice(0, 3)
-                .map((inv) => `${inv.number} overdue by ${inv.overdueDays} days`)
-                .join(' | ')}
-              {overdueInvoices.length > 3 ? ` | +${overdueInvoices.length - 3} more overdue bill(s)` : ''}
-            </Alert>
-          )}
+            {settlementMode === 'ADVANCE' && (
+              <Alert severity="info">
+                Amount will be recorded as an advance reference and can be adjusted against future invoices.
+              </Alert>
+            )}
+            {settlementMode === 'ON_ACCOUNT' && (
+              <Alert severity="info">
+                Amount will be held on account until manually allocated to invoices.
+              </Alert>
+            )}
 
-          {!pendingInvoicesLoading && pendingInvoices.length > 0 && (
-            <Card variant="outlined">
-              <CardContent>
-                <Typography variant="h6" fontWeight={800} sx={{ mb: 1 }}>
-                  Pending invoices (auto-distributed)
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Payment amount: ₹{totalPaymentAmount.toLocaleString('en-IN')} / Allocated: ₹
-                  {pendingInvoices.reduce((s, inv) => s + (Number(inv.paymentAmount ?? 0) || 0), 0).toLocaleString('en-IN')}
-                </Typography>
-
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 800 }}>Party</TableCell>
-                      <TableCell sx={{ fontWeight: 800 }}>Invoice</TableCell>
-                      <TableCell sx={{ fontWeight: 800 }} align="right">
-                        Balance
-                      </TableCell>
-                      <TableCell sx={{ fontWeight: 800 }} align="right">
-                        Allocated
-                      </TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {pendingInvoices.map((inv) => (
-                      <TableRow key={inv.id}>
-                        <TableCell>{inv.partyName}</TableCell>
-                        <TableCell>{inv.number}</TableCell>
-                        <TableCell align="right">₹{Number(inv.balanceAmount ?? 0).toLocaleString('en-IN')}</TableCell>
-                        <TableCell align="right">
-                          {Number(inv.paymentAmount ?? 0) > 0
-                            ? `₹${Number(inv.paymentAmount ?? 0).toLocaleString('en-IN')}`
-                            : '—'}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          )}
-        </Box>
+            {settlementMode === 'AGAINST_REF' && (
+              <>
+                {pendingInvoicesLoading && (
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    Loading open references...
+                  </Alert>
+                )}
+                {!pendingInvoicesLoading && pendingInvoicesError && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    {pendingInvoicesError}
+                  </Alert>
+                )}
+                {!pendingInvoicesLoading && overdueInvoices.length > 0 && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    {overdueInvoices
+                      .slice(0, 3)
+                      .map((inv) => `${inv.number} overdue by ${inv.overdueDays} days`)
+                      .join(' | ')}
+                    {overdueInvoices.length > 3 ? ` | +${overdueInvoices.length - 3} more overdue bill(s)` : ''}
+                  </Alert>
+                )}
+                {!pendingInvoicesLoading && pendingInvoices.length > 0 && (
+                  <>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                      Payment amount: ₹{totalPaymentAmount.toLocaleString('en-IN')} / Allocated: ₹
+                      {pendingInvoices
+                        .reduce((s, inv) => s + (Number(inv.paymentAmount ?? 0) || 0), 0)
+                        .toLocaleString('en-IN')}
+                    </Typography>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 800 }}>Party</TableCell>
+                          <TableCell sx={{ fontWeight: 800 }}>Reference</TableCell>
+                          <TableCell sx={{ fontWeight: 800 }}>Date</TableCell>
+                          <TableCell sx={{ fontWeight: 800 }} align="right">
+                            Original
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 800 }} align="right">
+                            Pending
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 800 }} align="right">
+                            Adjust Amount
+                          </TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {pendingInvoices.map((inv) => (
+                          <TableRow key={inv.id}>
+                            <TableCell>{inv.partyName}</TableCell>
+                            <TableCell>
+                              {inv.number}
+                              {inv.referenceType && inv.referenceType !== 'NEW_REF' ? (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                  {inv.referenceType.replace('_', ' ')}
+                                </Typography>
+                              ) : null}
+                            </TableCell>
+                            <TableCell>{dayjs(inv.date).format('DD-MM-YYYY')}</TableCell>
+                            <TableCell align="right">
+                              ₹{Number(inv.totalAmount ?? 0).toLocaleString('en-IN')}
+                            </TableCell>
+                            <TableCell align="right">
+                              ₹{Number(inv.balanceAmount ?? 0).toLocaleString('en-IN')}
+                            </TableCell>
+                            <TableCell align="right" sx={{ width: 140 }}>
+                              <TextField
+                                size="small"
+                                type="number"
+                                value={Number(inv.paymentAmount ?? 0) || ''}
+                                onChange={(e) => updateInvoiceAllocation(inv.id, e.target.value)}
+                                inputProps={{ min: 0, max: inv.balanceAmount, step: '0.01' }}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </>
+                )}
+                {!pendingInvoicesLoading && pendingInvoices.length === 0 && !pendingInvoicesError && (
+                  <Alert severity="info">No open references for the selected party.</Alert>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* Narration with shadow */}
@@ -1194,14 +1362,12 @@ const PaymentReceiptVoucherPage = ({
                   />
                 </TableCell>
                 <TableCell>
-                  <Autocomplete
+                  <PartyPickerField
                     size="small"
-                    options={particularsOptions}
-                    getOptionLabel={(option) => option.name ?? '—'}
-                    value={entry.particular}
-                    onChange={(_, newValue) => handleParticularChange(entry.id, newValue)}
+                    displayValue={entry.particular?.name ?? ''}
+                    placeholder="Party / expense"
                     disabled={!entry.account}
-                    renderInput={(params) => <TextField {...params} placeholder="Party/Expense" />}
+                    onOpen={() => openPartyPicker(entry.id)}
                   />
                   {outstandingLabel(entry.particular) && (
                     <Typography variant="caption" sx={{ color: '#1f4e79', fontWeight: 700 }}>
@@ -1258,39 +1424,53 @@ const PaymentReceiptVoucherPage = ({
   );
 
   if (loading) {
-    return embedded ? (
-      <Box sx={{ py: 2 }}>
-        <Typography>Loading accounts...</Typography>
-      </Box>
-    ) : (
-      <Card>
-        <CardContent>
-          <Typography>Loading accounts...</Typography>
-      </CardContent>
-      </Card>
+    return (
+      <>
+        {partyPickerModal}
+        {embedded ? (
+          <Box sx={{ py: 2 }}>
+            <Typography>Loading accounts...</Typography>
+          </Box>
+        ) : (
+          <Card>
+            <CardContent>
+              <Typography>Loading accounts...</Typography>
+            </CardContent>
+          </Card>
+        )}
+      </>
     );
   }
 
   if (embedded) {
     return (
-      <Box component="form" onSubmit={handleSubmit}>
-        {formBody}
-      </Box>
+      <>
+        {partyPickerModal}
+        <Box component="form" onSubmit={handleSubmit}>
+          {formBody}
+        </Box>
+      </>
     );
   }
 
   if (fullScreenMode && !forceModernView) {
     return (
-      <Box component="form" onSubmit={handleSubmit} sx={{ height: 'calc(100vh - 170px)', minHeight: 560 }}>
-        {fullScreenBody}
-      </Box>
+      <>
+        {partyPickerModal}
+        <Box component="form" onSubmit={handleSubmit} sx={{ height: 'calc(100vh - 170px)', minHeight: 560 }}>
+          {fullScreenBody}
+        </Box>
+      </>
     );
   }
 
   return (
-    <Card component="form" onSubmit={handleSubmit}>
-      <CardContent>{formBody}</CardContent>
-    </Card>
+    <>
+      {partyPickerModal}
+      <Card component="form" onSubmit={handleSubmit}>
+        <CardContent>{formBody}</CardContent>
+      </Card>
+    </>
   );
 };
 

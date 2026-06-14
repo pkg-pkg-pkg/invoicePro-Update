@@ -4,6 +4,8 @@ import { ledgerAccountService } from './ledgerAccountService';
 import { autoLedgerService } from './autoLedgerService';
 import { readList, writeList, sanitizeString } from './storageHelpers';
 import { companyScopedKey } from '../../utils/companyStorage';
+import { fireAndForgetDelta } from '../sync/syncDeltaHelper';
+import { partyEntityName, partyToPayload } from '../sync/syncPartyEntities';
 
 export const PARTIES_CHANGED_EVENT = 'pve:parties-changed';
 
@@ -389,6 +391,7 @@ class PartyService {
     this.parties.push(party);
     console.log('✅ Party created successfully:', { id: party.id, name: party.name, ledgerId: party.ledgerId });
     await this.persistParties();
+    fireAndForgetDelta({ entity: partyEntityName(party), operation: 'upsert', payload: partyToPayload(party) });
     return party;
   }
 
@@ -504,6 +507,7 @@ class PartyService {
     }
 
     await this.persistParties();
+    fireAndForgetDelta({ entity: partyEntityName(updated), operation: 'upsert', payload: partyToPayload(updated) });
     return updated;
   }
 
@@ -511,8 +515,35 @@ class PartyService {
    * Delete party (soft delete)
    */
   async delete(id: string): Promise<void> {
+    await this.markInactive(id);
+  }
+
+  async reactivate(id: string): Promise<Party> {
     await this.ensureLedgerPartiesHydrated();
-    const index = this.parties.findIndex(p => p.id === id);
+    const index = this.parties.findIndex((p) => p.id === id);
+    if (index === -1) throw new Error('Party not found');
+    const row = this.parties[index];
+    const updated: Party = {
+      ...row,
+      status: 'ACTIVE',
+      updatedAt: new Date().toISOString(),
+    };
+    this.parties[index] = updated;
+    if (row.ledgerId) {
+      await ledgerAccountService.restore(row.ledgerId).catch(() => undefined);
+    }
+    await this.persistParties();
+    fireAndForgetDelta({
+      entity: partyEntityName(updated),
+      operation: 'upsert',
+      payload: partyToPayload(updated),
+    });
+    return updated;
+  }
+
+  async markInactive(id: string): Promise<Party> {
+    await this.ensureLedgerPartiesHydrated();
+    const index = this.parties.findIndex((p) => p.id === id);
     if (index === -1) {
       throw new Error('Party not found');
     }
@@ -520,19 +551,104 @@ class PartyService {
     const row = this.parties[index];
     if (row.ledgerId) {
       this.persistDeletedLedgerId(row.ledgerId);
+      await ledgerAccountService.deactivatePartyLedger(row.ledgerId).catch(() => undefined);
     }
 
-    this.parties[index] = {
-      ...this.parties[index],
+    const inactive: Party = {
+      ...row,
       status: 'INACTIVE',
       updatedAt: new Date().toISOString(),
     };
+    this.parties[index] = inactive;
     await this.persistParties();
+    fireAndForgetDelta({
+      entity: partyEntityName(inactive),
+      operation: 'delete',
+      payload: partyToPayload(inactive),
+    });
+    return inactive;
   }
 
-  /**
-   * Ensure a sundry ledger exists for this party (required for ledger reports & vouchers).
-   */
+  async canPermanentlyDelete(id: string): Promise<{
+    allowed: boolean;
+    hasTransactions: boolean;
+    hasOutstanding: boolean;
+    needsConfirmation: boolean;
+    reason?: string;
+  }> {
+    await this.ensureLedgerPartiesHydrated();
+    const party = this.parties.find((p) => p.id === id);
+    if (!party) {
+      return {
+        allowed: false,
+        hasTransactions: false,
+        hasOutstanding: false,
+        needsConfirmation: false,
+        reason: 'Debtor/Creditor not found',
+      };
+    }
+
+    const ledgerId = party.ledgerId ?? (await this.ensureLedgerForParty(id));
+    const outstanding = Math.abs(Number(party.currentBalance ?? party.openingBalance ?? 0)) > 0.01;
+
+    if (!ledgerId) {
+      return {
+        allowed: true,
+        hasTransactions: false,
+        hasOutstanding: outstanding,
+        needsConfirmation: outstanding,
+        reason: outstanding
+          ? 'This party has an outstanding balance. Deleting will also remove their ledger.'
+          : undefined,
+      };
+    }
+
+    const { voucherService } = await import('../vouchers/voucherService');
+    const vouchers = await voucherService.list({ includeDeleted: true });
+    const hasTx = vouchers.some(
+      (v) =>
+        (v.status ?? 'ACTIVE') !== 'CANCELLED' &&
+        v.lines.some((l) => l.ledgerId === ledgerId && (Number(l.debit) > 0 || Number(l.credit) > 0))
+    );
+
+    if (hasTx || outstanding) {
+      return {
+        allowed: true,
+        hasTransactions: hasTx,
+        hasOutstanding: outstanding,
+        needsConfirmation: true,
+        reason:
+          'This party has existing transactions or balance. Deleting will also remove their ledger account.',
+      };
+    }
+    return { allowed: true, hasTransactions: false, hasOutstanding: false, needsConfirmation: false };
+  }
+
+  async permanentDelete(id: string, options?: { force?: boolean }): Promise<void> {
+    const check = await this.canPermanentlyDelete(id);
+    if (!check.allowed) {
+      throw new Error(check.reason || 'Cannot permanently delete this party.');
+    }
+    if (check.needsConfirmation && !options?.force) {
+      throw new Error(check.reason || 'Confirmation required to delete party and ledger.');
+    }
+    await this.ensureLedgerPartiesHydrated();
+    const index = this.parties.findIndex((p) => p.id === id);
+    if (index === -1) throw new Error('Party not found');
+    const row = this.parties[index];
+    if (row.ledgerId) {
+      this.persistDeletedLedgerId(row.ledgerId);
+      await ledgerAccountService.removeById(row.ledgerId, { force: options?.force ?? check.needsConfirmation });
+    }
+    this.parties.splice(index, 1);
+    await this.persistParties();
+    fireAndForgetDelta({
+      entity: partyEntityName(row),
+      operation: 'delete',
+      payload: partyToPayload(row),
+    });
+  }
+
   async ensureLedgerForParty(partyId: string): Promise<string | null> {
     await this.ensureLedgerPartiesHydrated();
     const index = this.parties.findIndex((p) => p.id === partyId);

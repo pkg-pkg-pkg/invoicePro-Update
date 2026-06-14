@@ -30,6 +30,7 @@ import {
 } from '@mui/icons-material';
 import { VoucherItem, StockItem, Godown, SalesOrder, SalesOrderItem } from '../../services/vouchers/enhancedVoucherService';
 import { enhancedVoucherService } from '../../services/vouchers/enhancedVoucherService';
+import { voucherLineNumericInputSx, voucherLinePercentInputSx } from '../../theme/voucherLineItemTableStyles';
 
 interface ItemAllocationPopupProps {
   open: boolean;
@@ -298,6 +299,7 @@ const ItemAllocationPopup: React.FC<ItemAllocationPopupProps> = ({
                     value={allocation.quantity}
                     onChange={(e) => updateAllocation(allocation.id, 'quantity', parseFloat(e.target.value) || 0)}
                     fullWidth
+                    sx={voucherLinePercentInputSx}
                   />
                 </TableCell>
                 <TableCell>
@@ -307,6 +309,7 @@ const ItemAllocationPopup: React.FC<ItemAllocationPopupProps> = ({
                     value={allocation.rateInclTax}
                     onChange={(e) => updateAllocation(allocation.id, 'rateInclTax', parseFloat(e.target.value) || 0)}
                     fullWidth
+                    sx={voucherLineNumericInputSx}
                   />
                 </TableCell>
                 <TableCell>
@@ -316,6 +319,7 @@ const ItemAllocationPopup: React.FC<ItemAllocationPopupProps> = ({
                     value={allocation.rateExclTax}
                     onChange={(e) => updateAllocation(allocation.id, 'rateExclTax', parseFloat(e.target.value) || 0)}
                     fullWidth
+                    sx={voucherLineNumericInputSx}
                   />
                 </TableCell>
                 <TableCell>{allocation.unit}</TableCell>
@@ -326,6 +330,7 @@ const ItemAllocationPopup: React.FC<ItemAllocationPopupProps> = ({
                     value={allocation.discPercent}
                     onChange={(e) => updateAllocation(allocation.id, 'discPercent', parseFloat(e.target.value) || 0)}
                     fullWidth
+                    sx={voucherLinePercentInputSx}
                   />
                 </TableCell>
                 <TableCell>

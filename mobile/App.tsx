@@ -10,10 +10,9 @@ import AppNavigator from './src/navigation/AppNavigator';
 import MobileErrorBoundary from './src/components/MobileErrorBoundary';
 import { restoreAuthSession } from './src/services/authStorage';
 import { setCredentials } from './src/store/slices/authSlice';
-import { setMobileApiBaseUrl, setMobileAuthToken } from './src/services/api';
-import { readSyncConfig } from './src/services/sync/storage';
-import { setSyncStatus } from './src/store/slices/syncSlice';
-import { mobileSyncWorker } from './src/services/sync/mobileSyncWorker';
+import { initMobileApi, setMobileAuthToken } from './src/services/api';
+import { middlewareSync } from './src/services/sync/middlewareSync';
+import { initErrorLogger } from './src/services/errorLogger';
 
 export default function App() {
   const [bootstrapped, setBootstrapped] = useState(false);
@@ -22,6 +21,8 @@ export default function App() {
     let cancelled = false;
     const bootstrap = async () => {
       try {
+        await initErrorLogger();
+        await initMobileApi();
         const session = await restoreAuthSession();
         if (session?.token && session.user) {
           setMobileAuthToken(session.token);
@@ -32,15 +33,6 @@ export default function App() {
             })
           );
         }
-        const syncConfig = await readSyncConfig();
-        store.dispatch(
-          setSyncStatus({
-            endpointBase: syncConfig.endpointBase,
-          })
-        );
-        if (syncConfig.endpointBase) {
-          setMobileApiBaseUrl(syncConfig.endpointBase.replace(/\/mobile-sync\/?$/, '/api'));
-        }
       } catch (e) {
         console.warn('Mobile bootstrap failed', e);
       } finally {
@@ -48,10 +40,10 @@ export default function App() {
       }
     };
     bootstrap();
-    mobileSyncWorker.start();
+    middlewareSync.startAutoSync();
     return () => {
       cancelled = true;
-      mobileSyncWorker.stop();
+      middlewareSync.stopAutoSync();
     };
   }, []);
 

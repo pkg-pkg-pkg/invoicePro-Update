@@ -1,6 +1,8 @@
 import type { Party, PartyInput } from '../../types/party';
 import type { SalesDocumentStatus } from '../../types/salesDocuments';
 import { partyService } from '../masters/partyService';
+import { billReferenceService } from '../settlement/billReferenceService';
+import { logCustomerAudit, currentAuditUserName } from './customerAuditService';
 import { voucherService } from '../vouchers/voucherService';
 import { ledgerAccountService } from '../masters/ledgerAccountService';
 import { salesPipelineService } from '../sales/salesDocumentService';
@@ -169,6 +171,15 @@ export const customersApi = {
     return partyService.getById(id);
   },
 
+  async findPartyIdByLedgerId(ledgerId: string): Promise<string | null> {
+    const rows = await partyService.list({ partyType: ['BUYER', 'BOTH'] });
+    const direct = rows.find((p) => p.ledgerId === ledgerId);
+    if (direct) return direct.id;
+    const all = await partyService.list({ partyType: ['BUYER', 'BOTH'], status: 'INACTIVE' });
+    const inactive = all.find((p) => p.ledgerId === ledgerId);
+    return inactive?.id ?? null;
+  },
+
   async create(input: PartyInput): Promise<Party> {
     return partyService.create({ ...input, partyType: input.partyType === 'SUPPLIER' ? 'BOTH' : 'BUYER' });
   },
@@ -178,11 +189,68 @@ export const customersApi = {
   },
 
   async remove(id: string): Promise<void> {
-    await partyService.delete(id);
+    await partyService.markInactive(id);
+    const party = await partyService.getById(id);
+    logCustomerAudit({
+      customerId: id,
+      customerName: party?.name || id,
+      action: 'CUSTOMER_DEACTIVATED',
+      userName: currentAuditUserName(),
+    });
+  },
+
+  async reactivate(id: string): Promise<Party> {
+    const updated = await partyService.reactivate(id);
+    logCustomerAudit({
+      customerId: id,
+      customerName: updated.name,
+      action: 'CUSTOMER_ACTIVATED',
+      userName: currentAuditUserName(),
+    });
+    return updated;
+  },
+
+  async canPermanentlyDelete(id: string) {
+    return partyService.canPermanentlyDelete(id);
+  },
+
+  async permanentDelete(id: string, options?: { force?: boolean }): Promise<void> {
+    const party = await partyService.getById(id);
+    await partyService.permanentDelete(id, options);
+    logCustomerAudit({
+      customerId: id,
+      customerName: party?.name || id,
+      action: 'CUSTOMER_DELETED',
+      userName: currentAuditUserName(),
+    });
+  },
+
+  async markInactive(id: string): Promise<Party> {
+    const updated = await partyService.markInactive(id);
+    logCustomerAudit({
+      customerId: id,
+      customerName: updated.name,
+      action: 'CUSTOMER_DEACTIVATED',
+      userName: currentAuditUserName(),
+    });
+    return updated;
   },
 
   customerBalance(party: Party): number {
     return Number(party.currentBalance ?? party.openingBalance ?? 0);
+  },
+
+  async customerOutstanding(party: Party): Promise<number> {
+    let ledgerId = party.ledgerId;
+    if (!ledgerId) {
+      ledgerId = (await partyService.ensureLedgerForParty(party.id)) ?? undefined;
+    }
+    if (ledgerId) {
+      await billReferenceService.ensureMigrated();
+      const billOutstanding = await billReferenceService.getPartyOutstanding(ledgerId);
+      if (billOutstanding > 0.01) return billOutstanding;
+    }
+    return this.customerBalance(party);
   },
 
   /** Customers for sales/collections filter dropdowns (ledgerId = filter value). */

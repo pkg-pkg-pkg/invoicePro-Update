@@ -8,8 +8,8 @@
  */
 
 import * as crypto from "crypto";
-import * as admin from "firebase-admin";
-import * as functions from "firebase-functions/v1";
+import { admin } from "./adminBootstrap";
+import { functions, runWithWithAdmin } from "./functionsRuntime";
 import * as logger from "firebase-functions/logger";
 
 // Start writing functions
@@ -21,9 +21,6 @@ import * as logger from "firebase-functions/logger";
 // per-function limit. You can override the limit for each function using the
 // `maxInstances` option in the function's options, e.g.
 // `onRequest({ maxInstances: 5 }, (req, res) => { ... })`.
-admin.initializeApp();
-admin.firestore().settings({ ignoreUndefinedProperties: true });
-
 type LicenseDoc = {
   licenseKey: string;
   version: 1 | 2;
@@ -144,30 +141,46 @@ async function requireAdmin(context: functions.https.CallableContext): Promise<v
   throw new functions.https.HttpsError("permission-denied", "Admin only");
 }
 
-function getSecret(): string {
-  const s = String((functions.config() as any)?.license?.secret ?? "").trim();
-  if (!s) {
-    throw new functions.https.HttpsError(
-      "failed-precondition",
-      "Missing functions config license.secret. Run: firebase functions:config:set license.secret=\"...\""
-    );
+function readLicenseRuntimeConfig(): { secret: string; ownerEmails: string[] } {
+  let cfgSecret = "";
+  let cfgOwners = "";
+  try {
+    const configModule = require("firebase-functions/v1/config") as {
+      config: () => { license?: { secret?: string; owner_email?: string; owner_emails?: string } };
+    };
+    const cfg = configModule.config()?.license;
+    cfgSecret = String(cfg?.secret ?? "").trim();
+    cfgOwners = String(cfg?.owner_email ?? cfg?.owner_emails ?? "").trim();
+  } catch (e) {
+    logger.warn("functions.config unavailable — use LICENSE_SECRET / LICENSE_OWNER_EMAILS env", e);
   }
-  return s;
-}
 
-function getOwnerEmails(): string[] {
-  const cfg = (functions.config() as any)?.license;
-  const raw = String(cfg?.owner_email ?? cfg?.owner_emails ?? "").trim();
-  if (!raw) return [];
-  return raw
+  const secret = String(process.env.LICENSE_SECRET ?? cfgSecret).trim();
+  const ownerRaw = String(process.env.LICENSE_OWNER_EMAILS ?? process.env.LICENSE_OWNER_EMAIL ?? cfgOwners).trim();
+  const ownerEmails = ownerRaw
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
+
+  return { secret, ownerEmails };
 }
 
-export const becomeAdmin = functions
-  .runWith({ maxInstances: 5 })
-  .https.onCall(async (_data: any, context: functions.https.CallableContext) => {
+function getSecret(): string {
+  const { secret } = readLicenseRuntimeConfig();
+  if (!secret) {
+    throw new functions.https.HttpsError(
+      "failed-precondition",
+      'Missing license secret. Set LICENSE_SECRET (recommended) or run: firebase functions:config:set license.secret="YOUR_SECRET"'
+    );
+  }
+  return secret;
+}
+
+function getOwnerEmails(): string[] {
+  return readLicenseRuntimeConfig().ownerEmails;
+}
+
+export const becomeAdmin = runWithWithAdmin({ maxInstances: 5 }).https.onCall(async (_data: any, context: functions.https.CallableContext) => {
     requireAuth(context);
     const email = requireEmail(context);
     const owners = getOwnerEmails();
@@ -311,9 +324,7 @@ async function queryWithCreatedAtFallback(
   }
 }
 
-export const generateLicense = functions
-  .runWith({ maxInstances: 5 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const generateLicense = runWithWithAdmin({ maxInstances: 5 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     await requireAdmin(context);
 
     const secret = getSecret();
@@ -394,9 +405,7 @@ export const generateLicense = functions
     return { ok: true, licenseKey, expiryDate: expiryDate ? expiryDate.toMillis() : null };
   });
 
-export const revokeLicense = functions
-  .runWith({ maxInstances: 5 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const revokeLicense = runWithWithAdmin({ maxInstances: 5 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     await requireAdmin(context);
     const licenseKey = String(data?.licenseKey ?? "").trim().toUpperCase();
     if (!licenseKey) throw new functions.https.HttpsError("invalid-argument", "licenseKey required");
@@ -419,9 +428,7 @@ export const revokeLicense = functions
     return { ok: true };
   });
 
-export const listLicenses = functions
-  .runWith({ maxInstances: 5 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const listLicenses = runWithWithAdmin({ maxInstances: 5 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     await requireAdmin(context);
     const pageSize = Math.min(Math.max(Number(data?.pageSize ?? 50), 1), 200);
     let snap: admin.firestore.QuerySnapshot;
@@ -443,9 +450,7 @@ export const listLicenses = functions
     return { ok: true, items };
   });
 
-export const activateLicense = functions
-  .runWith({ maxInstances: 20 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const activateLicense = runWithWithAdmin({ maxInstances: 20 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     const uid = String(context.auth?.uid ?? "");
     const tokenEmail = String((context.auth?.token as any)?.email ?? "");
     const deviceId = String(data?.deviceId ?? "").trim();
@@ -593,9 +598,7 @@ export const activateLicense = functions
     }
   });
 
-export const validateLicense = functions
-  .runWith({ maxInstances: 20 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const validateLicense = runWithWithAdmin({ maxInstances: 20 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     const uid = String(context.auth?.uid ?? "");
     const tokenEmail = String((context.auth?.token as any)?.email ?? "");
     const deviceId = String(data?.deviceId ?? "").trim();
@@ -711,9 +714,7 @@ export const validateLicense = functions
     }
   });
 
-export const transferLicense = functions
-  .runWith({ maxInstances: 20 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const transferLicense = runWithWithAdmin({ maxInstances: 20 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     requireAuth(context);
     const email = requireEmail(context);
     const uid = String(context.auth?.uid ?? "");
@@ -831,9 +832,7 @@ export const transferLicense = functions
     }
   });
 
-export const surrenderLicense = functions
-  .runWith({ maxInstances: 20 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const surrenderLicense = runWithWithAdmin({ maxInstances: 20 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     requireAuth(context);
     const email = requireEmail(context);
     const uid = String(context.auth?.uid ?? "");
@@ -897,9 +896,7 @@ export const surrenderLicense = functions
  * Verify activation key for login - works with any license doc structure.
  * Tries doc ID first, then queries by licenseKey field (handles legacy keys like INVPRO0001).
  */
-export const verifyActivationForLogin = functions
-  .runWith({ maxInstances: 20 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const verifyActivationForLogin = runWithWithAdmin({ maxInstances: 20 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     requireAuth(context);
     const email = requireEmail(context);
     const licenseKey = String(data?.licenseKey ?? "").trim().toUpperCase();
@@ -968,9 +965,7 @@ export const verifyActivationForLogin = functions
     };
   });
 
-export const listAuditEvents = functions
-  .runWith({ maxInstances: 5 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const listAuditEvents = runWithWithAdmin({ maxInstances: 5 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     try {
       await requireAdmin(context);
       const limitN = Math.min(Math.max(Number(data?.limit ?? 100), 1), 500);
@@ -1000,9 +995,7 @@ export const listAuditEvents = functions
     }
   });
 
-export const listUsers = functions
-  .runWith({ maxInstances: 5 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const listUsers = runWithWithAdmin({ maxInstances: 5 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     try {
       await requireAdmin(context);
       const pageSize = Math.min(Math.max(Number(data?.pageSize ?? 200), 1), 500);
@@ -1019,9 +1012,7 @@ export const listUsers = functions
     }
   });
 
-export const updateLicenseAdmin = functions
-  .runWith({ maxInstances: 10 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const updateLicenseAdmin = runWithWithAdmin({ maxInstances: 10 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     await requireAdmin(context);
     const licenseKey = String(data?.licenseKey ?? "").trim().toUpperCase();
     if (!licenseKey) throw new functions.https.HttpsError("invalid-argument", "licenseKey required");
@@ -1122,9 +1113,7 @@ function normalizeUtr(raw: string): string {
     .toUpperCase();
 }
 
-export const submitMultiUserUpgrade = functions
-  .runWith({ maxInstances: 10 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const submitMultiUserUpgrade = runWithWithAdmin({ maxInstances: 10 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     requireAuth(context);
     const email = requireEmail(context);
     const uid = String(context.auth?.uid ?? "");
@@ -1212,9 +1201,7 @@ export const submitMultiUserUpgrade = functions
     return { ok: true, requestId: ref.id };
   });
 
-export const getMyMultiUserUpgradeStatus = functions
-  .runWith({ maxInstances: 20 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const getMyMultiUserUpgradeStatus = runWithWithAdmin({ maxInstances: 20 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     requireAuth(context);
     const email = requireEmail(context);
     const clientKey = String(data?.licenseKey ?? "").trim().toUpperCase();
@@ -1243,9 +1230,7 @@ export const getMyMultiUserUpgradeStatus = functions
     return { ok: true, item: latest, items };
   });
 
-export const listMultiUserUpgradeRequests = functions
-  .runWith({ maxInstances: 5 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const listMultiUserUpgradeRequests = runWithWithAdmin({ maxInstances: 5 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     try {
       await requireAdmin(context);
       const statusFilter = data?.status != null ? String(data.status) : "";
@@ -1297,9 +1282,7 @@ export const listMultiUserUpgradeRequests = functions
     }
   });
 
-export const approveMultiUserUpgradeRequest = functions
-  .runWith({ maxInstances: 5 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const approveMultiUserUpgradeRequest = runWithWithAdmin({ maxInstances: 5 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     await requireAdmin(context);
     const adminUid = String(context.auth?.uid ?? "");
     const requestId = String(data?.requestId ?? "").trim();
@@ -1365,9 +1348,7 @@ export const approveMultiUserUpgradeRequest = functions
     return { ok: true };
   });
 
-export const rejectMultiUserUpgradeRequest = functions
-  .runWith({ maxInstances: 5 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const rejectMultiUserUpgradeRequest = runWithWithAdmin({ maxInstances: 5 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     await requireAdmin(context);
     const adminUid = String(context.auth?.uid ?? "");
     const requestId = String(data?.requestId ?? "").trim();
@@ -1414,9 +1395,7 @@ export const rejectMultiUserUpgradeRequest = functions
     return { ok: true };
   });
 
-export const submitGatewayRenewal = functions
-  .runWith({ maxInstances: 10 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const submitGatewayRenewal = runWithWithAdmin({ maxInstances: 10 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     requireAuth(context);
     const email = requireEmail(context);
     const uid = String(context.auth?.uid ?? "");
@@ -1515,9 +1494,7 @@ export const submitGatewayRenewal = functions
     return { ok: true, requestId: ref.id };
   });
 
-export const getMyGatewayRenewalStatus = functions
-  .runWith({ maxInstances: 20 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const getMyGatewayRenewalStatus = runWithWithAdmin({ maxInstances: 20 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     requireAuth(context);
     const email = requireEmail(context);
     const clientKey = String(data?.licenseKey ?? "").trim().toUpperCase();
@@ -1546,9 +1523,7 @@ export const getMyGatewayRenewalStatus = functions
     return { ok: true, item: latest, items };
   });
 
-export const listGatewayRenewalRequests = functions
-  .runWith({ maxInstances: 5 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const listGatewayRenewalRequests = runWithWithAdmin({ maxInstances: 5 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     try {
       await requireAdmin(context);
       const statusFilter = data?.status != null ? String(data.status) : "";
@@ -1600,9 +1575,7 @@ export const listGatewayRenewalRequests = functions
     }
   });
 
-export const approveGatewayRenewalRequest = functions
-  .runWith({ maxInstances: 5 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const approveGatewayRenewalRequest = runWithWithAdmin({ maxInstances: 5 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     await requireAdmin(context);
     const adminUid = String(context.auth?.uid ?? "");
     const requestId = String(data?.requestId ?? "").trim();
@@ -1681,9 +1654,7 @@ export const approveGatewayRenewalRequest = functions
     return { ok: true };
   });
 
-export const rejectGatewayRenewalRequest = functions
-  .runWith({ maxInstances: 5 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const rejectGatewayRenewalRequest = runWithWithAdmin({ maxInstances: 5 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     await requireAdmin(context);
     const adminUid = String(context.auth?.uid ?? "");
     const requestId = String(data?.requestId ?? "").trim();
@@ -1795,9 +1766,7 @@ function generateMobilePin(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-export const submitMobileUserSubscription = functions
-  .runWith({ maxInstances: 10 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const submitMobileUserSubscription = runWithWithAdmin({ maxInstances: 10 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     requireAuth(context);
     const ownerEmail = requireEmail(context);
     const ownerUid = String(context.auth?.uid ?? "");
@@ -1877,9 +1846,7 @@ export const submitMobileUserSubscription = functions
     return { ok: true, requestId: ref.id };
   });
 
-export const getMyMobileUserRequests = functions
-  .runWith({ maxInstances: 20 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const getMyMobileUserRequests = runWithWithAdmin({ maxInstances: 20 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     requireAuth(context);
     const ownerEmail = requireEmail(context);
     const clientKey = String(data?.licenseKey ?? "").trim().toUpperCase();
@@ -1901,9 +1868,7 @@ export const getMyMobileUserRequests = functions
     return { ok: true, items };
   });
 
-export const listMobileUsersForLicense = functions
-  .runWith({ maxInstances: 20 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const listMobileUsersForLicense = runWithWithAdmin({ maxInstances: 20 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     requireAuth(context);
     const ownerEmail = requireEmail(context);
     const clientKey = String(data?.licenseKey ?? "").trim().toUpperCase();
@@ -1931,9 +1896,7 @@ export const listMobileUsersForLicense = functions
     return { ok: true, items };
   });
 
-export const listMobileUserRequests = functions
-  .runWith({ maxInstances: 5 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const listMobileUserRequests = runWithWithAdmin({ maxInstances: 5 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     try {
       await requireAdmin(context);
       const statusFilter = data?.status != null ? String(data.status) : "";
@@ -1985,9 +1948,7 @@ export const listMobileUserRequests = functions
     }
   });
 
-export const listMobileUsersAdmin = functions
-  .runWith({ maxInstances: 5 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const listMobileUsersAdmin = runWithWithAdmin({ maxInstances: 5 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     await requireAdmin(context);
     const limitN = Math.min(Math.max(Number(data?.limit ?? 100), 1), 300);
     const snap = await admin.firestore().collection("mobile_users").limit(limitN * 2).get();
@@ -2001,9 +1962,7 @@ export const listMobileUsersAdmin = functions
     return { ok: true, items };
   });
 
-export const approveMobileUserRequest = functions
-  .runWith({ maxInstances: 5 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const approveMobileUserRequest = runWithWithAdmin({ maxInstances: 5 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     await requireAdmin(context);
     const adminUid = String(context.auth?.uid ?? "");
     const requestId = String(data?.requestId ?? "").trim();
@@ -2076,9 +2035,7 @@ export const approveMobileUserRequest = functions
     return { ok: true, userId: userDocId, initialPin };
   });
 
-export const rejectMobileUserRequest = functions
-  .runWith({ maxInstances: 5 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const rejectMobileUserRequest = runWithWithAdmin({ maxInstances: 5 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     await requireAdmin(context);
     const adminUid = String(context.auth?.uid ?? "");
     const requestId = String(data?.requestId ?? "").trim();
@@ -2111,9 +2068,7 @@ export const rejectMobileUserRequest = functions
     return { ok: true };
   });
 
-export const transferMobileUserDevice = functions
-  .runWith({ maxInstances: 10 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const transferMobileUserDevice = runWithWithAdmin({ maxInstances: 10 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     const userId = String(data?.userId ?? "").trim();
     if (!userId) {
       throw new functions.https.HttpsError("invalid-argument", "userId required");
@@ -2168,9 +2123,7 @@ export const transferMobileUserDevice = functions
     return { ok: true };
   });
 
-export const registerMobileUserDevice = functions
-  .runWith({ maxInstances: 20 })
-  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const registerMobileUserDevice = runWithWithAdmin({ maxInstances: 20 }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
     requireAuth(context);
     const ownerEmail = requireEmail(context);
     const userId = String(data?.userId ?? "").trim();
@@ -2210,3 +2163,5 @@ export const registerMobileUserDevice = functions
     );
     return { ok: true };
   });
+
+export { createTrial, validateTrial, extendTrial, adminTrialAction } from './trial';

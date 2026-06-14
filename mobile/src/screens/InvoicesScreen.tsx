@@ -19,7 +19,7 @@ import { useRoute } from '@react-navigation/native';
 export default function InvoicesScreen() {
   const route = useRoute<any>();
   const user = useSelector((state: RootState) => state.auth.user);
-  const createAllowed = canCreateEntry(user?.mobilePermissions);
+  const createAllowed = canCreateEntry(user?.permissions ?? user?.mobilePermissions);
   const initialType = route?.params?.defaultEntryType as EntryType | undefined;
   const [entryType, setEntryType] = useState<EntryType>(initialType === 'PAYMENT' ? 'PAYMENT' : 'RECEIPT');
   const [partySearch, setPartySearch] = useState('');

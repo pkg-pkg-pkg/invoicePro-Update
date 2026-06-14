@@ -13,6 +13,14 @@ function isoNow() {
   return new Date().toISOString();
 }
 
+function ensureColumn(db, table, column, definition) {
+  if (!db) return;
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
 function ensureSchema(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS kv_store (
@@ -53,6 +61,8 @@ function ensureSchema(db) {
       updated_at TEXT
     );
   `);
+  ensureColumn(db, 'company_profile', 'upi_id', 'TEXT');
+  ensureColumn(db, 'company_profile', 'upi_payee_name', 'TEXT');
 }
 
 function getAppSetting(db, key) {
@@ -139,6 +149,8 @@ function rowToProfile(row) {
     bank_account_number: row.bank_account_number || '',
     bank_ifsc: row.bank_ifsc || '',
     bank_branch: row.bank_branch || '',
+    upi_id: row.upi_id || '',
+    upi_payee_name: row.upi_payee_name || '',
     is_profile_completed: Boolean(row.is_profile_completed),
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -153,33 +165,82 @@ function getProfileByCode(db, companyCode) {
   return rowToProfile(row);
 }
 
+function fieldFromInput(input, keys) {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(input, key)) {
+      return String(input[key] ?? '').trim();
+    }
+  }
+  return null;
+}
+
+function resolveProfileField(input, keys, existingVal, updating) {
+  const fromInput = fieldFromInput(input, keys);
+  if (fromInput === null) {
+    return updating ? String(existingVal ?? '').trim() : '';
+  }
+  return fromInput;
+}
+
+function hasMinimumProfileFields(profile) {
+  if (!profile) return false;
+  return Boolean(
+    String(profile.company_name || '').trim() &&
+      String(profile.owner_name || '').trim() &&
+      String(profile.mobile || '').trim()
+  );
+}
+
 function upsertProfile(db, companyCode, input) {
   if (!db || !companyCode) throw new Error('Database or company code missing');
   const now = isoNow();
   const existing = getProfileByCode(db, companyCode);
+  const updating = Boolean(existing);
   const payload = {
     company_code: String(companyCode),
-    company_name: String(input.company_name || input.businessName || '').trim(),
-    business_type: String(input.business_type || '').trim(),
-    owner_name: String(input.owner_name || input.ownerName || '').trim(),
-    mobile: String(input.mobile || input.phone || '').trim(),
-    email: String(input.email || '').trim(),
-    gstin: String(input.gstin || input.gstNumber || '').trim(),
-    pan: String(input.pan || input.panNumber || '').trim(),
-    address: String(input.address || '').trim(),
-    city: String(input.city || '').trim(),
-    state: String(input.state || '').trim(),
-    pincode: String(input.pincode || input.pinCode || '').replace(/\D/g, ''),
-    country: String(input.country || 'India').trim(),
-    website: String(input.website || '').trim(),
-    financial_year: String(input.financial_year || input.financialYear || '').trim(),
-    logo_path: String(input.logo_path || input.logo || '').trim(),
-    signature_path: String(input.signature_path || input.signature || '').trim(),
-    stamp_path: String(input.stamp_path || input.stamp || '').trim(),
-    bank_name: String(input.bank_name || input.bankName || '').trim(),
-    bank_account_number: String(input.bank_account_number || input.bankAccountNumber || '').trim(),
-    bank_ifsc: String(input.bank_ifsc || input.bankIfsc || '').trim(),
-    bank_branch: String(input.bank_branch || input.bankBranch || '').trim(),
+    company_name: resolveProfileField(input, ['company_name', 'businessName'], existing?.company_name, updating),
+    business_type: resolveProfileField(input, ['business_type', 'businessType'], existing?.business_type, updating),
+    owner_name: resolveProfileField(input, ['owner_name', 'ownerName'], existing?.owner_name, updating),
+    mobile: resolveProfileField(input, ['mobile', 'phone'], existing?.mobile, updating),
+    email: resolveProfileField(input, ['email'], existing?.email, updating),
+    gstin: resolveProfileField(input, ['gstin', 'gstNumber'], existing?.gstin, updating),
+    pan: resolveProfileField(input, ['pan', 'panNumber'], existing?.pan, updating),
+    address: resolveProfileField(input, ['address'], existing?.address, updating),
+    city: resolveProfileField(input, ['city'], existing?.city, updating),
+    state: resolveProfileField(input, ['state'], existing?.state, updating),
+    pincode: resolveProfileField(input, ['pincode', 'pinCode'], existing?.pincode, updating).replace(/\D/g, ''),
+    country: resolveProfileField(input, ['country'], existing?.country, updating) || 'India',
+    website: resolveProfileField(input, ['website'], existing?.website, updating),
+    financial_year: resolveProfileField(
+      input,
+      ['financial_year', 'financialYear'],
+      existing?.financial_year,
+      updating
+    ),
+    logo_path: resolveProfileField(input, ['logo_path', 'logo'], existing?.logo_path, updating),
+    signature_path: resolveProfileField(
+      input,
+      ['signature_path', 'signature'],
+      existing?.signature_path,
+      updating
+    ),
+    stamp_path: resolveProfileField(input, ['stamp_path', 'stamp'], existing?.stamp_path, updating),
+    bank_name: resolveProfileField(input, ['bank_name', 'bankName', 'bank'], existing?.bank_name, updating),
+    bank_account_number: resolveProfileField(
+      input,
+      ['bank_account_number', 'bankAccountNumber', 'accountNo'],
+      existing?.bank_account_number,
+      updating
+    ),
+    bank_ifsc: resolveProfileField(input, ['bank_ifsc', 'bankIfsc', 'ifsc'], existing?.bank_ifsc, updating),
+    bank_branch: resolveProfileField(input, ['bank_branch', 'bankBranch'], existing?.bank_branch, updating),
+    upi_id: resolveProfileField(input, ['upi_id', 'upiId'], existing?.upi_id, updating),
+    upi_payee_name: resolveProfileField(
+      input,
+      ['upi_payee_name', 'upiPayeeName'],
+      existing?.upi_payee_name,
+      updating
+    ),
     is_profile_completed: input.is_profile_completed ? 1 : existing?.is_profile_completed ? 1 : 0,
     created_at: existing?.created_at || now,
     updated_at: now,
@@ -196,6 +257,7 @@ function upsertProfile(db, companyCode, input) {
         gstin = ?, pan = ?, address = ?, city = ?, state = ?, pincode = ?, country = ?,
         website = ?, financial_year = ?, logo_path = ?, signature_path = ?, stamp_path = ?,
         bank_name = ?, bank_account_number = ?, bank_ifsc = ?, bank_branch = ?,
+        upi_id = ?, upi_payee_name = ?,
         is_profile_completed = ?, updated_at = ?
       WHERE company_code = ?
     `).run(
@@ -220,6 +282,8 @@ function upsertProfile(db, companyCode, input) {
       payload.bank_account_number,
       payload.bank_ifsc,
       payload.bank_branch,
+      payload.upi_id,
+      payload.upi_payee_name,
       payload.is_profile_completed,
       payload.updated_at,
       payload.company_code
@@ -230,8 +294,9 @@ function upsertProfile(db, companyCode, input) {
         company_code, company_name, business_type, owner_name, mobile, email,
         gstin, pan, address, city, state, pincode, country, website, financial_year,
         logo_path, signature_path, stamp_path, bank_name, bank_account_number, bank_ifsc, bank_branch,
+        upi_id, upi_payee_name,
         is_profile_completed, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       payload.company_code,
       payload.company_name,
@@ -255,6 +320,8 @@ function upsertProfile(db, companyCode, input) {
       payload.bank_account_number,
       payload.bank_ifsc,
       payload.bank_branch,
+      payload.upi_id,
+      payload.upi_payee_name,
       payload.is_profile_completed,
       payload.created_at,
       payload.updated_at
@@ -329,25 +396,24 @@ function evaluateProfileCompletion(db, companyCode) {
   const appFlag = getAppSetting(db, SETTING_PROFILE_COMPLETED) === 'true';
   const rowComplete = Boolean(profile?.is_profile_completed);
   const companyExists = Boolean(profile && profile.company_name);
+  const minimumComplete = hasMinimumProfileFields(profile);
 
-  let profileCompleted = appFlag && rowComplete && companyExists;
+  // Once marked complete (app or row flag), stay complete. New profiles need minimum fields.
+  let profileCompleted = Boolean(appFlag || rowComplete || minimumComplete);
   let reason = 'ok';
 
-  if (appFlag && (!profile || !rowComplete || !companyExists)) {
-    setAppSetting(db, SETTING_PROFILE_COMPLETED, 'false');
-    if (profile) {
-      db.prepare('UPDATE company_profile SET is_profile_completed = 0 WHERE company_code = ?').run(
+  if (profileCompleted && profile) {
+    if (!rowComplete) {
+      db.prepare('UPDATE company_profile SET is_profile_completed = 1 WHERE company_code = ?').run(
         companyCode
       );
     }
-    profileCompleted = false;
-    reason = 'self_heal_flag_without_company_record';
-  } else if (!appFlag && rowComplete && companyExists) {
-    setAppSetting(db, SETTING_PROFILE_COMPLETED, 'true');
-    profileCompleted = true;
-    reason = 'synced_from_row';
+    if (!appFlag) {
+      setAppSetting(db, SETTING_PROFILE_COMPLETED, 'true');
+      reason = minimumComplete ? 'synced_from_minimum_fields' : 'synced_from_row';
+    }
   } else if (!profileCompleted) {
-    reason = !profile ? 'no_company_profile_row' : !rowComplete ? 'profile_incomplete' : 'app_flag_false';
+    reason = !profile ? 'no_company_profile_row' : 'profile_incomplete';
   }
 
   const migrationStatus =

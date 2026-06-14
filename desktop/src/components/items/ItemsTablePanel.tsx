@@ -20,7 +20,7 @@ import { useTheme } from '@mui/material/styles';
 import type { InventoryItem } from '../../types/masters';
 import { formatCurrency } from '../../utils/formatters';
 import { getItemsModuleTokens } from '../../theme/itemsModuleTheme';
-import { getItemStockStatus, getItemTypeLabel } from '../../utils/itemDisplayHelpers';
+import { getItemStockStatus, getItemTotalStock, formatItemStockQuantity } from '../../utils/itemDisplayHelpers';
 
 type Props = {
   items: InventoryItem[];
@@ -46,8 +46,6 @@ const HEAD_SX = {
   fontSize: '0.72rem',
   letterSpacing: '0.01em',
 };
-
-const STOCK_COL_SX = { whiteSpace: 'nowrap' as const, overflow: 'visible' as const };
 
 const BODY_CELL_SX = { px: 1, py: 1.1, verticalAlign: 'middle' as const, fontSize: '0.8125rem' };
 
@@ -92,6 +90,7 @@ export function ItemsTablePanel({
       sx={{
         flex: 1,
         minHeight: 0,
+        width: '100%',
         overflow: 'auto',
         '& .MuiTableHead-root .MuiTableCell-root': {
           position: 'sticky',
@@ -105,24 +104,10 @@ export function ItemsTablePanel({
         '& .MuiTableBody-root .MuiTableCell-root': BODY_CELL_SX,
       }}
     >
-      <Table size="small" stickyHeader sx={{ width: '100%', minWidth: 1060, tableLayout: 'fixed' }}>
-        <colgroup>
-          <col style={{ width: 40 }} />
-          <col style={{ width: 'auto' }} />
-          <col style={{ width: 92 }} />
-          <col style={{ width: 72 }} />
-          <col style={{ width: 88 }} />
-          <col style={{ width: 52 }} />
-          <col style={{ width: 84 }} />
-          <col style={{ width: 96 }} />
-          <col style={{ width: 92 }} />
-          <col style={{ width: 124 }} />
-          <col style={{ width: 80 }} />
-          <col style={{ width: 96 }} />
-        </colgroup>
+      <Table size="small" stickyHeader sx={{ width: '100%', minWidth: 960, tableLayout: 'auto' }}>
         <TableHead>
           <TableRow>
-            <TableCell padding="checkbox">
+            <TableCell padding="checkbox" sx={{ width: 40 }}>
               <Checkbox
                 size="small"
                 checked={allSelected}
@@ -130,22 +115,24 @@ export function ItemsTablePanel({
                 onChange={onToggleAll}
               />
             </TableCell>
-            <TableCell><HeadLabel label="Item Name" /></TableCell>
-            <TableCell><HeadLabel label="SKU" /></TableCell>
-            <TableCell><HeadLabel label="HSN" title="HSN Code" /></TableCell>
-            <TableCell><HeadLabel label="Category" /></TableCell>
-            <TableCell><HeadLabel label="Unit" /></TableCell>
-            <TableCell><HeadLabel label="Godown" /></TableCell>
-            <TableCell align="right"><HeadLabel label="Pur. Price" title="Purchase Price" /></TableCell>
-            <TableCell align="right"><HeadLabel label="Sale Price" title="Sales Price" /></TableCell>
-            <TableCell sx={STOCK_COL_SX}><HeadLabel label="Stock" title="Stock Status" /></TableCell>
-            <TableCell><HeadLabel label="Item" title="Item Status (Active / Inactive)" /></TableCell>
-            <TableCell align="right"><HeadLabel label="Actions" /></TableCell>
+            <TableCell sx={{ minWidth: 160 }}><HeadLabel label="Item Name" /></TableCell>
+            <TableCell sx={{ minWidth: 80 }}><HeadLabel label="SKU" /></TableCell>
+            <TableCell sx={{ minWidth: 64 }}><HeadLabel label="HSN" title="HSN Code" /></TableCell>
+            <TableCell sx={{ minWidth: 96 }}><HeadLabel label="Category" /></TableCell>
+            <TableCell sx={{ minWidth: 52 }}><HeadLabel label="Unit" /></TableCell>
+            <TableCell sx={{ minWidth: 88 }}><HeadLabel label="Godown" /></TableCell>
+            <TableCell align="right" sx={{ minWidth: 88 }}><HeadLabel label="Pur. Price" title="Purchase Price" /></TableCell>
+            <TableCell align="right" sx={{ minWidth: 88 }}><HeadLabel label="Sale Price" title="Sales Price" /></TableCell>
+            <TableCell align="right" sx={{ minWidth: 120 }}><HeadLabel label="Stock Qty" title="On-hand quantity across all godowns" /></TableCell>
+            <TableCell sx={{ minWidth: 80 }}><HeadLabel label="Status" title="Active / Inactive" /></TableCell>
+            <TableCell align="right" sx={{ minWidth: 88, width: 88 }}><HeadLabel label="Actions" /></TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {items.map((item) => {
             const stock = getItemStockStatus(item);
+            const stockQty = getItemTotalStock(item);
+            const unit = unitLabel(item.unitId);
             const purchase = item.pricing?.purchase ?? 0;
             const sale = item.pricing?.sale ?? item.pricing?.mrp ?? 0;
             return (
@@ -170,9 +157,6 @@ export function ItemsTablePanel({
                   <Typography fontWeight={700} fontSize="0.8125rem" color={tok.text} noWrap title={item.name}>
                     {item.name}
                   </Typography>
-                  <Typography variant="caption" color={tok.textMuted} noWrap title={getItemTypeLabel(item.itemType)}>
-                    {getItemTypeLabel(item.itemType)}
-                  </Typography>
                 </TableCell>
                 <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.sku || undefined}>
                   {item.sku || '—'}
@@ -196,32 +180,25 @@ export function ItemsTablePanel({
                 </TableCell>
                 <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatCurrency(purchase)}</TableCell>
                 <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{formatCurrency(sale)}</TableCell>
-                <TableCell sx={STOCK_COL_SX}>
-                  <Chip
-                    label={stock.label}
-                    size="small"
-                    sx={{
-                      height: 22,
-                      fontWeight: 600,
-                      fontSize: '0.7rem',
-                      bgcolor: `${stock.color}14`,
-                      color: stock.color,
-                      border: `1px solid ${stock.color}40`,
-                      '& .MuiChip-label': { px: 0.75 },
-                    }}
-                    icon={
-                      <Box
-                        sx={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: '50%',
-                          bgcolor: stock.color,
-                          ml: '5px !important',
-                          mr: '-3px !important',
-                        }}
-                      />
-                    }
-                  />
+                <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                  <Stack spacing={0.5} alignItems="flex-end">
+                    <Typography variant="body2" fontWeight={700}>
+                      {formatItemStockQuantity(stockQty, unit === '—' ? 'pcs' : unit)}
+                    </Typography>
+                    <Chip
+                      label={stock.label}
+                      size="small"
+                      sx={{
+                        height: 20,
+                        fontWeight: 600,
+                        fontSize: '0.65rem',
+                        bgcolor: `${stock.color}14`,
+                        color: stock.color,
+                        border: `1px solid ${stock.color}40`,
+                        '& .MuiChip-label': { px: 0.6 },
+                      }}
+                    />
+                  </Stack>
                 </TableCell>
                 <TableCell sx={{ whiteSpace: 'nowrap' }}>
                   <Chip

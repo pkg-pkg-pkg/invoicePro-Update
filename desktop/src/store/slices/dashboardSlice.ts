@@ -29,6 +29,7 @@ interface DashboardState {
   outstandingSummary: {
     customers: CustomerSummary[];
     salesVouchers: AgingSaleVoucher[];
+    billReferences?: import('../../types/billReference').BillReference[];
   } | null;
   payableSummary: { suppliers: SupplierSummary[] } | null;
   recentTransactions: RecentTransactions | null;

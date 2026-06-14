@@ -17,30 +17,21 @@ import {
   TableCell,
   TableBody,
 } from '@mui/material';
-import { ShoppingCart as ShoppingCartIcon, Business as BusinessIcon, FileDownload as FileDownloadIcon } from '@mui/icons-material';
+import { ShoppingCart as ShoppingCartIcon, Business as BusinessIcon } from '@mui/icons-material';
 import { reportService } from '../../services/reportService';
 import { formatCurrency, formatDate } from '../../utils/formatters';
+import { VoucherNumberLink } from '../../components/Vouchers/VoucherNumberLink';
 
 interface PurchaseReportsProps {
   canExport: boolean;
 }
 
-export default function PurchaseReports({ canExport }: PurchaseReportsProps) {
+export default function PurchaseReports({ canExport: _canExport }: PurchaseReportsProps) {
   const [selectedReport, setSelectedReport] = useState<'register' | 'by-supplier' | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reportData, setReportData] = useState<any>(null);
   const [filters, setFilters] = useState({ fromDate: '', toDate: '' });
-  const [exporting, setExporting] = useState(false);
-
-  const handleExport = async () => {
-    if (!canExport) {
-      alert('You do not have permission to export reports');
-      return;
-    }
-    setExporting(true);
-    // ... export logic
-  };
 
   const generate = async () => {
     if (!selectedReport) return;
@@ -109,16 +100,6 @@ export default function PurchaseReports({ canExport }: PurchaseReportsProps) {
             {selectedReport === 'register' ? 'Purchase Register' : 'Supplier Analysis'}
           </Typography>
         </Box>
-        {reportData ? (
-          <Button
-            variant="outlined"
-            startIcon={<FileDownloadIcon />}
-            disabled={!canExport || exporting}
-            onClick={handleExport}
-          >
-            {exporting ? 'Exporting...' : 'Export to Excel'}
-          </Button>
-        ) : null}
       </Box>
 
       <Paper sx={{ p: 2, mb: 2 }}>
@@ -129,7 +110,11 @@ export default function PurchaseReports({ canExport }: PurchaseReportsProps) {
               label="From Date"
               type="date"
               value={filters.fromDate}
-              onChange={(e) => setFilters((p) => ({ ...p, fromDate: e.target.value }))}
+              onChange={(e) => {
+                setFilters((p) => ({ ...p, fromDate: e.target.value }));
+                setReportData(null);
+                setError(null);
+              }}
               InputLabelProps={{ shrink: true }}
             />
           </Grid>
@@ -139,7 +124,11 @@ export default function PurchaseReports({ canExport }: PurchaseReportsProps) {
               label="To Date"
               type="date"
               value={filters.toDate}
-              onChange={(e) => setFilters((p) => ({ ...p, toDate: e.target.value }))}
+              onChange={(e) => {
+                setFilters((p) => ({ ...p, toDate: e.target.value }));
+                setReportData(null);
+                setError(null);
+              }}
               InputLabelProps={{ shrink: true }}
             />
           </Grid>
@@ -196,7 +185,13 @@ export default function PurchaseReports({ canExport }: PurchaseReportsProps) {
                     {selectedReport === 'register' ? (
                       <>
                         <TableCell>{formatDate(row.date)}</TableCell>
-                        <TableCell>{row.voucherNumber}</TableCell>
+                        <TableCell>
+                          <VoucherNumberLink
+                            voucherId={row.id}
+                            voucherType="PURCHASE"
+                            voucherNumber={row.voucherNumber}
+                          />
+                        </TableCell>
                         <TableCell>{row.supplierName}</TableCell>
                         <TableCell>{row.products}</TableCell>
                         <TableCell align="right">{formatCurrency(row.subtotal || 0)}</TableCell>

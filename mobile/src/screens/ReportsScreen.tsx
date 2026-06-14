@@ -19,7 +19,7 @@ import { useRoute } from '@react-navigation/native';
 export default function ReportsScreen() {
   const route = useRoute<any>();
   const user = useSelector((state: RootState) => state.auth.user);
-  const createAllowed = canCreateInvoice(user?.mobilePermissions);
+  const createAllowed = canCreateInvoice(user?.permissions ?? user?.mobilePermissions);
   const initialType = route?.params?.defaultInvoiceType as 'SALES_INVOICE' | 'PURCHASE_INVOICE' | undefined;
   const [invoiceType, setInvoiceType] = useState<'SALES_INVOICE' | 'PURCHASE_INVOICE'>(
     initialType === 'PURCHASE_INVOICE' ? 'PURCHASE_INVOICE' : 'SALES_INVOICE'

@@ -10,8 +10,8 @@ import { auth, db } from '../firebase/firebase';
 import { getBundledAppVersion } from './appUpdateService';
 import { getNormalizedCompanyProfile } from '../utils/companyProfile';
 
-const HEARTBEAT_MS = 5 * 60 * 1000;
 const SESSION_STORAGE_KEY = 'pve_usage_session_v1';
+const LAST_HEARTBEAT_DATE_KEY = 'last_heartbeat_date';
 
 interface SessionState {
   sessionId: string;
@@ -19,12 +19,24 @@ interface SessionState {
   lastFlushedAt: number;
 }
 
-let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let trackingStarted = false;
 let unloadBound = false;
 
 function normalizeEmail(email: string): string {
   return String(email ?? '').trim().toLowerCase();
+}
+
+function getStoredUserEmail(): string | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = localStorage.getItem('user');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { email?: unknown; username?: unknown };
+    const email = String(parsed.email ?? parsed.username ?? '').trim();
+    return email ? email : null;
+  } catch {
+    return null;
+  }
 }
 
 function isOnline(): boolean {
@@ -104,7 +116,6 @@ async function flushElapsedMinutes(
   const totalSessionMin = Math.max(1, Math.round((now - session.startedAt) / 60000));
 
   const userPatch: Record<string, unknown> = {
-    lastActiveAt: serverTimestamp(),
     appVersion: ctx.appVersion,
     companyName: ctx.companyName,
     businessName: ctx.companyName,
@@ -130,18 +141,27 @@ async function flushElapsedMinutes(
     durationMinutes: totalSessionMin,
     status: opts?.finalize ? 'ended' : 'active',
     ...(opts?.finalize ? { endedAt: serverTimestamp(), endReason: opts.endReason || 'close' } : {}),
-    lastHeartbeatAt: serverTimestamp(),
   });
 }
 
-export async function recordHeartbeat(): Promise<void> {
+/** Write lastLogin at most once per calendar day (no periodic heartbeat). */
+export async function recordDailyLoginIfDue(): Promise<void> {
   const ctx = getUsageContext();
-  const session = readSession();
-  if (!ctx || !session) return;
+  if (!ctx) return;
+
+  const today = new Date().toDateString();
+  const lastBeat = localStorage.getItem(LAST_HEARTBEAT_DATE_KEY);
+  if (lastBeat === today) return;
+
   try {
-    await flushElapsedMinutes(ctx, session);
+    await updateDoc(ctx.userRef, {
+      lastLogin: serverTimestamp(),
+      lastActiveAt: serverTimestamp(),
+      appVersion: ctx.appVersion,
+    });
+    localStorage.setItem(LAST_HEARTBEAT_DATE_KEY, today);
   } catch {
-    // ignore — offline or rules
+    // offline or rules
   }
 }
 
@@ -160,7 +180,6 @@ async function beginNewSession(
     ctx.userRef,
     {
       lastAppOpenAt: serverTimestamp(),
-      lastActiveAt: serverTimestamp(),
       appVersion: ctx.appVersion,
       companyName: ctx.companyName,
       businessName: ctx.companyName,
@@ -195,7 +214,7 @@ function bindUnloadHandlers(): void {
   window.addEventListener('beforeunload', finalize);
 }
 
-/** Start session tracking: app open, heartbeat, usage minutes on Firestore. */
+/** Start session tracking: daily login ping + usage minutes on close (no interval heartbeat). */
 export async function startUsageTracking(): Promise<void> {
   if (trackingStarted) return;
   const ctx = getUsageContext();
@@ -208,17 +227,11 @@ export async function startUsageTracking(): Promise<void> {
   try {
     if (!session) {
       await beginNewSession(ctx);
-    } else {
-      await recordHeartbeat();
     }
+    await recordDailyLoginIfDue();
   } catch {
     // ignore
   }
-
-  if (heartbeatTimer) clearInterval(heartbeatTimer);
-  heartbeatTimer = setInterval(() => {
-    void recordHeartbeat();
-  }, HEARTBEAT_MS);
 }
 
 /** Backward-compatible entry (replaces old 6-hour throttle ping). */
@@ -227,9 +240,10 @@ export async function recordUserActivityIfDue(): Promise<void> {
 }
 
 export function stopUsageTracking(): void {
-  if (heartbeatTimer) {
-    clearInterval(heartbeatTimer);
-    heartbeatTimer = null;
-  }
   trackingStarted = false;
+}
+
+/** @deprecated No periodic heartbeat — use recordDailyLoginIfDue. */
+export async function recordHeartbeat(): Promise<void> {
+  await recordDailyLoginIfDue();
 }

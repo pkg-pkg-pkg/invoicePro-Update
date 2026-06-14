@@ -4,6 +4,10 @@ import { voucherService } from '../../services/vouchers/voucherService';
 import { partyService } from '../../services/masters/partyService';
 import { inventoryItemService } from '../../services/masters/inventoryItemService';
 import { customersApi } from '../../services/customers/customersApi';
+import {
+  sendOutstandingReminderOnWhatsApp,
+  sendStatementOnWhatsApp,
+} from '../../services/customers/customerLedgerStatementService';
 import { openWhatsAppChat } from '../../services/whatsappIntegration';
 import { exportSalesDocumentsPdf } from '../../utils/salesDocumentExport';
 import { formatCurrency } from '../../utils/formatters';
@@ -157,7 +161,20 @@ export function createRowActionHandlers(deps: ActionHandlerDeps) {
             onEditCustomer?.(party.id);
             break;
           case 'viewStatement':
-            navigate(`/reports/ledger-report?customerId=${encodeURIComponent(party.id)}`);
+            navigate(`/customers/${encodeURIComponent(party.id)}/statement`);
+            break;
+          case 'sendStatementWhatsapp':
+            await sendStatementOnWhatsApp(party.id);
+            showToast(`WhatsApp opened for ${party.name}`);
+            break;
+          case 'sendOutstandingReminder':
+            await sendOutstandingReminderOnWhatsApp(party.id);
+            showToast(`Reminder sent via WhatsApp for ${party.name}`);
+            break;
+          case 'reactivateCustomer':
+            await customersApi.reactivate(party.id);
+            showToast(`${party.name} reactivated`);
+            refresh();
             break;
           case 'newTransaction':
             navigate(`/vouchers/sales/new?customerId=${encodeURIComponent(party.id)}`);
@@ -171,14 +188,12 @@ export function createRowActionHandlers(deps: ActionHandlerDeps) {
             break;
           }
           case 'markInactive':
-            await customersApi.update(party.id, { status: 'INACTIVE' });
+            await customersApi.markInactive(party.id);
             showToast(`${party.name} marked inactive`);
             refresh();
             break;
           case 'delete':
-            await customersApi.remove(party.id);
-            showToast(`${party.name} deleted`);
-            refresh();
+            throw new Error('CUSTOMER_DELETE_DIALOG');
             break;
           default:
             break;
@@ -194,7 +209,7 @@ export function createRowActionHandlers(deps: ActionHandlerDeps) {
         }
         switch (actionId) {
           case 'openEdit':
-            navigate(`/masters/inventory-items/${item.id}/edit`);
+            navigate(`/items?edit=${item.id}`);
             break;
           case 'clone': {
             const created = await inventoryItemService.create({
@@ -356,7 +371,13 @@ export function createRowActionHandlers(deps: ActionHandlerDeps) {
       }
     },
 
-    needsConfirm(actionId: RowActionId, ctx: ActionContext): { kind: 'delete' | 'cancel'; title: string } | null {
+    needsConfirm(actionId: RowActionId, ctx: ActionContext): { kind: 'delete' | 'cancel' | 'reactivate'; title: string } | null {
+      if (actionId === 'reactivateCustomer' && ctx.type === 'customer') {
+        return { kind: 'reactivate', title: ctx.party.name };
+      }
+      if (actionId === 'delete' && ctx.type === 'customer') {
+        return null;
+      }
       if (actionId === 'delete') {
         const name =
           ctx.type === 'customer'

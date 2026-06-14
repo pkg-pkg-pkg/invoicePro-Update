@@ -37,7 +37,10 @@ export const writeList = async <T extends { id: string; updatedAt?: string; crea
               await auditService.logDelete(entityType, item.id);
             } else {
               await captureUpdate(key, item);
-              await auditService.logUpdate(entityType, item.id);
+              await auditService.logUpdate(entityType, item.id, {
+                oldValue: old,
+                newValue: item,
+              });
             }
           }
         }

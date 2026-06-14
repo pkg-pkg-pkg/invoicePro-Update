@@ -1,9 +1,11 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
+import { resolveApiBaseUrl } from '../utils/apiConfig';
 
-const API_BASE_URL = (import.meta.env?.VITE_API_URL || 'http://localhost:3000/api');
+const API_BASE_URL = resolveApiBaseUrl();
 
 const isOfflineRuntime = () => {
   try {
+    if ((window as any).electronAPI != null) return true;
     if ((window as any).__TAURI__ != null) return true;
     if ((window as any).__TAURI_INTERNALS__ != null) return true;
     if ((window as any).__TAURI_IPC__ != null) return true;
@@ -20,6 +22,7 @@ const isOfflineRuntime = () => {
 // Create axios instance
 const api: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 4000,
   headers: {
     'Content-Type': 'application/json',
   },

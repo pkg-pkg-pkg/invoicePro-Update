@@ -8,38 +8,46 @@ import {
   parseInventoryExcelBuffer,
 } from '../../pages/Masters/InventoryItems/inventoryItemBulkExcel';
 import { inventoryItemService } from '../masters/inventoryItemService';
+import { findItemByBarcode, normalizeBarcodeKey } from '../barcode/barcodeUniqueness';
+import {
+  formatAdditionalBarcodesForExport,
+  isValidBarcodeFormat,
+  isValidGstRate,
+  parseAdditionalBarcodes,
+  validateBarcodeList,
+} from '../barcode/barcodeValidation';
 
-/** User-facing import / export template columns */
+/** Enterprise import / export template columns */
 export const ITEM_IMPORT_HEADERS = [
   'Item Name *',
   'SKU',
-  'HSN Code',
+  'Barcode',
+  'Additional Barcodes',
+  'HSN',
+  'GST %',
+  'Unit',
+  'Purchase Price',
+  'Sale Price',
+  'MRP',
   'Category',
   'Brand',
-  'Unit',
-  'GST %',
-  'Purchase Price',
-  'Selling Price',
-  'MRP',
   'Opening Stock',
-  'Min Stock',
-  'Barcode',
 ] as const;
 
 const TEMPLATE_EXAMPLE = [
   'PVC Wire 1.5 SQMM',
   'PVC150',
+  '8901000000012',
+  '8901000000099;8901000000100',
   '85444990',
-  'Wire',
-  'Vinay Electricals',
-  'Roll',
   18,
+  'Roll',
   850,
   1000,
   1200,
+  'Wire',
+  'PVE',
   50,
-  10,
-  '123456789',
 ];
 
 export type ItemImportPreviewRow = {
@@ -52,6 +60,13 @@ export type ItemImportPreview = {
   valid: ItemImportPreviewRow[];
   invalid: ItemImportPreviewRow[];
   total: number;
+};
+
+export type ItemImportResult = {
+  imported: number;
+  updated: number;
+  failed: number;
+  errors: string[];
 };
 
 function normHeader(s: string): string {
@@ -99,14 +114,18 @@ function rowObjectToPartial(
   };
 
   const partial: Partial<InventoryItem> = {};
-  partial.name = str(o.name);
+  partial.name = str(o.itemname) || str(o.name);
   partial.sku = str(o.sku);
-  const hsn = str(o.hsncode);
+  const hsn = str(o.hsn) || str(o.hsncode);
   if (hsn) partial.hsnCode = hsn;
   const brand = str(o.brand);
   if (brand) partial.brand = brand;
   const barcode = str(o.barcode);
   if (barcode) partial.barcode = barcode;
+  const additional = parseAdditionalBarcodes(
+    o.additionalbarcodes ?? o.additionalbarcode ?? o.extrabarcodes ?? o.altbarcodes
+  );
+  if (additional.length) partial.additionalBarcodes = additional;
 
   const categoryLabel = str(o.category);
   if (categoryLabel) {
@@ -122,12 +141,12 @@ function rowObjectToPartial(
     partial.unitId = str(o.unitid);
   }
 
-  const gr = num(o.gstrate);
+  const gr = num(o.gst) ?? num(o.gstpercent) ?? num(o.gstrate);
   if (gr !== undefined) partial.gstRate = gr;
 
   const pricing: NonNullable<InventoryItem['pricing']> = {};
   const pp = num(o.purchaseprice);
-  const sp = num(o.saleprice);
+  const sp = num(o.saleprice) ?? num(o.sellingprice);
   const mrp = num(o.mrp);
   if (pp !== undefined) pricing.purchase = pp;
   if (sp !== undefined) pricing.sale = sp;
@@ -139,17 +158,25 @@ function rowObjectToPartial(
     partial.openingStock = os;
     partial.currentStock = os;
   }
-  const rl = num(o.reorderlevel);
-  if (rl !== undefined) partial.reorderLevel = rl;
 
   partial.status = 'ACTIVE';
+  partial.createdSource = 'IMPORT';
   return partial;
 }
 
 function isValidHsn(hsn: string | null | undefined): boolean {
   const s = String(hsn ?? '').trim();
-  if (!s) return false;
+  if (!s) return true;
   return /^\d{4,8}$/.test(s);
+}
+
+function collectRowBarcodes(partial: Partial<InventoryItem>): string[] {
+  const codes: string[] = [];
+  if (partial.barcode?.trim()) codes.push(partial.barcode.trim());
+  for (const c of partial.additionalBarcodes ?? []) {
+    if (c.trim()) codes.push(c.trim());
+  }
+  return codes;
 }
 
 export function validateImportRows(
@@ -158,10 +185,7 @@ export function validateImportRows(
   opts: { requireHsn?: boolean } = {}
 ): ItemImportPreview {
   const seenSku = new Map<string, number>();
-  const seenName = new Map<string, number>();
-  const existingSku = new Set(existingItems.map((i) => i.sku.toLowerCase()));
-  const existingName = new Set(existingItems.map((i) => i.name.trim().toLowerCase()));
-
+  const seenBarcode = new Map<string, number>();
   const valid: ItemImportPreviewRow[] = [];
   const invalid: ItemImportPreviewRow[] = [];
 
@@ -173,17 +197,17 @@ export function validateImportRows(
 
     if (!name) errors.push('Item Name is required');
 
-    if (partial.gstRate === undefined || partial.gstRate === null || Number.isNaN(Number(partial.gstRate))) {
-      errors.push('GST % is missing');
+    if (!isValidGstRate(partial.gstRate)) {
+      errors.push('Invalid GST % (use a number between 0 and 100)');
     }
 
     if (!partial.unitId) errors.push('Unit is missing or not recognized');
 
     const hsn = partial.hsnCode;
     if (opts.requireHsn && !String(hsn ?? '').trim()) {
-      errors.push('HSN Code is missing');
+      errors.push('HSN is missing');
     } else if (String(hsn ?? '').trim() && !isValidHsn(hsn)) {
-      errors.push('Invalid HSN Code (use 4–8 digits)');
+      errors.push('Invalid HSN (use 4–8 digits)');
     }
 
     if (sku) {
@@ -192,12 +216,24 @@ export function validateImportRows(
       else seenSku.set(skuKey, rowNumber);
     }
 
-    if (name) {
-      const nameKey = name.toLowerCase();
-      if (seenName.has(nameKey)) errors.push(`Duplicate Item Name (also on row ${seenName.get(nameKey)})`);
-      else seenName.set(nameKey, rowNumber);
-      if (sku && !existingSku.has(sku.toLowerCase()) && existingName.has(nameKey)) {
-        errors.push('Duplicate Item Name (already in inventory)');
+    const rowCodes = collectRowBarcodes(partial);
+    const listErr = validateBarcodeList(rowCodes);
+    if (listErr) errors.push(listErr);
+
+    for (const code of rowCodes) {
+      if (!isValidBarcodeFormat(code)) {
+        errors.push(`Invalid barcode: "${code}"`);
+      }
+      const barcodeKey = normalizeBarcodeKey(code);
+      if (seenBarcode.has(barcodeKey)) {
+        errors.push(`Duplicate Barcode (also on row ${seenBarcode.get(barcodeKey)})`);
+      } else {
+        seenBarcode.set(barcodeKey, rowNumber);
+      }
+      const matchBySku = sku ? existingItems.find((i) => i.sku.toLowerCase() === sku.toLowerCase()) : undefined;
+      const owner = findItemByBarcode(existingItems, code, matchBySku?.id);
+      if (owner) {
+        errors.push(`Barcode already exists (Item: ${owner.name}, SKU: ${owner.sku})`);
       }
     }
 
@@ -237,7 +273,12 @@ export async function parseItemImportFile(
   }
   if (nameLower.endsWith('.xlsx') || nameLower.endsWith('.xls')) {
     const buffer = await file.arrayBuffer();
-    return parseInventoryExcelBuffer(buffer, categories, units);
+    const erpRows = await parseInventoryExcelBuffer(buffer, categories, units);
+    return erpRows.map((row) => {
+      const merged = { ...row };
+      if (!merged.createdSource) merged.createdSource = 'IMPORT';
+      return merged;
+    });
   }
   throw new Error('Unsupported file type. Use .xlsx or .csv');
 }
@@ -267,7 +308,7 @@ export async function downloadItemImportTemplate(format: 'xlsx' | 'csv'): Promis
   ws.addRow([...ITEM_IMPORT_HEADERS]);
   ws.addRow(TEMPLATE_EXAMPLE);
   ws.getRow(1).font = { bold: true };
-  ws.columns = ITEM_IMPORT_HEADERS.map(() => ({ width: 16 }));
+  ws.columns = ITEM_IMPORT_HEADERS.map(() => ({ width: 18 }));
   const buffer = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
   triggerDownload(
     new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
@@ -283,17 +324,17 @@ function itemRowsForExport(
   return items.map((item) => [
     item.name,
     item.sku,
+    item.barcode ?? '',
+    formatAdditionalBarcodesForExport(item.additionalBarcodes),
     item.hsnCode ?? '',
-    item.categoryId ? categoryNameById.get(item.categoryId) ?? '' : '',
-    item.brand ?? '',
-    unitNameById.get(item.unitId) ?? item.unitId,
     item.gstRate ?? '',
+    unitNameById.get(item.unitId) ?? item.unitId,
     item.pricing?.purchase ?? '',
     item.pricing?.sale ?? '',
     item.pricing?.mrp ?? '',
+    item.categoryId ? categoryNameById.get(item.categoryId) ?? '' : '',
+    item.brand ?? '',
     item.openingStock ?? '',
-    item.reorderLevel ?? '',
-    item.barcode ?? '',
   ]);
 }
 
@@ -319,7 +360,7 @@ export async function exportItemsExcel(
     ws.addRow(row);
   }
   ws.getRow(1).font = { bold: true };
-  ws.columns = ITEM_IMPORT_HEADERS.map(() => ({ width: 16 }));
+  ws.columns = ITEM_IMPORT_HEADERS.map(() => ({ width: 18 }));
   const buffer = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
   triggerDownload(
     new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
@@ -386,8 +427,16 @@ export async function importValidRows(
     defaultUnitId: string;
     defaultGodownId: string | null;
   }
-): Promise<{ created: number; updated: number; errors: string[] }> {
+): Promise<ItemImportResult> {
   const partials = preview.valid.map((r) => r.partial);
   const finalized = finalizeInventoryErpRows(partials, opts);
-  return inventoryItemService.bulkUpsert(finalized);
+  const result = await inventoryItemService.bulkUpsert(
+    finalized.map((row) => ({ ...row, createdSource: 'IMPORT' as const }))
+  );
+  return {
+    imported: result.created,
+    updated: result.updated,
+    failed: preview.invalid.length + result.errors.length,
+    errors: result.errors,
+  };
 }

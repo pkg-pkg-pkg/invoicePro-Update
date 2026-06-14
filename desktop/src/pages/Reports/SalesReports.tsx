@@ -29,12 +29,12 @@ import {
   Assessment as AssessmentIcon,
   People as PeopleIcon,
   Inventory as InventoryIcon,
-  GetApp as GetAppIcon,
   Print as PrintIcon,
 } from '@mui/icons-material';
 import { reportService } from '../../services/reportService';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { ReportHubShell } from '../../components/reports/ReportHubShell';
+import { VoucherNumberLink } from '../../components/Vouchers/VoucherNumberLink';
 import { PREMIUM_ERP } from '../../theme/premiumErpTheme';
 
 const salesReports = [
@@ -72,7 +72,7 @@ interface SalesReportsProps {
   canExport: boolean;
 }
 
-export default function SalesReports({ canExport }: SalesReportsProps) {
+export default function SalesReports({ canExport: _canExport }: SalesReportsProps) {
   const [selectedReport, setSelectedReport] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,6 +96,8 @@ export default function SalesReports({ canExport }: SalesReportsProps) {
 
   const handleFilterChange = (field: string, value: any) => {
     setFilters(prev => ({ ...prev, [field]: value }));
+    setReportData(null);
+    setError(null);
   };
 
   const handleGenerateReport = async () => {
@@ -155,19 +157,6 @@ export default function SalesReports({ canExport }: SalesReportsProps) {
     return () => window.removeEventListener('keydown', onEsc);
   }, [selectedReport]);
 
-  const [exporting, setExporting] = useState(false);
-
-  const handleExport = async (format: 'pdf' | 'excel' | 'csv') => {
-    if (!canExport) {
-      alert('You do not have permission to export reports');
-      return;
-    }
-    setExporting(true);
-    // TODO: Implement export functionality
-    alert(`Export to ${format.toUpperCase()} - Coming soon`);
-    setExporting(false);
-  };
-
   if (!selectedReport) {
     return (
       <ReportHubShell
@@ -176,11 +165,10 @@ export default function SalesReports({ canExport }: SalesReportsProps) {
         reports={salesReports}
         kpis={[
           { label: 'Sales reports', value: String(salesReports.length), accent: PREMIUM_ERP.blue },
-          { label: 'Export', value: canExport ? 'Enabled' : 'View only', accent: '#16A34A' },
+          { label: 'Export', value: 'View & print', accent: '#16A34A' },
         ]}
-        canExport={canExport}
+        canExport={false}
         onSelect={handleReportSelect}
-        onExport={(format) => void handleExport(format === 'print' ? 'pdf' : format)}
       />
     );
   }
@@ -198,14 +186,6 @@ export default function SalesReports({ canExport }: SalesReportsProps) {
         </Box>
         {reportData && (
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button
-              variant="outlined"
-              startIcon={<GetAppIcon />}
-              onClick={() => handleExport('excel')}
-              disabled={!canExport || exporting}
-            >
-              {exporting ? 'Exporting...' : 'Export to Excel'}
-            </Button>
             <Button
               variant="outlined"
               startIcon={<PrintIcon />}
@@ -379,7 +359,13 @@ export default function SalesReports({ canExport }: SalesReportsProps) {
                       {selectedReport === 'register' && (
                         <>
                           <TableCell>{formatDate(row.date)}</TableCell>
-                          <TableCell>{row.invoiceNumber}</TableCell>
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <VoucherNumberLink
+                              voucherId={row.id}
+                              voucherType="SALES"
+                              voucherNumber={row.invoiceNumber}
+                            />
+                          </TableCell>
                           <TableCell>{row.customerName}</TableCell>
                           <TableCell>{row.products}</TableCell>
                           <TableCell align="right">{formatCurrency(row.subtotal)}</TableCell>

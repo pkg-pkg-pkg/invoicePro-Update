@@ -355,7 +355,7 @@ const PartyCards: FC<PartyCardsProps> = ({
               </Typography>
               {mode === 'edit' ? (
                 <>
-                  {renderSelect(billing, 'billing', 'Customer Ledger')}
+                  {renderSelect(billing, 'billing', 'Debtor Ledger')}
                   <Stack direction="row" justifyContent="space-between" alignItems="center">
                     <Typography variant="body2" color="text.secondary">
                       {billing.name || 'No customer selected'}
@@ -369,7 +369,7 @@ const PartyCards: FC<PartyCardsProps> = ({
                   </Collapse>
                 </>
               ) : (
-                renderDisplay('Customer', billing)
+                renderDisplay('Debtor', billing)
               )}
             </Stack>
           </CardContent>

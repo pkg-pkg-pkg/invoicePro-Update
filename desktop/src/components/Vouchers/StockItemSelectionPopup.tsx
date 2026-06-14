@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -10,6 +10,7 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  TableContainer,
   Typography,
   Button,
   Box,
@@ -74,6 +75,17 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [toolbarHeight, setToolbarHeight] = useState(140);
+
+  const headerCellSx = {
+    position: 'sticky' as const,
+    zIndex: 2,
+    bgcolor: PICKER_COLORS.tableHeaderBg,
+    fontWeight: 700,
+    borderBottom: '1px solid #ddd',
+    boxShadow: '0 1px 0 rgba(0,0,0,0.06)',
+  };
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -106,6 +118,16 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
     window.addEventListener(INVENTORY_ITEMS_CHANGED_EVENT, onChange);
     return () => window.removeEventListener(INVENTORY_ITEMS_CHANGED_EVENT, onChange);
   }, [open, loadItems]);
+
+  useEffect(() => {
+    if (!open) return;
+    const measure = () => {
+      if (toolbarRef.current) setToolbarHeight(toolbarRef.current.offsetHeight);
+    };
+    measure();
+    const t = window.setTimeout(measure, 0);
+    return () => window.clearTimeout(t);
+  }, [open]);
 
   // Filter items based on search term
   const filteredItems = useMemo(() => {
@@ -229,7 +251,11 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
         'data-list-picker-modal': '',
         sx: {
           bgcolor: PICKER_COLORS.formBg,
-        }
+          maxHeight: 'min(900px, 92vh)',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        },
       }}
     >
       <DialogTitle sx={{ 
@@ -245,129 +271,150 @@ const StockItemSelectionPopup: React.FC<StockItemSelectionPopupProps> = ({
         </IconButton>
       </DialogTitle>
       
-      <DialogContent sx={{ p: 0 }}>
-        {/* Search Bar */}
-        <Box sx={{ p: 2, borderBottom: '1px solid #ddd' }}>
-          <TextField
-            fullWidth
-            placeholder="Search item name, item code, or HSN..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            autoFocus
-            size="small"
-            InputProps={{
-              startAdornment: (
-                <Typography variant="caption" sx={{ mr: 1, color: 'textSecondary' }}>
-                  Type to search, ↑↓ to navigate, Enter to select
-                </Typography>
-              ),
-            }}
-          />
-        </Box>
-
-        {/* Create New Button */}
-        <Box sx={{ p: 2, bgcolor: PICKER_COLORS.tableRowOdd }}>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={onCreateNew}
-            fullWidth
-            sx={{ mb: 1 }}
-          >
-            Create New Item
-          </Button>
-        </Box>
-
-        {/* Stock Items List */}
+      <DialogContent sx={{ p: 0, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {loading ? (
           <Box sx={{ p: 4, textAlign: 'center' }}>
             <Typography>Loading stock items...</Typography>
           </Box>
         ) : (
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={{ bgcolor: PICKER_COLORS.tableHeaderBg }}>
-                <TableCell width="5%">#</TableCell>
-                <TableCell width="35%">Item Name</TableCell>
-                <TableCell width="20%">Item Code</TableCell>
-                <TableCell width="25%">Current Stock</TableCell>
-                <TableCell width="15%">Rate</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filteredItems.map((item, index) => (
-                <TableRow
-                  key={item.id}
-                  selected={index === selectedIndex}
-                  onClick={() => handleItemSelect(item)}
-                  sx={{
-                    cursor: 'pointer',
-                    bgcolor: index === selectedIndex 
-                      ? PICKER_COLORS.primaryBlue + '20' 
-                      : index % 2 === 0 
-                        ? PICKER_COLORS.tableRowEven 
-                        : PICKER_COLORS.tableRowOdd,
-                    '&:hover': {
-                      bgcolor: PICKER_COLORS.primaryBlue + '10',
-                    },
-                    position: 'relative',
-                  }}
-                >
-                  <TableCell>{index + 1}</TableCell>
-                  <TableCell>
-                    <Box>
-                      <Typography variant="body2" fontWeight="medium">
-                        {highlightMatch(item.item_name)}
+          <TableContainer
+            component={Paper}
+            square
+            elevation={0}
+            sx={{
+              flex: 1,
+              minHeight: 0,
+              overflow: 'auto',
+              position: 'relative',
+              bgcolor: PICKER_COLORS.formBg,
+            }}
+          >
+            <Box
+              ref={toolbarRef}
+              sx={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 3,
+                bgcolor: PICKER_COLORS.formBg,
+                borderBottom: '1px solid #ddd',
+              }}
+            >
+              <Box sx={{ p: 2 }}>
+                <TextField
+                  fullWidth
+                  placeholder="Search item name, item code, or HSN..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  autoFocus
+                  size="small"
+                  InputProps={{
+                    startAdornment: (
+                      <Typography variant="caption" sx={{ mr: 1, color: 'textSecondary' }}>
+                        Type to search, ↑↓ to navigate, Enter to select
                       </Typography>
-                      {item.hsn_code && (
-                        <Typography variant="caption" color="textSecondary" display="block">
-                          HSN: {item.hsn_code}
-                        </Typography>
-                      )}
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="caption" fontFamily="monospace">
-                      {highlightMatch(item.item_code || '-')}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {formatStock(item.current_stock, item.unit)}
-                      {getStockStatus(item.current_stock) === 'negative' && (
-                        <WarningIcon 
-                          sx={{ 
-                            color: PICKER_COLORS.dangerRed, 
-                            fontSize: 16 
-                          }} 
-                          titleAccess="Negative stock - item is oversold"
-                        />
-                      )}
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Typography sx={{ fontWeight: 'medium' }}>
-                      ₹{item.sale_rate?.toFixed(2) || '0.00'}
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+                    ),
+                  }}
+                />
+              </Box>
+              <Box sx={{ px: 2, pb: 2, bgcolor: PICKER_COLORS.tableRowOdd }}>
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={onCreateNew}
+                  fullWidth
+                  sx={{ mb: 0 }}
+                >
+                  Create New Item
+                </Button>
+              </Box>
+            </Box>
 
-        {filteredItems.length === 0 && !loading && (
-          <Box sx={{ p: 4, textAlign: 'center' }}>
-            <Typography color="textSecondary">
-              {searchTerm ? 'No items found matching your search.' : 'No stock items found.'}
-            </Typography>
-          </Box>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ ...headerCellSx, top: toolbarHeight, width: '5%' }}>#</TableCell>
+                  <TableCell sx={{ ...headerCellSx, top: toolbarHeight, width: '35%' }}>Item Name</TableCell>
+                  <TableCell sx={{ ...headerCellSx, top: toolbarHeight, width: '20%' }}>Item Code</TableCell>
+                  <TableCell sx={{ ...headerCellSx, top: toolbarHeight, width: '25%' }}>Current Stock</TableCell>
+                  <TableCell sx={{ ...headerCellSx, top: toolbarHeight, width: '15%' }}>Rate</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {filteredItems.map((item, index) => (
+                  <TableRow
+                    key={item.item_code ?? `${item.item_name}-${index}`}
+                    selected={index === selectedIndex}
+                    onClick={() => handleItemSelect(item)}
+                    sx={{
+                      cursor: 'pointer',
+                      bgcolor:
+                        index === selectedIndex
+                          ? PICKER_COLORS.primaryBlue + '20'
+                          : index % 2 === 0
+                            ? PICKER_COLORS.tableRowEven
+                            : PICKER_COLORS.tableRowOdd,
+                      '&:hover': {
+                        bgcolor: PICKER_COLORS.primaryBlue + '10',
+                      },
+                    }}
+                  >
+                    <TableCell>{index + 1}</TableCell>
+                    <TableCell>
+                      <Box>
+                        <Typography variant="body2" fontWeight="medium">
+                          {highlightMatch(item.item_name)}
+                        </Typography>
+                        {item.hsn_code && (
+                          <Typography variant="caption" color="textSecondary" display="block">
+                            HSN: {item.hsn_code}
+                          </Typography>
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="caption" fontFamily="monospace">
+                        {highlightMatch(item.item_code || '-')}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {formatStock(item.current_stock, item.unit)}
+                        {getStockStatus(item.current_stock) === 'negative' && (
+                          <WarningIcon
+                            sx={{
+                              color: PICKER_COLORS.dangerRed,
+                              fontSize: 16,
+                            }}
+                            titleAccess="Negative stock - item is oversold"
+                          />
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Typography sx={{ fontWeight: 'medium' }}>
+                        ₹{item.sale_rate?.toFixed(2) || '0.00'}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+
+            {filteredItems.length === 0 && (
+              <Box sx={{ p: 4, textAlign: 'center' }}>
+                <Typography color="textSecondary">
+                  {searchTerm ? 'No items found matching your search.' : 'No stock items found.'}
+                </Typography>
+              </Box>
+            )}
+          </TableContainer>
         )}
       </DialogContent>
 
-      <DialogActions sx={{ 
-        bgcolor: PICKER_COLORS.tableHeaderBg, 
-        p: 2 
+      <DialogActions sx={{
+        bgcolor: PICKER_COLORS.tableHeaderBg,
+        p: 2,
+        flexShrink: 0,
       }}>
         <Typography variant="caption" color="textSecondary">
           ↑↓ Navigate | Enter Select | Escape Close | Ctrl+N Create New

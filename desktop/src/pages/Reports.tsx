@@ -28,7 +28,7 @@ import PartyReports from './Reports/PartyReports';
 import PaymentReports from './Reports/PaymentReports';
 import PreGstProfitReports from './Reports/PreGstProfitReports';
 import { usePermissions } from '../hooks/usePermissions';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { PREMIUM_ERP } from '../theme/premiumErpTheme';
 
 interface TabPanelProps {
@@ -94,6 +94,7 @@ const reportCategories = [
 export default function Reports() {
   const [activeTab, setActiveTab] = useState(0);
   const location = useLocation();
+  const navigate = useNavigate();
   const { canAccessFeature } = usePermissions();
   const canView = canAccessFeature('view-reports');
   const canExport = canAccessFeature('export-reports');
@@ -108,6 +109,10 @@ export default function Reports() {
 
   useEffect(() => {
     const view = new URLSearchParams(location.search).get('view') || '';
+    if (['day-report', 'day', 'daybook'].includes(String(view).toLowerCase())) {
+      navigate('/day-book', { replace: true });
+      return;
+    }
     const map: Record<string, number> = {
       sales: 0,
       purchase: 1,
@@ -120,7 +125,7 @@ export default function Reports() {
     };
     const next = map[String(view).toLowerCase()];
     if (next !== undefined) setActiveTab(next);
-  }, [location.search]);
+  }, [location.search, navigate]);
 
   const activeCategory = reportCategories[activeTab];
 

@@ -1,6 +1,7 @@
 import api from './api';
 import type { Voucher } from '../types/vouchers';
 import { voucherService } from './vouchers/voucherService';
+import { voucherGrandTotal } from './voucherPrintBuilder';
 import { ledgerAccountService } from './masters/ledgerAccountService';
 import { inventoryItemService } from './masters/inventoryItemService';
 
@@ -488,7 +489,52 @@ export const reportService = {
   // Financial Reports
   getDayBook: async (filters: DayBookFilters = {}): Promise<any> => {
     if (isOfflineRuntime()) {
-      return { data: [], summary: null };
+      const date = filters.date || new Date().toISOString().slice(0, 10);
+      const vouchers = await voucherService.list();
+      const onDate = (v: Voucher) =>
+        v.status === 'ACTIVE' && String(v.date).slice(0, 10) === date;
+
+      const sales = vouchers.filter((v) => v.type === 'SALES' && onDate(v));
+      const purchase = vouchers.filter((v) => v.type === 'PURCHASE' && onDate(v));
+      const receipts = vouchers.filter((v) => v.type === 'RECEIPT' && onDate(v));
+      const payments = vouchers.filter((v) => v.type === 'PAYMENT' && onDate(v));
+
+      const salesRows = sales.map((v) => ({
+        type: 'Sales',
+        reference: v.number,
+        amount: voucherGrandTotal(v),
+        date: v.date,
+      }));
+      const receiptRows = receipts.map((v) => ({
+        type: 'Payment Received',
+        reference: v.number,
+        amount: voucherGrandTotal(v),
+        date: v.date,
+      }));
+      const purchaseRows = purchase.map((v) => ({
+        type: 'Purchase',
+        reference: v.number,
+        amount: voucherGrandTotal(v),
+        date: v.date,
+      }));
+      const paymentRows = payments.map((v) => ({
+        type: 'Payment Made',
+        reference: v.number,
+        amount: voucherGrandTotal(v),
+        date: v.date,
+      }));
+
+      const totalReceipts =
+        salesRows.reduce((s, r) => s + r.amount, 0) + receiptRows.reduce((s, r) => s + r.amount, 0);
+      const totalPayments =
+        purchaseRows.reduce((s, r) => s + r.amount, 0) + paymentRows.reduce((s, r) => s + r.amount, 0);
+
+      return {
+        date,
+        receipts: { sales: salesRows, payments: receiptRows, total: totalReceipts },
+        payments: { purchases: purchaseRows, payments: paymentRows, total: totalPayments },
+        netCashFlow: totalReceipts - totalPayments,
+      };
     }
     const response = await api.get('/reports/financial/daybook', { params: filters });
     return response.data;

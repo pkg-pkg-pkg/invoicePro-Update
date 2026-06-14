@@ -25,7 +25,7 @@ export async function assertLedgerCanBeDeactivated(ledgerId: string): Promise<vo
   }
 
   const { voucherService } = await import('../vouchers/voucherService');
-  const vouchers = await voucherService.list();
+  const vouchers = await voucherService.list({ includeDeleted: true });
   const billingHit = vouchers.find(
     (v) =>
       isBillingVoucherType(v.type) &&
@@ -50,7 +50,7 @@ export async function assertLedgerCanBeDeactivated(ledgerId: string): Promise<vo
 /** Block item deactivation only when it appears on a sales/purchase invoice (or return) — not other voucher types or stock adjustments alone. */
 export async function assertInventoryItemCanBeDeactivated(itemId: string): Promise<void> {
   const { voucherService } = await import('../vouchers/voucherService');
-  const vouchers = await voucherService.list();
+  const vouchers = await voucherService.list({ includeDeleted: true });
   const voucherHit = vouchers.find(
     (v) =>
       isBillingVoucherType(v.type) &&

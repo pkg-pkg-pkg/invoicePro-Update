@@ -6,8 +6,19 @@ import { assertInventoryItemCanBeDeactivated } from './masterUsageGuard';
 import { unitOfMeasureService } from './unitOfMeasureService';
 import { nowIso, readList, sanitizeString, writeList } from './storageHelpers';
 import { companyScopedKey } from '../../utils/companyStorage';
+import { fireAndForgetDelta } from '../sync/syncDeltaHelper';
+import {
+  assertBarcodeUnique,
+  assertInventoryBarcodeIndex,
+  assertItemBarcodesUnique,
+  BarcodeDuplicateError,
+  buildBarcodeIndex,
+} from '../barcode/barcodeUniqueness';
+import { recordBarcodeChangesIfNeeded } from '../barcode/barcodeAuditService';
+import { storageDriver } from '../storage/storageDriver';
 
 const STORAGE_KEY = companyScopedKey('pve_inventory_items');
+const BARCODE_INDEX_KEY = companyScopedKey('pve_inventory_barcode_index_v1');
 
 export const INVENTORY_ITEMS_CHANGED_EVENT = 'inventoryItemsChanged';
 
@@ -20,6 +31,7 @@ function notifyInventoryItemsChanged(): void {
 export interface InventoryItemFilters {
   includeInactive?: boolean;
   categoryId?: string | null;
+  brand?: string | null;
   unitId?: string;
   status?: InventoryStatus;
   search?: string;
@@ -128,15 +140,6 @@ const ensureUniqueFields = (
   if (nameDuplicate) {
     throw new Error('Item name already exists');
   }
-
-  if (candidate.barcode) {
-    const barcodeDuplicate = items.some(
-      (item, index) => index !== skipIndex && item.barcode?.toLowerCase() === candidate.barcode!.toLowerCase()
-    );
-    if (barcodeDuplicate) {
-      throw new Error('Barcode already exists');
-    }
-  }
 };
 
 const sanitizeStringArray = (items: unknown): string[] | undefined => {
@@ -168,6 +171,7 @@ const buildInventoryItem = async (
 
   const brand = sanitizeString(payload.brand ?? null);
   const barcode = sanitizeString(payload.barcode ?? null);
+  const additionalBarcodes = sanitizeStringArray(payload.additionalBarcodes) ?? null;
   let categoryId = sanitizeString(payload.categoryId ?? null);
   if (!categoryId) {
     // Backward compatibility: older flows/tests created items without category.
@@ -248,6 +252,7 @@ const buildInventoryItem = async (
     name,
     sku,
     barcode,
+    additionalBarcodes,
     brand,
     categoryId,
     unitId: unitId!,
@@ -278,6 +283,11 @@ const buildInventoryItem = async (
   };
 
   ensureUniqueFields(existingItems, item, isCreate ? undefined : existingItems.findIndex((itm) => itm.id === item.id));
+  assertItemBarcodesUnique(
+    existingItems,
+    item,
+    isCreate ? undefined : item.id
+  );
   return item;
 };
 
@@ -288,6 +298,12 @@ const sumGodownQuantities = (stocks: InventoryGodownStock[] | undefined): number
   return Number(
     stocks.reduce((acc, entry) => acc + entry.quantity, 0).toFixed(4)
   );
+};
+
+async function persistInventoryItems(items: InventoryItem[]): Promise<void> {
+  assertInventoryBarcodeIndex(items);
+  await writeList(STORAGE_KEY, items);
+  await storageDriver.write(BARCODE_INDEX_KEY, buildBarcodeIndex(items));
 };
 
 const filterItems = (items: InventoryItem[], filters: InventoryItemFilters) => {
@@ -303,6 +319,14 @@ const filterItems = (items: InventoryItem[], filters: InventoryItemFilters) => {
         return false;
       }
     }
+    if (filters.brand !== undefined) {
+      const itemBrand = sanitizeString(item.brand ?? null);
+      if (filters.brand === null) {
+        if (itemBrand) return false;
+      } else if (itemBrand !== filters.brand) {
+        return false;
+      }
+    }
     if (filters.unitId && item.unitId !== filters.unitId) {
       return false;
     }
@@ -310,7 +334,7 @@ const filterItems = (items: InventoryItem[], filters: InventoryItemFilters) => {
       return false;
     }
     if (searchValue) {
-      const haystack = `${item.name} ${item.sku} ${item.barcode ?? ''}`.toLowerCase();
+      const haystack = `${item.name} ${item.sku} ${item.barcode ?? ''} ${item.brand ?? ''}`.toLowerCase();
       if (!haystack.includes(searchValue)) {
         return false;
       }
@@ -320,6 +344,16 @@ const filterItems = (items: InventoryItem[], filters: InventoryItemFilters) => {
 };
 
 export const inventoryItemService = {
+  async listDistinctBrands(): Promise<string[]> {
+    const items = await readList<InventoryItem>(STORAGE_KEY);
+    const set = new Set<string>();
+    for (const item of items) {
+      const brand = sanitizeString(item.brand ?? null);
+      if (brand) set.add(brand);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  },
+
   async list(filters: InventoryItemFilters = {}): Promise<InventoryItem[]> {
     const items = await readList<InventoryItem>(STORAGE_KEY);
     return filterItems(items, filters).sort((a, b) => a.name.localeCompare(b.name));
@@ -333,9 +367,15 @@ export const inventoryItemService = {
   async create(payload: Partial<InventoryItem>): Promise<InventoryItem> {
     const items = await readList<InventoryItem>(STORAGE_KEY);
     const item = await buildInventoryItem(payload, items, true);
+    assertItemBarcodesUnique(items, item, item.id);
     items.push(item);
-    await writeList(STORAGE_KEY, items);
+    await persistInventoryItems(items);
     notifyInventoryItemsChanged();
+    fireAndForgetDelta({ entity: 'item', operation: 'upsert', payload: { ...item } as Record<string, unknown> });
+    await recordBarcodeChangesIfNeeded(null, item, {
+      reason: (payload as { barcodeChangeReason?: string }).barcodeChangeReason,
+      source: payload.createdSource === 'IMPORT' ? 'Excel import' : 'Item create',
+    });
     return item;
   },
 
@@ -359,8 +399,14 @@ export const inventoryItemService = {
     );
 
     items[index] = updated;
-    await writeList(STORAGE_KEY, items);
+    assertItemBarcodesUnique(items, updated, updated.id);
+    await persistInventoryItems(items);
     notifyInventoryItemsChanged();
+    fireAndForgetDelta({ entity: 'item', operation: 'upsert', payload: { ...updated } as Record<string, unknown> });
+    await recordBarcodeChangesIfNeeded(current, updated, {
+      reason: (payload as { barcodeChangeReason?: string }).barcodeChangeReason,
+      source: 'Item edit',
+    });
     return updated;
   },
 
@@ -371,9 +417,11 @@ export const inventoryItemService = {
     if (index < 0) {
       throw new Error('Inventory item not found');
     }
-    items[index] = { ...items[index], status: 'INACTIVE', updatedAt: nowIso() };
-    await writeList(STORAGE_KEY, items);
+    const deleted = { ...items[index], status: 'INACTIVE' as const, updatedAt: nowIso() };
+    items[index] = deleted;
+    await persistInventoryItems(items);
     notifyInventoryItemsChanged();
+    fireAndForgetDelta({ entity: 'item', operation: 'delete', payload: { ...deleted } as Record<string, unknown> });
   },
 
   async restore(id: string): Promise<void> {
@@ -382,9 +430,11 @@ export const inventoryItemService = {
     if (index < 0) {
       throw new Error('Inventory item not found');
     }
-    items[index] = { ...items[index], status: 'ACTIVE', updatedAt: nowIso() };
-    await writeList(STORAGE_KEY, items);
+    const restored = { ...items[index], status: 'ACTIVE' as const, updatedAt: nowIso() };
+    items[index] = restored;
+    await persistInventoryItems(items);
     notifyInventoryItemsChanged();
+    fireAndForgetDelta({ entity: 'item', operation: 'upsert', payload: { ...restored } as Record<string, unknown> });
   },
 
   async bulkSoftDelete(ids: string[]): Promise<number> {
@@ -402,7 +452,7 @@ export const inventoryItemService = {
       }
     }
     if (updated > 0) {
-      await writeList(STORAGE_KEY, items);
+      await persistInventoryItems(items);
       notifyInventoryItemsChanged();
     }
     return updated;
@@ -442,6 +492,7 @@ export const inventoryItemService = {
           id: base?.id ?? row.id,
         };
         const built = await buildInventoryItem(mergedPayload, items, matchIndex < 0);
+        const beforeItem = matchIndex >= 0 ? base : null;
         if (matchIndex >= 0) {
           items[matchIndex] = built;
           updated += 1;
@@ -449,13 +500,20 @@ export const inventoryItemService = {
           items.push(built);
           created += 1;
         }
+        await recordBarcodeChangesIfNeeded(beforeItem ?? null, built, { source: 'Excel import' });
       } catch (err) {
-        errors.push(`Row ${i + 2}: ${(err as Error).message}`);
+        if (err instanceof BarcodeDuplicateError) {
+          errors.push(
+            `Row ${i + 2}: Barcode already exists (Item: ${err.existingItem.name}, SKU: ${err.existingItem.sku})`
+          );
+        } else {
+          errors.push(`Row ${i + 2}: ${(err as Error).message}`);
+        }
       }
     }
 
     if (created || updated) {
-      await writeList(STORAGE_KEY, items);
+      await persistInventoryItems(items);
       notifyInventoryItemsChanged();
     }
 
@@ -547,13 +605,13 @@ export const inventoryItemService = {
       updatedAt: nowIso(),
     };
 
-    await writeList(STORAGE_KEY, items);
+    await persistInventoryItems(items);
     notifyInventoryItemsChanged();
     return items[index];
   },
 
   async clearAll() {
-    await writeList(STORAGE_KEY, []);
+    await persistInventoryItems([]);
     notifyInventoryItemsChanged();
   },
 
@@ -576,7 +634,7 @@ export const inventoryItemService = {
       };
     });
     if (updated > 0) {
-      await writeList(STORAGE_KEY, next);
+      await persistInventoryItems(next);
       notifyInventoryItemsChanged();
     }
     return updated;

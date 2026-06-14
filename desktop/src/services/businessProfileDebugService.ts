@@ -65,7 +65,7 @@ export async function scanProfilePersistenceDebug(): Promise<Record<string, unkn
 
 export async function runStartupProfileDiagnostics(userEmail?: string): Promise<void> {
   const localSnapshot = exportCompanyLocalStorage();
-  const storageDiag = await getDataStorageDiagnostics();
+  const storageDiag = isElectronRuntime() ? await getDataStorageDiagnostics() : null;
   const profileStatus = isElectronRuntime() ? await getProfileCompletionStatus() : null;
   await logProfileDebugEvent('startup', {
     userEmail: userEmail || '',
@@ -81,7 +81,9 @@ export async function runStartupProfileDiagnostics(userEmail?: string): Promise<
     databaseSizeBytes: storageDiag?.databaseSizeBytes,
     readPath: storageDiag?.readPath,
   });
-  await scanProfilePersistenceDebug();
+  if (import.meta.env.DEV) {
+    await scanProfilePersistenceDebug();
+  }
 }
 
 /** Returns true when SQLite profile is complete (authoritative on Electron). */

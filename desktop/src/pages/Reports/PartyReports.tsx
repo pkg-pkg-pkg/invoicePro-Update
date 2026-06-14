@@ -1,24 +1,13 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Typography, Grid, Card, CardActionArea, CardContent, Button } from '@mui/material';
-import { ReceiptLong as ReceiptLongIcon, People as PeopleIcon, Business as BusinessIcon, FileDownload as FileDownloadIcon } from '@mui/icons-material';
+import { Box, Typography, Grid, Card, CardActionArea, CardContent } from '@mui/material';
+import { ReceiptLong as ReceiptLongIcon, People as PeopleIcon, Business as BusinessIcon } from '@mui/icons-material';
 
 interface PartyReportsProps {
   canExport: boolean;
 }
 
-export default function PartyReports({ canExport }: PartyReportsProps) {
+export default function PartyReports({ canExport: _canExport }: PartyReportsProps) {
   const navigate = useNavigate();
-  const [exporting, setExporting] = useState(false);
-
-  const handleExport = async () => {
-    if (!canExport) {
-      alert('You do not have permission to export reports');
-      return;
-    }
-    setExporting(true);
-    // ... export logic
-  };
 
   return (
     <Box>
@@ -43,7 +32,7 @@ export default function PartyReports({ canExport }: PartyReportsProps) {
 
         <Grid item xs={12} md={6} lg={4}>
           <Card>
-            <CardActionArea onClick={() => navigate('/parties/ledger-report')}>
+            <CardActionArea onClick={() => navigate('/customers/ledger-report')}>
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                   <ReceiptLongIcon color="primary" />
@@ -89,15 +78,6 @@ export default function PartyReports({ canExport }: PartyReportsProps) {
           </Card>
         </Grid>
       </Grid>
-
-      <Button
-        variant="outlined"
-        startIcon={<FileDownloadIcon />}
-        disabled={!canExport || exporting}
-        onClick={handleExport}
-      >
-        {exporting ? 'Exporting...' : 'Export to Excel'}
-      </Button>
     </Box>
   );
 }

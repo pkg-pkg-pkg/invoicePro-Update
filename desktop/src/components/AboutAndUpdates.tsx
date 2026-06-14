@@ -14,6 +14,7 @@ import {
   Grid,
   Divider,
   Stack,
+  IconButton,
 } from '@mui/material';
 import {
   SystemUpdate as UpdateIcon,
@@ -21,15 +22,22 @@ import {
   Download as DownloadIcon,
   CheckCircle as CheckCircleIcon,
   ContactSupport as ContactSupportIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import { APP_DISPLAY_NAME, APP_TAGLINE } from '../constants/appBranding';
+import { getBundledReleaseNotes } from '../constants/bundledReleaseNotes';
 import {
   checkForAppUpdate,
   fetchAppRelease,
   isOlderVersion,
+  resolveAppVersion,
   resolveDownloadUrl,
 } from '../services/appUpdateService';
 import { openExternalUrl } from '../services/printService';
+import {
+  acknowledgeReleaseNotesVersion,
+  shouldShowReleaseNotesForVersion,
+} from '../services/releaseNotesAckService';
 import SystemInformationPanel from './about/SystemInformationPanel';
 
 function releaseNotesToChangelog(notes?: string): string[] | undefined {
@@ -83,9 +91,32 @@ const AboutAndUpdates: React.FC = () => {
   const [gatewayValidUntilMs, setGatewayValidUntilMs] = useState<number | null>(null);
   const [mobileSyncInfo, setMobileSyncInfo] = useState<MobileSyncStatusResponse | null>(null);
   const [mobileSyncLoading, setMobileSyncLoading] = useState(false);
+  const [currentVersion, setCurrentVersion] = useState('');
+  const [showVersionChangelog, setShowVersionChangelog] = useState(false);
 
-  const currentVersion =
-    (typeof import.meta.env.VITE_APP_VERSION === 'string' && import.meta.env.VITE_APP_VERSION) || '1.0.0';
+  useEffect(() => {
+    void resolveAppVersion().then(setCurrentVersion);
+  }, []);
+
+  useEffect(() => {
+    if (!currentVersion) return;
+    let cancelled = false;
+    void (async () => {
+      const shouldShow = await shouldShowReleaseNotesForVersion(currentVersion);
+      if (!cancelled) setShowVersionChangelog(shouldShow);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentVersion]);
+
+  const bundledVersionNotes = currentVersion ? getBundledReleaseNotes(currentVersion) : null;
+
+  const handleDismissVersionChangelog = () => {
+    if (!currentVersion) return;
+    setShowVersionChangelog(false);
+    void acknowledgeReleaseNotesVersion(currentVersion);
+  };
 
   useEffect(() => {
     // Listen for update events from electron main process
@@ -505,6 +536,31 @@ const AboutAndUpdates: React.FC = () => {
             )}
           </Paper>
         </Grid>
+
+        {bundledVersionNotes && showVersionChangelog ? (
+          <Grid item xs={12}>
+            <Paper sx={{ p: 3, position: 'relative' }}>
+              <IconButton
+                aria-label="Dismiss version changelog"
+                onClick={handleDismissVersionChangelog}
+                size="small"
+                sx={{ position: 'absolute', top: 8, right: 8 }}
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
+              <Typography variant="h6" gutterBottom sx={{ pr: 4 }}>
+                What&apos;s included in v{currentVersion}
+              </Typography>
+              <Typography
+                variant="body2"
+                component="div"
+                sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary', lineHeight: 1.65 }}
+              >
+                {bundledVersionNotes}
+              </Typography>
+            </Paper>
+          </Grid>
+        ) : null}
 
         {updateInfo?.updateAvailable && updateInfo?.changelog && updateInfo.changelog.length > 0 && (
           <Grid item xs={12}>

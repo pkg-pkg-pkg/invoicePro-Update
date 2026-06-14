@@ -1,4 +1,4 @@
-export type MobileSyncEntityType = 'ledger' | 'payment' | 'receipt' | 'invoice';
+export type MobileSyncEntityType = 'ledger' | 'payment' | 'receipt' | 'invoice' | 'item';
 
 export interface MobileSyncEnvelope {
   id: string;

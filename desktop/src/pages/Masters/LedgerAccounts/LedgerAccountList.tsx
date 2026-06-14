@@ -9,6 +9,10 @@ import {
   Checkbox,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   FormControl,
   FormControlLabel,
   IconButton,
@@ -30,9 +34,15 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import RestoreIcon from '@mui/icons-material/Restore';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import MergeTypeIcon from '@mui/icons-material/MergeType';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import AssessmentIcon from '@mui/icons-material/Assessment';
 
 import { ledgerAccountService } from '../../../services/masters/ledgerAccountService';
 import { ledgerGroupService } from '../../../services/masters/ledgerGroupService';
+import { ledgerClassificationService } from '../../../services/masters/ledgerClassificationService';
+import { SYSTEM_LEDGER_IDS } from '../../../constants/chartOfAccounts';
 import { LedgerAccount, LedgerGroup } from '../../../types/masters';
 import { useMasterList } from '../../../hooks/useMasterList';
 import { usePermission } from '../../../hooks/usePermission';
@@ -88,6 +98,9 @@ const LedgerAccountList = () => {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ACTIVE');
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [mismatchMap, setMismatchMap] = useState<Map<string, boolean>>(new Map());
+  const [mergeSource, setMergeSource] = useState<LedgerAccount | null>(null);
+  const [mergeTargetId, setMergeTargetId] = useState('');
 
   const fetchAccounts = useCallback(() => ledgerAccountService.list({ includeInactive: true }), []);
   const { data: accounts, loading, error, refresh } = useMasterList(fetchAccounts);
@@ -96,7 +109,10 @@ const LedgerAccountList = () => {
     ledgerGroupService.list({ includeInactive: true }).then(setGroups).catch(() => {
       setGroups([]);
     });
-  }, []);
+    ledgerClassificationService.runAudit().then((audit) => {
+      setMismatchMap(new Map(audit.rows.map((r) => [r.ledgerId, r.mismatch])));
+    }).catch(() => setMismatchMap(new Map()));
+  }, [accounts.length]);
 
   const filteredAccounts = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -188,6 +204,27 @@ const LedgerAccountList = () => {
     }
   };
 
+  const handleMerge = async () => {
+    if (!mergeSource || !mergeTargetId) return;
+    try {
+      await ledgerClassificationService.mergeLedgers(mergeSource.id, mergeTargetId);
+      setActionMessage(`Merged "${mergeSource.name}" into target ledger`);
+      setMergeSource(null);
+      setMergeTargetId('');
+      await refresh();
+    } catch (err) {
+      setActionError((err as Error).message);
+    }
+  };
+
+  const formatDate = (iso?: string) => {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleDateString('en-IN');
+    } catch {
+      return iso.slice(0, 10);
+    }
+  };
   const handleRefresh = async () => {
     setActionMessage(null);
     setActionError(null);
@@ -211,9 +248,18 @@ const LedgerAccountList = () => {
     <Stack spacing={2}>
       <Stack direction="row" alignItems="center" justifyContent="space-between">
         <Typography variant="h5" fontWeight={600}>
-          Ledger Accounts
+          Ledger Master
         </Typography>
         <Stack direction="row" spacing={1}>
+          <Button variant="outlined" startIcon={<AccountTreeIcon />} onClick={() => navigate('/masters/chart-of-accounts')}>
+            Chart of Accounts
+          </Button>
+          <Button variant="outlined" startIcon={<AssessmentIcon />} onClick={() => navigate('/masters/ledger-audit')}>
+            Structure Audit
+          </Button>
+          <Button variant="outlined" onClick={() => navigate('/masters/accounting-integrity')}>
+            Integrity Audit
+          </Button>
           <Tooltip title="Refresh">
             <IconButton onClick={handleRefresh}>
               <RefreshIcon />
@@ -315,11 +361,11 @@ const LedgerAccountList = () => {
               <TableHead>
                 <TableRow>
                   <TableCell>Name</TableCell>
-                  <TableCell>Code</TableCell>
-                  <TableCell>Group</TableCell>
-                  <TableCell>Role</TableCell>
+                  <TableCell>Parent Group</TableCell>
                   <TableCell align="right">Opening Balance</TableCell>
                   <TableCell align="right">Current Balance</TableCell>
+                  <TableCell>Created</TableCell>
+                  <TableCell>Auto</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
@@ -335,23 +381,23 @@ const LedgerAccountList = () => {
                   </TableRow>
                 ) : (
                   filteredAccounts.map((account) => {
-                    const role = displayRoleForLedger(account, groupRoleMap.get(account.groupId ?? '') ?? null);
                     return (
                       <TableRow key={account.id} hover>
-                        <TableCell>{account.name}</TableCell>
-                        <TableCell>{account.code ?? '—'}</TableCell>
-                        <TableCell>{groupNameMap.get(account.groupId) ?? '—'}</TableCell>
                         <TableCell>
-                          {role ? (
-                            <Chip size="small" label={role} color={ROLE_COLOR_MAP[role]} variant="outlined" />
-                          ) : (
-                            '—'
-                          )}
+                          <Stack direction="row" spacing={0.5} alignItems="center">
+                            <span>{account.name}</span>
+                            {mismatchMap.get(account.id) ? (
+                              <Chip size="small" color="warning" label="Misclassified" />
+                            ) : null}
+                          </Stack>
                         </TableCell>
+                        <TableCell>{groupNameMap.get(account.groupId) ?? '—'}</TableCell>
                         <TableCell align="right">{renderOpeningBalance(account.openingBalance ?? 0, account.openingBalanceType)}</TableCell>
                         <TableCell align="right">
                           {currencyFormatter.format(account.currentBalance ?? 0)}
                         </TableCell>
+                        <TableCell>{formatDate(account.createdAt)}</TableCell>
+                        <TableCell>{SYSTEM_LEDGER_IDS.has(account.id) ? 'Yes' : 'No'}</TableCell>
                         <TableCell>
                           <Chip
                             size="small"
@@ -361,6 +407,14 @@ const LedgerAccountList = () => {
                         </TableCell>
                         <TableCell align="right">
                           <Stack direction="row" spacing={1} justifyContent="flex-end">
+                            <Tooltip title="View statement">
+                              <IconButton
+                                size="small"
+                                onClick={() => navigate(`/parties/party-ledger/${account.id}`)}
+                              >
+                                <VisibilityIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                             <Tooltip title="Edit">
                               <span>
                                 <IconButton
@@ -385,7 +439,19 @@ const LedgerAccountList = () => {
                                 </span>
                               </Tooltip>
                             ) : (
-                              <Tooltip title="Deactivate">
+                              <>
+                                <Tooltip title="Merge into another ledger">
+                                  <span>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => setMergeSource(account)}
+                                      disabled={!canManage}
+                                    >
+                                      <MergeTypeIcon fontSize="small" />
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                                <Tooltip title="Disable">
                                 <span>
                                   <IconButton
                                     size="small"
@@ -395,7 +461,8 @@ const LedgerAccountList = () => {
                                     <DeleteIcon fontSize="small" />
                                   </IconButton>
                                 </span>
-                              </Tooltip>
+                                </Tooltip>
+                              </>
                             )}
                           </Stack>
                         </TableCell>
@@ -408,6 +475,37 @@ const LedgerAccountList = () => {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(mergeSource)} onClose={() => setMergeSource(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Merge Ledger</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Merge &quot;{mergeSource?.name}&quot; balance into another ledger, then disable the source.
+          </Typography>
+          <FormControl fullWidth size="small">
+            <InputLabel>Target ledger</InputLabel>
+            <Select
+              label="Target ledger"
+              value={mergeTargetId}
+              onChange={(e) => setMergeTargetId(e.target.value)}
+            >
+              {accounts
+                .filter((a) => a.id !== mergeSource?.id && a.isActive !== false)
+                .map((a) => (
+                  <MenuItem key={a.id} value={a.id}>
+                    {a.name}
+                  </MenuItem>
+                ))}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMergeSource(null)}>Cancel</Button>
+          <Button variant="contained" disabled={!mergeTargetId} onClick={() => void handleMerge()}>
+            Merge
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 };

@@ -1,6 +1,8 @@
 import { BankDetails, LedgerAccount, LedgerGroup, LedgerBalanceType } from '../../types/masters';
 import { generateId } from '../../utils/id';
 import { ledgerGroupService } from './ledgerGroupService';
+import { assertLedgerTypeMatchesGroup, assertAssignableLedgerGroup } from '../../constants/chartOfAccounts';
+import { inferLedgerRole } from './ledgerRoleInference';
 import { assertLedgerCanBeDeactivated } from './masterUsageGuard';
 import { nowIso, readList, sanitizeString, writeList } from './storageHelpers';
 
@@ -91,6 +93,29 @@ const buildAccount = async (payload: Partial<LedgerAccount>, isCreate: boolean):
   if (openingBalanceType !== 'DEBIT' && openingBalanceType !== 'CREDIT') {
     throw new Error('Opening balance type is required');
   }
+
+  assertAssignableLedgerGroup(group);
+  const role = inferLedgerRole(
+    {
+      ...(payload as LedgerAccount),
+      id: payload.id ?? '',
+      name,
+      groupId: sanitizedGroupId,
+      openingBalance,
+      openingBalanceType: openingBalanceType!,
+      currentBalance: 0,
+      isCashBank: Boolean(payload.isCashBank),
+      isActive: payload.isActive ?? true,
+      createdAt: payload.createdAt ?? nowIso(),
+      updatedAt: nowIso(),
+    },
+    new Map()
+  );
+  assertLedgerTypeMatchesGroup(
+    { isCashBank: Boolean(payload.isCashBank), groupId: sanitizedGroupId },
+    group,
+    role
+  );
 
   const currentBalance: number =
     payload.currentBalance !== undefined
@@ -262,6 +287,26 @@ export const ledgerAccountService = {
     await writeList(STORAGE_KEY, accounts);
   },
 
+  /** Deactivate sundry party ledger when party is marked inactive (skip party-link guard). */
+  async deactivatePartyLedger(id: string): Promise<void> {
+    const accounts = await readList<LedgerAccount>(STORAGE_KEY);
+    const index = accounts.findIndex((acct) => acct.id === id);
+    if (index < 0) return;
+    accounts[index] = { ...accounts[index], isActive: false, updatedAt: nowIso() };
+    await writeList(STORAGE_KEY, accounts);
+  },
+
+  /** Remove ledger row from storage (party permanent delete). */
+  async removeById(id: string, options?: { force?: boolean }): Promise<void> {
+    if (!options?.force) {
+      await assertLedgerCanBeDeactivated(id);
+    }
+    const accounts = await readList<LedgerAccount>(STORAGE_KEY);
+    const next = accounts.filter((acct) => acct.id !== id);
+    if (next.length === accounts.length) return;
+    await writeList(STORAGE_KEY, next);
+  },
+
   async restore(id: string): Promise<void> {
     const accounts = await readList<LedgerAccount>(STORAGE_KEY);
     const index = accounts.findIndex((acct) => acct.id === id);
@@ -293,6 +338,12 @@ export const ledgerAccountService = {
     accounts[index] = { ...accounts[index], currentBalance: value, updatedAt: nowIso() };
     await writeList(STORAGE_KEY, accounts);
     return accounts[index];
+  },
+
+  async reclassify(id: string, newGroupId: string): Promise<LedgerAccount> {
+    const current = await this.getById(id);
+    if (!current) throw new Error('Account not found');
+    return this.update(id, { groupId: newGroupId });
   },
 
   async clearAll() {

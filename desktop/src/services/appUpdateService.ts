@@ -1,6 +1,8 @@
 import { doc, getDoc } from 'firebase/firestore';
 
 import { db } from '../firebase/firebase';
+import { isElectronRuntime } from '../utils/runtime';
+import { normalizeAppVersion } from './releaseNotesAckService';
 
 export type AppReleaseInfo = {
   latestVersion: string;
@@ -40,6 +42,20 @@ export function isOlderVersion(current: string, latest: string): boolean {
 export function getBundledAppVersion(): string {
   const v = (import.meta as any).env?.VITE_APP_VERSION;
   return typeof v === 'string' && v.trim() ? v.trim() : '1.0.0';
+}
+
+/** Prefer Electron app.getVersion(); fall back to bundled build version. */
+export async function resolveAppVersion(): Promise<string> {
+  if (isElectronRuntime() && window.electronAPI?.getAppSystemInfo) {
+    try {
+      const info = await window.electronAPI.getAppSystemInfo();
+      const fromElectron = normalizeAppVersion(String(info?.appVersion ?? ''));
+      if (fromElectron) return fromElectron;
+    } catch {
+      // ignore
+    }
+  }
+  return normalizeAppVersion(getBundledAppVersion());
 }
 
 /** Reads public release doc; works without auth. */

@@ -14,9 +14,14 @@ import {
   parseDueDateToken,
 } from '../vouchers/invoicePaymentStatus';
 import { voucherGrandTotal } from '../voucherPrintBuilder';
-import { calcSalesDocumentTotals, generatePipelineNumber } from './salesPipelineCalc';
+import { calcSalesDocumentTotals } from './salesPipelineCalc';
 import type { Voucher } from '../../types/vouchers';
 import { normalizeToYmd } from '../../utils/dateRange';
+import {
+  commitPipelineNumber,
+  peekNextPipelineNumber,
+  shouldReplaceVoucherNumber,
+} from '../vouchers/voucherNumberService';
 
 const STORAGE_KEY = 'pve_sales_pipeline';
 
@@ -46,8 +51,7 @@ export const salesPipelineService = {
   },
 
   async nextNumber(kind: SalesDocKind): Promise<string> {
-    const rows = await this.list(kind);
-    return generatePipelineNumber(kind, rows.length);
+    return peekNextPipelineNumber(kind);
   },
 
   async create(payload: Partial<SalesPipelineDocument>): Promise<SalesPipelineDocument> {
@@ -66,16 +70,18 @@ export const salesPipelineService = {
       placeOfSupply: payload.header?.placeOfSupply ?? undefined,
     });
 
-    const number =
-      sanitizeString(payload.number ?? null) ||
-      generatePipelineNumber(kind, rows.filter((r) => r.kind === kind).length);
-
     const now = nowIso();
+    const date = payload.date ?? now.slice(0, 10);
+    let number = sanitizeString(payload.number ?? null);
+    if (!number || shouldReplaceVoucherNumber(number)) {
+      number = await peekNextPipelineNumber(kind, date);
+    }
+
     const row: SalesPipelineDocument = normalizePipelineDoc({
       id: payload.id ?? generateId('sdoc'),
       kind,
       number,
-      date: payload.date ?? now.slice(0, 10),
+      date,
       customerId: sanitizeString(payload.customerId ?? null),
       customerName,
       amount: Number(payload.grandTotal ?? totals.grandTotal ?? payload.amount ?? 0),
@@ -98,6 +104,7 @@ export const salesPipelineService = {
 
     rows.push(row);
     await writeList(STORAGE_KEY, rows);
+    await commitPipelineNumber(kind, number, date);
     return row;
   },
 

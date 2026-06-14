@@ -22,6 +22,8 @@ import {
 } from '@mui/material';
 import { FileDownload as FileDownloadIcon } from '@mui/icons-material';
 import { gstService, GSTR1Response } from '../../services/gstService';
+import { GstReportExportMenu } from '../../components/gst/GstReportExportMenu';
+import { VoucherNumberLink } from '../../components/Vouchers/VoucherNumberLink';
 
 const MONTHS = [
   { value: 1, label: 'January' },
@@ -77,6 +79,22 @@ export default function GSTR1Report() {
 
   const years = Array.from({ length: 5 }, (_, i) => currentDate.getFullYear() - i);
 
+  const exportSections = data
+    ? [
+        { heading: 'B2B', sheetName: 'B2B', rows: data.b2b as Record<string, unknown>[] },
+        { heading: 'B2C', sheetName: 'B2C', rows: data.b2c as Record<string, unknown>[] },
+        { heading: 'HSN Summary', sheetName: 'HSN', rows: data.hsnSummary as Record<string, unknown>[] },
+        { heading: 'Nil Rated', sheetName: 'NilRated', rows: (data.nilRated || []) as Record<string, unknown>[] },
+        { heading: 'Exempted', sheetName: 'Exempted', rows: (data.exempted || []) as Record<string, unknown>[] },
+        { heading: 'Export Sales', sheetName: 'Export', rows: (data.exportSales || []) as Record<string, unknown>[] },
+        {
+          heading: 'Tax Liability',
+          sheetName: 'TaxLiability',
+          rows: data.taxLiability ? [data.taxLiability as Record<string, unknown>] : [],
+        },
+      ]
+    : [];
+
   return (
     <Box>
       <Typography variant="h4" gutterBottom>
@@ -119,13 +137,21 @@ export default function GSTR1Report() {
               {loading ? <CircularProgress size={24} /> : 'Generate Report'}
             </Button>
             {data && (
-              <Button
-                variant="outlined"
-                startIcon={<FileDownloadIcon />}
-                onClick={handleExport}
-              >
-                Export JSON
-              </Button>
+              <>
+                <Button
+                  variant="outlined"
+                  startIcon={<FileDownloadIcon />}
+                  onClick={handleExport}
+                  sx={{ mr: 1 }}
+                >
+                  Export JSON
+                </Button>
+                <GstReportExportMenu
+                  title={`GSTR-1 ${MONTHS.find((m) => m.value === month)?.label} ${year}`}
+                  baseFileName={`GSTR1_${year}_${month}`}
+                  sections={exportSections}
+                />
+              </>
             )}
           </Grid>
         </Grid>
@@ -209,7 +235,17 @@ export default function GSTR1Report() {
                   <TableBody>
                     {data.b2b.map((item, index) => (
                       <TableRow key={index}>
-                        <TableCell>{item.invoiceNumber}</TableCell>
+                        <TableCell>
+                          {item.voucherId ? (
+                            <VoucherNumberLink
+                              voucherId={item.voucherId}
+                              voucherType="SALES"
+                              voucherNumber={item.invoiceNumber}
+                            />
+                          ) : (
+                            item.invoiceNumber
+                          )}
+                        </TableCell>
                         <TableCell>{new Date(item.invoiceDate).toLocaleDateString()}</TableCell>
                         <TableCell>{item.customerGSTIN}</TableCell>
                         <TableCell>{item.customerName}</TableCell>

@@ -122,6 +122,8 @@ export interface InventoryItem {
   name: string;
   sku: string;
   barcode?: string | null;
+  /** Alternate scan codes (inner box, master carton, manufacturer, etc.) */
+  additionalBarcodes?: string[] | null;
   brand?: string | null;
   categoryId?: string | null;
   unitId: string;
@@ -133,6 +135,8 @@ export interface InventoryItem {
   trackBatch?: boolean;
   trackSerial?: boolean;
   trackExpiry?: boolean;
+  batchNumber?: string | null;
+  expiryDate?: string | null;
   openingStock: number;
   openingValue: number;
   currentStock: number;
@@ -151,16 +155,44 @@ export interface InventoryItem {
   updatedAt: Timestamp;
 }
 
+export type ItemHistoryAction =
+  | 'CREATED'
+  | 'UPDATED'
+  | 'DELETED'
+  | 'DUPLICATED'
+  | 'STATUS_CHANGED'
+  | 'STOCK_ADJUSTED'
+  | 'BARCODE_CHANGED';
+
+export type ItemHistoryMeta = {
+  oldBarcode?: string | null;
+  newBarcode?: string | null;
+  oldAdditionalBarcodes?: string[];
+  newAdditionalBarcodes?: string[];
+  reason?: string | null;
+};
+
 export interface ItemHistoryEntry {
   id: string;
   itemId: string;
-  action: 'CREATED' | 'UPDATED' | 'DELETED' | 'DUPLICATED' | 'STATUS_CHANGED' | 'STOCK_ADJUSTED';
+  action: ItemHistoryAction;
   summary: string;
   userLabel?: string | null;
+  meta?: ItemHistoryMeta | null;
   createdAt: Timestamp;
 }
 
 export type StockAdjustmentType = 'OPENING' | 'ADJUSTMENT';
+
+export type StockAdjustmentDirection = 'INCREASE' | 'DECREASE';
+
+export type StockAdjustmentReasonType =
+  | 'EXCESS_FOUND'
+  | 'THEFT'
+  | 'DAMAGED'
+  | 'LOST'
+  | 'SAMPLE_INTERNAL'
+  | 'OTHER';
 
 export type PriceListStatus = 'ACTIVE' | 'INACTIVE';
 
@@ -197,9 +229,15 @@ export interface StockAdjustment {
   itemId: string;
   godownId?: string | null;
   type: StockAdjustmentType;
+  direction?: StockAdjustmentDirection;
+  reasonType?: StockAdjustmentReasonType | null;
   quantity: number;
+  ratePerUnit?: number | null;
   value: number;
+  /** @deprecated use notes */
   reason?: string | null;
+  notes?: string | null;
+  voucherId?: string | null;
   date: Timestamp;
   createdAt: Timestamp;
 }

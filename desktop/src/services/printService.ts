@@ -1,8 +1,12 @@
 import { renderInvoiceTemplate } from '../templates/invoice/invoiceTemplateRenderer';
-import { getInvoiceTemplateId } from './companySettingsService';
+import type { InvoicePaperSize } from '../templates/invoice/invoiceTemplatesConfig';
+import { normalizePaperSize } from '../templates/invoice/invoiceTemplatesConfig';
 import { openWhatsAppChat } from './whatsappIntegration';
+import { buildUpiPayUri, readCompanyUpiProfile } from './upiQrService';
+import { getWhatsAppTemplate, renderWhatsAppTemplate } from './whatsappMessageTemplates';
+import { getNormalizedCompanyProfile } from '../utils/companyProfile';
 
-export type PrintFormat = 'A4_PORTRAIT' | 'A4_LANDSCAPE' | 'A5_PORTRAIT' | 'A5_LANDSCAPE' | 'THERMAL_80' | 'THERMAL_58';
+export type PrintFormat = 'A4_PORTRAIT' | 'A5_PORTRAIT';
 
 export interface CompanyInfo {
   name: string;
@@ -16,8 +20,8 @@ export interface CompanyInfo {
   bank?: string;
   accountNo?: string;
   ifsc?: string;
-  logo?: string; // base64 or path
-  signature?: string; // base64 or path
+  logo?: string;
+  signature?: string;
 }
 
 export interface InvoiceItem {
@@ -25,10 +29,15 @@ export interface InvoiceItem {
   hsn?: string;
   qty: number;
   unit?: string;
+  mrp?: number;
   rate: number;
+  rateInclusive?: number;
   discount?: number;
-  taxPercent: number; // 0/5/12/18/28
-  amount: number; // inclusive of tax if needed
+  discountPercent?: number;
+  discountAmount?: number;
+  taxPercent: number;
+  taxAmount?: number;
+  amount: number;
   cgst?: number;
   sgst?: number;
   igst?: number;
@@ -36,7 +45,7 @@ export interface InvoiceItem {
 
 export interface InvoiceData {
   invoiceNumber: string;
-  invoiceDate: string; // ISO
+  invoiceDate: string;
   dueDate?: string;
   customerName: string;
   customerGSTIN?: string;
@@ -60,6 +69,22 @@ export interface InvoiceData {
   declaration?: string;
   termsAndConditions?: string;
   ewayBillBlock?: string;
+  freightTotal?: number;
+  paymentMode?: string;
+  referenceNo?: string;
+  referenceDate?: string;
+  buyerOrderNo?: string;
+  buyerOrderDate?: string;
+  otherReferences?: string;
+  termsOfDelivery?: string;
+  buyerState?: string;
+  buyerStateCode?: string;
+  consigneeContactPerson?: string;
+  buyerContactPerson?: string;
+  prevBalance?: number;
+  bankBranch?: string;
+  bankAccountHolder?: string;
+  jurisdictionNote?: string;
 }
 
 export interface PrintOptions {
@@ -71,190 +96,38 @@ export interface PrintOptions {
   margin: 'small' | 'normal';
 }
 
-const cssBase = (format: PrintFormat, opts: PrintOptions) => {
-  const isThermal = format === 'THERMAL_80' || format === 'THERMAL_58';
-  const width = format === 'THERMAL_80' ? 80 : format === 'THERMAL_58' ? 58 : 210; // mm
-  const fontSize = isThermal ? 10 : opts.fontSize === 'compact' ? 12 : 14;
-  const margin = opts.margin === 'small' ? 6 : 12;
-  const bodyWidth = isThermal ? `${width}mm` : 'auto';
-  let pageSize = '';
-  if (format.startsWith('A4')) {
-    pageSize = `@page { size: A4 ${format === 'A4_LANDSCAPE' ? 'landscape' : 'portrait'}; margin: ${margin}mm; }`;
-  } else if (format.startsWith('A5')) {
-    pageSize = `@page { size: A5 ${format === 'A5_LANDSCAPE' ? 'landscape' : 'portrait'}; margin: ${margin}mm; }`;
-  }
-  return `
-    ${pageSize}
-    * { box-sizing: border-box; }
-    html, body { height: 100%; }
-    body { font-family: "Segoe UI", Arial, sans-serif; font-size: ${fontSize}px; color: #111827; line-height: 1.35; background: #fff; }
-    .invoice-container { width: ${bodyWidth}; margin: 0 auto; padding: ${isThermal ? 2 : 0}mm; }
-    .header { display: flex; align-items: flex-start; justify-content: space-between; gap: ${isThermal ? 6 : 12}px; border-bottom: 2px solid #1f4e79; padding-bottom: 8px; }
-    .logo { max-height: ${isThermal ? 40 : 60}px; }
-    .title { font-size: ${fontSize + (isThermal ? 2 : 4)}px; font-weight: 800; color: #1f4e79; letter-spacing: 0.3px; }
-    .muted { color: #4b5563; font-size: ${isThermal ? fontSize - 1 : fontSize}px; }
-    .invoice-badge { background: #1f4e79; color: #fff; font-weight: 700; padding: 6px 10px; border-radius: 4px; font-size: ${isThermal ? fontSize : fontSize + 1}px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { border: 1px solid #d1d5db; padding: ${isThermal ? 3 : 7}px; text-align: left; font-size: ${isThermal ? fontSize - 1 : fontSize}px; }
-    th { background: #eef4fb; color: #1f4e79; font-weight: 700; }
-    .totals td { font-weight: 600; }
-    .section { margin-top: ${isThermal ? 4 : 12}px; }
-    .signature { text-align: right; margin-top: ${isThermal ? 8 : 24}px; }
-    .amount-box { background: #f9fafb; border: 1px solid #d1d5db; border-radius: 4px; padding: 8px; margin-top: ${isThermal ? 4 : 10}px; }
-  `;
+export const DEFAULT_INVOICE_PRINT_OPTIONS: PrintOptions = {
+  showTaxBreakup: true,
+  showSignature: true,
+  showDeclaration: true,
+  logoPosition: 'top-left',
+  fontSize: 'normal',
+  margin: 'normal',
 };
+
+export function paperSizeToFormat(pageSize: string | InvoicePaperSize): PrintFormat {
+  return normalizePaperSize(pageSize) === 'A5' ? 'A5_PORTRAIT' : 'A4_PORTRAIT';
+}
 
 export async function buildInvoiceHTML(
   format: PrintFormat,
   company: CompanyInfo,
   data: InvoiceData,
-  opts: PrintOptions,
-  templateId?: string
+  opts: PrintOptions = DEFAULT_INVOICE_PRINT_OPTIONS
 ): Promise<string> {
-  const selectedTemplate = templateId || getInvoiceTemplateId();
-  return renderInvoiceTemplate(selectedTemplate, format, company, data, opts);
+  return renderInvoiceTemplate(format, company, data, opts);
 }
 
-/** @deprecated Legacy single-format builder; kept for reference. Use buildInvoiceHTML. */
-export function buildInvoiceHTMLLegacy(format: PrintFormat, company: CompanyInfo, data: InvoiceData, opts: PrintOptions): string {
-  const css = cssBase(format, opts);
-  const logoHtml = company.logo && opts.logoPosition ? `<img class="logo" src="${company.logo}" alt="Logo" />` : '';
-  const signatureHtml = opts.showSignature && company.signature ? `<img style="max-height:70px" src="${company.signature}" alt="Signature" />` : '';
-  const taxColumns = opts.showTaxBreakup ? `<th>CGST</th><th>SGST</th><th>IGST</th>` : '';
-  const taxCells = (item: InvoiceItem) => opts.showTaxBreakup ? `<td>${(item.cgst||0).toFixed(2)}</td><td>${(item.sgst||0).toFixed(2)}</td><td>${(item.igst||0).toFixed(2)}</td>` : '';
-
-  const itemsHtml = data.items.map((it, idx) => `
-    <tr>
-      <td>${idx + 1}</td>
-      <td>${it.name}${it.hsn ? ` <span class="muted">(HSN: ${it.hsn})</span>` : ''}</td>
-      <td>${it.qty}</td>
-      <td>${it.rate.toFixed(2)}</td>
-      <td>${it.taxPercent}%</td>
-      ${taxCells(it)}
-      <td>${it.amount.toFixed(2)}</td>
-    </tr>
-  `).join('');
-
-  const declarationHtml = opts.showDeclaration && data.declaration ? `<div class="section"><strong>Declaration:</strong><br/>${data.declaration}</div>` : '';
-
-  const headerLogo = opts.logoPosition === 'top-left'
-    ? `<div class="header"><div style="display:flex;align-items:flex-start;gap:10px;">${logoHtml}<div><div class="title">${company.name}</div><div class="muted">${company.address}</div><div class="muted">GSTIN: ${company.gstin||'-'}</div></div></div><div class="invoice-badge">TAX INVOICE</div></div>`
-    : `<div style="text-align:center">${logoHtml}<div class="title">${company.name}</div><div class="muted">${company.address}</div><div class="muted">GSTIN: ${company.gstin||'-'}</div></div>`;
-
-  return `
-  <!doctype html>
-  <html>
-    <head>
-      <meta charset="utf-8" />
-      <title>Invoice ${data.invoiceNumber}</title>
-      <style>${css}</style>
-    </head>
-    <body>
-      <div class="invoice-container">
-        ${headerLogo}
-
-        <div class="section">
-          <table>
-            <tr>
-              <td style="width:60%"><strong>Buyer:</strong> ${data.customerName}</td>
-              <td><strong>Invoice No:</strong> ${data.invoiceNumber}</td>
-            </tr>
-            <tr>
-              <td><strong>Customer GSTIN:</strong> ${data.customerGSTIN || '-'}</td>
-              <td><strong>Date:</strong> ${new Date(data.invoiceDate).toLocaleDateString('en-IN')}</td>
-            </tr>
-            <tr>
-              <td><strong>Buyer Address:</strong> ${data.buyerAddress || data.billToAddress || '-'}</td>
-              <td><strong>Ship To:</strong> ${data.shipToAddress || data.billToAddress || '-'}</td>
-            </tr>
-            <tr>
-              <td><strong>Seller Address:</strong> ${data.sellerAddress || company.address || '-'}</td>
-              <td><strong>Bill To:</strong> ${data.billToAddress || data.buyerAddress || '-'}</td>
-            </tr>
-          </table>
-        </div>
-
-        <div class="section">
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Item</th>
-                <th>Qty</th>
-                <th>Rate</th>
-                <th>Tax %</th>
-                ${taxColumns}
-                <th>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${itemsHtml}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="section">
-          <table>
-            <tr class="totals"><td colspan="${opts.showTaxBreakup ? 4 : 3}">Subtotal</td><td colspan="${opts.showTaxBreakup ? 2 : 1}">${data.subtotal.toFixed(2)}</td></tr>
-            ${opts.showTaxBreakup ? `<tr><td colspan="4">CGST</td><td colspan="2">${data.cgstTotal.toFixed(2)}</td></tr>`:''}
-            ${opts.showTaxBreakup ? `<tr><td colspan="4">SGST</td><td colspan="2">${data.sgstTotal.toFixed(2)}</td></tr>`:''}
-            ${opts.showTaxBreakup ? `<tr><td colspan="4">IGST</td><td colspan="2">${data.igstTotal.toFixed(2)}</td></tr>`:''}
-            <tr class="totals"><td colspan="${opts.showTaxBreakup ? 4 : 3}">Total</td><td colspan="${opts.showTaxBreakup ? 2 : 1}"><strong>₹ ${data.grandTotal.toFixed(2)}</strong></td></tr>
-          </table>
-        </div>
-
-        <div class="amount-box"><strong>Amount in Words:</strong> ${data.amountInWords || '-'}</div>
-        <div class="section">
-          <table>
-            <tr>
-              <td><strong>Seller Bank:</strong> ${company.bank || '-'}</td>
-              <td><strong>Account No:</strong> ${company.accountNo || '-'}</td>
-              <td><strong>IFSC:</strong> ${company.ifsc || '-'}</td>
-            </tr>
-          </table>
-        </div>
-        ${declarationHtml}
-
-        <div class="signature" style="display:flex;justify-content:space-between;gap:24px;">
-          <div style="text-align:left;">
-            <div><strong>${data.customerSealLabel || 'Customer Seal & Signature'}</strong></div>
-            <div style="border-top:1px solid #777;min-width:220px;margin-top:30px;padding-top:4px;"></div>
-          </div>
-          <div style="text-align:right;">
-            <div>Authorized Signatory</div>
-            ${signatureHtml || ''}
-            <div style="border-top:1px solid #777;min-width:220px;margin-top:8px;padding-top:4px;"></div>
-          </div>
-        </div>
-      </div>
-    </body>
-  </html>
-  `;
-}
-
-/** Wrap invoice HTML with a simple toolbar for Electron preview windows. */
-export function wrapPrintPreviewDocument(html: string): string {
-  if (html.includes('pve-print-toolbar')) return html;
-  const toolbar = `
-    <div id="pve-print-toolbar" style="position:sticky;top:0;z-index:9999;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:10px 14px;background:#1f4e79;color:#fff;font-family:Segoe UI,Arial,sans-serif;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.15);">
-      <strong>Print Preview</strong>
-      <div style="display:flex;gap:8px;">
-        <button type="button" onclick="window.print()" style="cursor:pointer;padding:6px 14px;border:none;border-radius:4px;background:#fff;color:#1f4e79;font-weight:600;">Print</button>
-        <button type="button" onclick="window.close()" style="cursor:pointer;padding:6px 14px;border:1px solid #fff;border-radius:4px;background:transparent;color:#fff;">Close</button>
-      </div>
-    </div>`;
-  if (/<body[^>]*>/i.test(html)) {
-    return html.replace(/<body([^>]*)>/i, `<body$1>${toolbar}`);
-  }
-  return `<!doctype html><html><head><meta charset="utf-8" /></head><body>${toolbar}${html}</body></html>`;
-}
-
-export async function openPrintPreview(html: string): Promise<void> {
+export async function openPrintPreview(
+  html: string,
+  opts?: { pageSize?: InvoicePaperSize | string }
+): Promise<void> {
   try {
     localStorage.setItem('pve_print_html', html);
     const w: any = window as any;
     if (w.electronAPI && typeof w.electronAPI.openPrintPreview === 'function') {
-      await w.electronAPI.openPrintPreview({ html });
+      const pageSize = normalizePaperSize(opts?.pageSize);
+      await w.electronAPI.openPrintPreview({ html, pageSize });
       return;
     }
     const base = window.location.origin;
@@ -268,19 +141,27 @@ export async function openPrintPreview(html: string): Promise<void> {
   }
 }
 
-export async function downloadPDF(html: string, fileName: string, landscape = false): Promise<string | null> {
-  // If Electron IPC is available via preload, use it; otherwise fallback
+export async function downloadPDF(
+  html: string,
+  fileName: string,
+  _landscape = false,
+  pageSize: InvoicePaperSize | string = 'A4'
+): Promise<string | null> {
   try {
     const w: any = window as any;
     if (w.electronAPI && typeof w.electronAPI.printToPDF === 'function') {
-      const path = await w.electronAPI.printToPDF({ html, fileName, landscape });
+      const path = await w.electronAPI.printToPDF({
+        html,
+        fileName,
+        landscape: false,
+        pageSize: normalizePaperSize(pageSize),
+      });
       return path || null;
     }
   } catch (e) {
     console.warn('Electron PDF IPC not available', e);
   }
-  // Fallback: open preview and let user use system Print to PDF
-  openPrintPreview(html);
+  await openPrintPreview(html, { pageSize: normalizePaperSize(pageSize) });
   return null;
 }
 
@@ -315,16 +196,84 @@ export function buildInvoiceWhatsAppMessage(
 ): string {
   const amount = Number(grandTotal || 0).toFixed(2);
   const date = new Date(voucherDate).toLocaleDateString('en-IN');
-  return `Invoice ${voucherNumber}\nDate: ${date}\nAmount: ₹${amount}\nThank you for your business!`;
+  const company = getNormalizedCompanyProfile();
+  return renderWhatsAppTemplate(getWhatsAppTemplate('invoice'), {
+    customerName: 'Customer',
+    documentType: 'Invoice',
+    invoiceNumber: voucherNumber,
+    invoiceDate: date,
+    amount,
+    companyName: company.businessName || company.name || 'Your Company',
+  });
+}
+
+export interface ShareInvoiceWhatsAppOptions {
+  invoiceNumber: string;
+  invoiceDate: string;
+  grandTotal: number;
+  phone?: string;
+  customerName?: string;
+  documentType?: string;
+  outstandingAmount?: number;
+  dueDate?: string;
+  pdfPath?: string | null;
+  includePaymentLink?: boolean;
+}
+
+export async function buildInvoiceWhatsAppShareMessage(
+  options: ShareInvoiceWhatsAppOptions
+): Promise<string> {
+  const company = getNormalizedCompanyProfile();
+  const upi = await readCompanyUpiProfile();
+  const amount = Number(options.grandTotal || 0).toFixed(2);
+  const date = new Date(options.invoiceDate).toLocaleDateString('en-IN');
+  const paymentLink =
+    options.includePaymentLink !== false && upi.upiId
+      ? buildUpiPayUri({
+          upiId: upi.upiId,
+          payeeName: upi.payeeName || company.businessName || company.name || 'Merchant',
+          amount: Number(options.grandTotal || 0),
+          invoiceNumber: options.invoiceNumber,
+        })
+      : '';
+  const outstanding =
+    options.outstandingAmount != null && Number(options.outstandingAmount) > 0
+      ? Number(options.outstandingAmount).toFixed(2)
+      : '';
+  const pdfNote = options.pdfPath
+    ? `PDF saved: ${options.pdfPath}`
+    : '';
+
+  return renderWhatsAppTemplate(getWhatsAppTemplate('invoice'), {
+    customerName: options.customerName || 'Customer',
+    documentType: options.documentType || 'Invoice',
+    invoiceNumber: options.invoiceNumber,
+    invoiceDate: date,
+    amount,
+    paymentLink,
+    pdfNote,
+    outstandingAmount: outstanding,
+    dueDate: options.dueDate
+      ? new Date(options.dueDate).toLocaleDateString('en-IN')
+      : '',
+    companyName: company.businessName || company.name || 'Your Company',
+  });
 }
 
 export async function shareInvoiceOnWhatsApp(
   voucherNumber: string,
   voucherDate: string,
   grandTotal: number,
-  phone?: string
+  phone?: string,
+  extras?: Omit<ShareInvoiceWhatsAppOptions, 'invoiceNumber' | 'invoiceDate' | 'grandTotal' | 'phone'>
 ): Promise<void> {
-  const message = buildInvoiceWhatsAppMessage(voucherNumber, voucherDate, grandTotal);
+  const message = await buildInvoiceWhatsAppShareMessage({
+    invoiceNumber: voucherNumber,
+    invoiceDate: voucherDate,
+    grandTotal,
+    phone,
+    ...extras,
+  });
   const digits = String(phone || '').replace(/\D/g, '');
   if (!digits) {
     throw new Error('Customer phone number is required to share on WhatsApp.');
@@ -333,12 +282,6 @@ export async function shareInvoiceOnWhatsApp(
   if (!result.ok) {
     throw new Error(result.error || 'WhatsApp is not connected. Install WhatsApp Desktop or use WhatsApp Web.');
   }
-}
-
-export function systemPrint() {
-  try {
-    window.print();
-  } catch (e) {
-    console.error('System print failed', e);
-  }
+  const { trackFeatureUsage } = await import('./privacy/featureAnalyticsService');
+  trackFeatureUsage('whatsappShare');
 }

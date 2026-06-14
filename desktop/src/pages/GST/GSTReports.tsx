@@ -36,7 +36,7 @@ const gstReports: GSTReport[] = [
     icon: <ReceiptIcon fontSize="large" color="primary" />,
     path: '/gst/gstr1',
     status: 'available',
-    features: ['B2B Invoices', 'B2C Invoices', 'HSN Summary', 'Export to JSON']
+    features: ['B2B Invoices', 'B2C Invoices', 'HSN Summary', 'Nil/Exempt/Export', 'PDF/Excel/CSV']
   },
   {
     id: 'gstr2',
@@ -54,7 +54,7 @@ const gstReports: GSTReport[] = [
     icon: <MonthlyIcon fontSize="large" color="success" />,
     path: '/gst/gstr3b',
     status: 'available',
-    features: ['Outward Supplies', 'Inward Supplies', 'Tax Liability']
+    features: ['Outward Supplies', 'Inward Supplies', 'Tax Liability', 'PDF/Excel/CSV']
   },
   {
     id: 'gstr9',
@@ -72,7 +72,7 @@ const gstReports: GSTReport[] = [
     icon: <HSNIcon fontSize="large" color="secondary" />,
     path: '/gst/hsn-summary',
     status: 'available',
-    features: ['HSN-wise Breakdown', 'Tax Calculation', 'Export Options']
+    features: ['HSN-wise Breakdown', 'B2B/B2C split', 'PDF/Excel/CSV export']
   }
 ];
 

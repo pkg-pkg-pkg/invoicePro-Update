@@ -17,88 +17,106 @@ import { APP_DISPLAY_NAME } from "@/constants/appBranding";
 
 import Layout from "./components/Layout";
 import MobileEntitlementBootstrap from "./components/MobileEntitlementBootstrap";
+import MiddlewareSyncBootstrap from "./components/MiddlewareSyncBootstrap";
 import RequirePermission from "./components/RequirePermission";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
-import PartyForm from "./pages/Parties/PartyForm";
-import PartyLedgerReport from "./pages/PartyLedgerReport";
-import OutstandingAgingReport from "./pages/Reports/OutstandingAgingReport";
-import DashboardKpiDrillPage from "./pages/dashboard/DashboardKpiDrillPage";
-import LowStockReport from "./pages/Reports/LowStockReport";
-import LedgerStatementByLedgerId from "./pages/LedgerStatementByLedgerId";
-import PurchaseInvoices from "./pages/PurchaseInvoices";
-import DebitNotes from "./pages/DebitNotes";
-import Reports from "./pages/Reports";
-import Settings from "./pages/Settings";
-import StorePage from "./pages/Store/StorePage";
-import GSTReports from "./pages/GST/GSTReports";
-import GSTR1Report from "./pages/GST/GSTR1Report";
-import GSTR2Report from "./pages/GST/GSTR2Report";
-import GSTR3BReport from "./pages/GST/GSTR3BReport";
-import GSTR9Report from "./pages/GST/GSTR9Report";
-import EWayBillPage from "./pages/GST/EWayBillPage";
-import HSNSummary from "./pages/GST/HSNSummary";
-import ManualExpenseEntry from "./pages/Expenses/ManualExpenseEntry";
-import Payments from "./pages/Payments";
-import PrintWindow from "./pages/PrintWindow";
 import ConnectToHost from "./pages/ConnectToHost";
-import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, Suspense, useMemo, useCallback } from "react";
+import { RedirectInventoryItemEdit } from "./pages/Masters/InventoryItems/InventoryItemEditRedirect";
 import BusinessProfile from "./pages/BusinessProfile";
-import Schemes from "./pages/Schemes";
-import SmartSchemeForm from "./pages/Schemes/SmartSchemeForm";
-import RetailerSchemeDashboard from "./pages/Schemes/RetailerSchemeDashboard";
-import OverdueTracker from "./pages/Schemes/OverdueTracker";
-import LedgerAccountList from "./pages/Masters/LedgerAccounts/LedgerAccountList";
-import LedgerAccountForm from "./pages/Masters/LedgerAccounts/LedgerAccountForm";
-import InventoryItemList from "./pages/Masters/InventoryItems/InventoryItemList";
-import InventoryItemForm from "./pages/Masters/InventoryItems/InventoryItemForm";
-import GodownList from "./pages/Masters/Godowns/GodownList";
-import ImportFromErp from "./pages/ImportFromErp";
-import ApprovalPendingPage from "./pages/Approvals/ApprovalPendingPage";
-import GodownForm from "./pages/Masters/Godowns/GodownForm";
-import BankLedgerList from "./pages/Masters/LedgerAccounts/BankLedgerList";
 import { ItemsModuleShell } from "./components/items/ItemsModuleShell";
-import ItemsWorkspace from "./pages/items/ItemsWorkspace";
-import { CustomersModuleShell } from "./components/customers/CustomersModuleShell";
-import CustomersListPage from "./pages/customers/CustomersListPage";
-import CustomerDetailPage from "./pages/customers/CustomerDetailPage";
-import BankingHub from "./pages/hubs/BankingHub";
+import { LedgersModuleShell } from "./components/ledgers/LedgersModuleShell";
 import { SalesManagementShell } from "./components/sales/SalesManagementShell";
-import SalesDocumentPage from "./pages/sales/SalesDocumentPage";
-import CollectionFormPage from "./pages/sales/CollectionFormPage";
-import SalesPipelineForm from "./pages/sales/SalesPipelineForm";
 import { PurchaseManagementShell } from "./components/purchase/PurchaseManagementShell";
-import PurchaseDocumentPage from "./pages/purchase/PurchaseDocumentPage";
-import PurchasePipelineForm from "./pages/purchase/PurchasePipelineForm";
-import InventoryItemDetail from "./pages/Masters/InventoryItems/InventoryItemDetail";
-import PriceListList from "./pages/Masters/PriceLists/PriceListList";
-import PriceListForm from "./pages/Masters/PriceLists/PriceListForm";
-import StockAdjustmentList from "./pages/Masters/StockAdjustments/StockAdjustmentList";
-import StockAdjustmentForm from "./pages/Masters/StockAdjustments/StockAdjustmentForm";
-import SalesVoucherList from "./pages/Vouchers/Sales/SalesVoucherList";
-import SalesVoucherForm from "./pages/Vouchers/Sales/SalesVoucherForm";
-import SalesReturnVoucherList from "./pages/Vouchers/SalesReturn/SalesReturnVoucherList";
-import SalesReturnVoucherForm from "./pages/Vouchers/SalesReturn/SalesReturnVoucherForm";
-import PurchaseVoucherList from "./pages/Vouchers/Purchase/PurchaseVoucherList";
-import PurchaseVoucherForm from "./pages/Vouchers/Purchase/PurchaseVoucherForm";
-import PurchaseReturnVoucherList from "./pages/Vouchers/PurchaseReturn/PurchaseReturnVoucherList";
-import PurchaseReturnVoucherForm from "./pages/Vouchers/PurchaseReturn/PurchaseReturnVoucherForm";
-import PaymentVoucherList from "./pages/Vouchers/Payment/PaymentVoucherList";
-import ReceiptVoucherList from "./pages/Vouchers/Receipt/ReceiptVoucherList";
-import JournalVoucherList from "./pages/Vouchers/Journal/JournalVoucherList";
-import JournalVoucherForm from "./pages/Vouchers/Journal/JournalVoucherForm";
-import VouchersHub from "./pages/Vouchers/VouchersHub";
-import MoneyVouchersHub from "./pages/Vouchers/MoneyVouchersHub";
+import { prefetchAllAppRoutes } from "./app/prefetchRoutes";
+import {
+  BankingHub,
+  CustomersListPage,
+  GSTReports,
+  ItemsWorkspace,
+  PurchaseDocumentPage,
+  Reports,
+  DayBookPage,
+  SalesDocumentPage,
+  Schemes,
+  Settings,
+} from "./app/modulePages";
+import {
+  LazyAllLedgersPage,
+  LazyCreditorsListPage,
+  LazyApprovalPendingPage,
+  LazyBankLedgerList,
+  LazyCollectionFormPage,
+  LazyCustomerDetailPage,
+  LazyCustomerLedgerStatementPage,
+  LazyDashboardKpiDrillPage,
+  LazyDebitNotes,
+  LazyEWayBillPage,
+  LazyGodownForm,
+  LazyGodownList,
+  LazyGSTR1Report,
+  LazyGSTR2Report,
+  LazyGSTR3BReport,
+  LazyGSTR9Report,
+  LazyHSNSummary,
+  LazyImportFromErp,
+  LazyInventoryItemDetail,
+  LazyInventoryItemList,
+  LazyJournalVoucherForm,
+  LazyJournalVoucherList,
+  LazyLedgerAccountForm,
+  LazyLedgerAccountList,
+  LazyChartOfAccountsPage,
+  LazyAccountingStructureAuditPage,
+  LazyAccountingIntegrityAuditPage,
+  LazyFinancialStatementReadinessAuditPage,
+  LazyActivate,
+  LazyLedgerStatementByLedgerId,
+  LazyLowStockReport,
+  LazyManualExpenseEntry,
+  LazyMoneyVouchersHub,
+  LazyOutstandingAgingReport,
+  LazyPartyOutstandingReport,
+  LazyOverdueTracker,
+  LazyPartyForm,
+  LazyPartyLedgerReport,
+  LazyPaymentVoucherList,
+  LazyPaymentVoucherPage,
+  LazyPayments,
+  LazyPriceListForm,
+  LazyPriceListList,
+  LazyPrintWindow,
+  LazyPurchaseInvoices,
+  LazyPurchasePipelineForm,
+  LazyPurchaseReturnVoucherForm,
+  LazyPurchaseReturnVoucherList,
+  LazyPurchaseVoucherForm,
+  LazyPurchaseVoucherList,
+  LazyReceiptVoucherList,
+  LazyRetailerSchemeDashboard,
+  LazySalesPipelineForm,
+  LazySalesReturnVoucherForm,
+  LazySalesReturnVoucherList,
+  LazySalesVoucherForm,
+  LazySalesVoucherList,
+  LazySmartSchemeForm,
+  LazyStockAdjustmentForm,
+  LazyStockAdjustmentList,
+  LazyStorePage,
+  LazyVouchersHub,
+} from "./app/lazyPages";
 
 import { useAuth } from "./pages/contexts/auth";
 import FocusProvider from "./contexts/FocusProvider";
 import SetupWizard from "./components/SetupWizard";
-const Activate = lazy(() => import('./pages/Activate'));
-const PaymentVoucherPage = lazy(() => import('./pages/Vouchers/PaymentReceipt/PaymentVoucher'));
 import { invoke } from "@tauri-apps/api/core";
 import { networkService } from "./services/networkService";
-import { detectDeviceChange, forceLogoutDueToDeviceChange, subscribeToLicenseDeactivation } from "./services/deviceChangeDetector";
-import { validateLicenseAndDevice } from "./services/loginService";
+import { detectDeviceChange, forceLogoutDueToDeviceChange, subscribeToLicenseDeactivationWithVisibility } from "./services/deviceChangeDetector";
+import {
+  getOptimisticStartupLicense,
+  persistLicenseValidationResult,
+} from "./services/loginService";
 import { syncHostMultiUserLanFromCloud } from "./services/hostLicenseSyncService";
 import { db } from "./firebase/firebase";
 import { doc, deleteField, onSnapshot, updateDoc } from "firebase/firestore";
@@ -113,7 +131,6 @@ import { isElectronRuntime } from "./utils/runtime";
 import {
   applyCompanySwitch,
   ensureCompaniesInitialized,
-  getActiveCompanyPayload,
   listCompaniesEnriched,
   switchCompany,
 } from "./services/companyRegistryService";
@@ -129,33 +146,71 @@ import {
   preloadCompanyProfile,
   runProfileMigration,
 } from "./services/companyProfileDbService";
+import {
+  isLocalBusinessProfileComplete,
+  markLocalBusinessProfileComplete,
+} from "./services/businessProfileService";
 import DataLocationFirstRunDialog, {
   needsDataLocationFirstRun,
 } from "./components/DataLocationFirstRunDialog";
+import SuperAdminPanel from "./components/superadmin/SuperAdminPanel";
+import { shouldOpenSuperAdminPanel } from "./services/superAdminService";
+import TrialLoginScreen from "./screens/trial/TrialLoginScreen";
+import LocalTrialExpiredModal from "./components/LocalTrialExpiredModal";
+import {
+  isLocalTrialActive,
+  isLocalTrialExpired,
+  isTrialAccountEmail,
+} from "./services/localTrialService";
 
 function App() {
   console.log("📱 App (AuthContext version) rendering...");
 
   const { isAuthenticated, loading, user, logout } = useAuth();
 
-  useEffect(() => {
-    const onCompanyReady = () => setCompanyGate('ready');
-    window.addEventListener('companyGateReady', onCompanyReady);
-    return () => window.removeEventListener('companyGateReady', onCompanyReady);
-  }, []);
   const [showSetupWizard, setShowSetupWizard] = useState(false);
   const [profileGate, setProfileGate] = useState<'loading' | 'complete' | 'incomplete'>('loading');
   const [deviceCheckDone, setDeviceCheckDone] = useState(false);
   const [licenseCheckDone, setLicenseCheckDone] = useState(false);
   const [licenseValid, setLicenseValid] = useState(false);
   const [licenseCheckReason, setLicenseCheckReason] = useState<string>('');
+  const [companyGate, setCompanyGate] = useState<'loading' | 'select' | 'ready'>('loading');
+  const [superAdminOpen, setSuperAdminOpen] = useState(() => shouldOpenSuperAdminPanel());
+  const [localTrialExpired, setLocalTrialExpired] = useState<boolean | null>(null);
   const profileCompleted = profileGate === 'complete';
   const setupCompleted = profileGate === 'complete';
 
   useEffect(() => {
+    const onCompanyReady = () => setCompanyGate('ready');
+    window.addEventListener('companyGateReady', onCompanyReady);
+    return () => window.removeEventListener('companyGateReady', onCompanyReady);
+  }, []);
+
+  useEffect(() => {
+    if (isAuthenticated && shouldOpenSuperAdminPanel()) {
+      setSuperAdminOpen(true);
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (shouldOpenSuperAdminPanel()) {
+      setLocalTrialExpired(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const expired = await isLocalTrialExpired();
+      if (!cancelled) setLocalTrialExpired(expired);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, user?.email]);
+
+  useEffect(() => {
     if (!isAuthenticated || loading) return;
     evaluateOnboardingDecision(profileGate === 'complete');
-  }, [isAuthenticated, loading, user, profileGate]);
+  }, [isAuthenticated, loading, user?.email, profileGate]);
   const [hostCheck, setHostCheck] = useState<{ checking: boolean; ok: boolean; serverUrl?: string; error?: string }>({
     checking: false,
     ok: true,
@@ -164,8 +219,40 @@ function App() {
   const [adminPopupBusy, setAdminPopupBusy] = useState(false);
   const [adminPopupReleaseNotes, setAdminPopupReleaseNotes] = useState('');
   const licenseCheckGeneration = useRef(0);
-  const [companyGate, setCompanyGate] = useState<'loading' | 'select' | 'ready'>('loading');
+  const startupGatesRanRef = useRef(false);
   const [dataLocationSetupOpen, setDataLocationSetupOpen] = useState(false);
+
+  const shellReady =
+    isAuthenticated &&
+    profileCompleted &&
+    setupCompleted &&
+    licenseValid &&
+    licenseCheckDone &&
+    companyGate === 'ready';
+
+  const startupGateSpinner = (
+    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
+      <CircularProgress />
+    </Box>
+  );
+
+  const pageSuspense = (
+    <Box sx={{ px: 2, pt: 1 }}>
+      <CircularProgress size={22} />
+    </Box>
+  );
+
+  const startupGatesBusy =
+    isAuthenticated &&
+    isElectronRuntime() &&
+    (profileGate === 'loading' || companyGate === 'loading');
+
+  // Warm all lazy route chunks after shell is ready so every sidebar tab opens quickly.
+  useEffect(() => {
+    if (!shellReady) return;
+    const timer = window.setTimeout(() => prefetchAllAppRoutes(), 300);
+    return () => window.clearTimeout(timer);
+  }, [shellReady]);
 
   useEffect(() => {
     if (!isElectronRuntime()) return;
@@ -176,6 +263,7 @@ function App() {
 
   useEffect(() => {
     if (!isAuthenticated) {
+      startupGatesRanRef.current = false;
       setLicenseCheckDone(false);
       setLicenseValid(false);
       setLicenseCheckReason('');
@@ -185,81 +273,88 @@ function App() {
   }, [isAuthenticated]);
 
   useEffect(() => {
-    if (!isAuthenticated || !licenseValid || !licenseCheckDone) {
-      setCompanyGate('loading');
-      return;
-    }
-    if (!isElectronRuntime()) {
-      setCompanyGate('ready');
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        await ensureCompaniesInitialized();
-        const res = await listCompaniesEnriched();
-        const def = res.defaultCompany;
-        const target = def ? res.companies.find((c) => c.id === def) : undefined;
-        if (def && target?.folderOk) {
-          if (res.activeId !== def) {
-            const active = await switchCompany(def);
-            await applyCompanySwitch(active);
-          }
-          if (!cancelled) setCompanyGate('ready');
-          return;
-        }
-        if (!cancelled) setCompanyGate('select');
-      } catch (e) {
-        console.warn('[companies] gate failed', e);
-        if (!cancelled) setCompanyGate('select');
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isAuthenticated, licenseValid, licenseCheckDone]);
-
-  useEffect(() => {
     if (!isAuthenticated) return;
     if (!isElectronRuntime()) {
       setProfileGate(Boolean((user as any)?.completedBusinessProfile) ? 'complete' : 'incomplete');
+      setCompanyGate('ready');
+      startupGatesRanRef.current = true;
       return;
     }
+    if (!licenseCheckDone || !licenseValid) return;
+    if (startupGatesRanRef.current) return;
+
     let cancelled = false;
     void (async () => {
       try {
-        await runStartupProfileDiagnostics(user?.email);
-        await ensureCompaniesInitialized();
-        const active = await getActiveCompanyPayload();
+        const [companyResult, profileCompleted] = await Promise.all([
+          (async (): Promise<'loading' | 'select' | 'ready'> => {
+            await ensureCompaniesInitialized();
+            const res = await listCompaniesEnriched();
+            const def = res.defaultCompany;
+            const target = def ? res.companies.find((c) => c.id === def) : undefined;
+            if (def && target?.folderOk) {
+              if (res.activeId !== def) {
+                const active = await switchCompany(def);
+                await applyCompanySwitch(active);
+              }
+              return 'ready';
+            }
+            return 'select';
+          })(),
+          (async (): Promise<boolean> => {
+            if (isLocalBusinessProfileComplete()) {
+              await preloadCompanyProfile();
+              return true;
+            }
+            const [, status] = await Promise.all([
+              runProfileMigration(),
+              getProfileCompletionStatus(),
+            ]);
+            await preloadCompanyProfile();
+            const complete = Boolean(status.profileCompleted ?? status.PROFILE_COMPLETED);
+            if (complete) markLocalBusinessProfileComplete();
+            return complete;
+          })(),
+        ]);
+
         if (cancelled) return;
-        if (active) await applyCompanySwitch(active);
-        await runProfileMigration();
-        const status = await getProfileCompletionStatus();
-        await preloadCompanyProfile();
-        if (cancelled) return;
-        const completed = Boolean(status.profileCompleted ?? status.PROFILE_COMPLETED);
-        setProfileGate(completed ? 'complete' : 'incomplete');
+        startupGatesRanRef.current = true;
+        setCompanyGate(companyResult);
+        setProfileGate(profileCompleted ? 'complete' : 'incomplete');
         setShowSetupWizard(false);
-        await logProfileDebugEvent('onboarding_gate_db', { ...status });
-        evaluateOnboardingDecision(completed);
+        evaluateOnboardingDecision(profileCompleted);
+        void logProfileDebugEvent('onboarding_gate_db', { companyResult, profileCompleted });
+        setTimeout(() => void runStartupProfileDiagnostics(user?.email), 2500);
       } catch (e) {
-        console.warn('[companies] profile gate failed', e);
-        if (!cancelled) setProfileGate('incomplete');
+        console.warn('[startup] gates failed', e);
+        if (!cancelled) {
+          startupGatesRanRef.current = true;
+          setCompanyGate('select');
+          setProfileGate('incomplete');
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, user?.email, companyGate]);
+  }, [isAuthenticated, user?.email, licenseCheckDone, licenseValid]);
 
   useEffect(() => {
     const syncProfileFlag = async () => {
       if (!isElectronRuntime()) return;
+      if (isLocalBusinessProfileComplete()) {
+        await preloadCompanyProfile();
+        setProfileGate('complete');
+        return;
+      }
       const status = await getProfileCompletionStatus();
       await preloadCompanyProfile();
-      setProfileGate(
-        status.profileCompleted ?? status.PROFILE_COMPLETED ? 'complete' : 'incomplete'
-      );
+      const complete = Boolean(status.profileCompleted ?? status.PROFILE_COMPLETED);
+      if (complete) markLocalBusinessProfileComplete();
+      setProfileGate((prev) => {
+        if (complete || prev === 'complete') return 'complete';
+        return 'incomplete';
+      });
     };
     window.addEventListener('companyProfileUpdated', syncProfileFlag as EventListener);
     return () => {
@@ -309,27 +404,34 @@ function App() {
     protocol,
   });
 
-  // Admin-sent update popup (Firestore: users/{email}.adminUpdateNotice)
+  // Admin update notice — deferred so Firebase never blocks first paint
   useEffect(() => {
     if (!db) return;
     const email = String((user as any)?.email ?? "").trim().toLowerCase();
     if (!isAuthenticated || !email) {
       setAdminUpdateNotice(null);
-      return;
-    }
-
-    const unsub = onSnapshot(
-      doc(db, "users", email),
-      (snap) => {
-        const d = snap.exists() ? (snap.data() as any) : null;
-        const notice = d?.adminUpdateNotice ?? null;
-        setAdminUpdateNotice(notice || null);
-      },
-      () => {
-        // ignore
+        return;
       }
-    );
-    return () => unsub();
+
+    let unsub: (() => void) | undefined;
+    const timer = window.setTimeout(() => {
+      unsub = onSnapshot(
+        doc(db, "users", email),
+        (snap) => {
+          const d = snap.exists() ? (snap.data() as any) : null;
+          const notice = d?.adminUpdateNotice ?? null;
+          setAdminUpdateNotice(notice || null);
+        },
+        () => {
+          // ignore — offline
+        }
+      );
+    }, 5000);
+
+    return () => {
+      window.clearTimeout(timer);
+      unsub?.();
+    };
   }, [isAuthenticated, user]);
 
   const userEmailLower = String((user as any)?.email ?? '').trim().toLowerCase();
@@ -415,63 +517,61 @@ function App() {
     }
   }, [isAuthenticated, adminUpdateNotice, userEmailLower]);
 
-  // License validation on app startup
+  // Licence: instant local cache gate, full validation in background (never blocks window)
   useEffect(() => {
     let cancelled = false;
     const gen = ++licenseCheckGeneration.current;
 
-    const checkLicense = async () => {
-      if (!isAuthenticated || licenseCheckDone) return;
-
-      console.log('🔍 Starting license validation check...');
-      
-      try {
-        const result = await withTimeout(validateLicenseAndDevice(), 20000, {
-          isValid: false,
-          needsActivation: true,
-          reason: 'License check timed out. Sign in again or check your internet connection.',
-        });
-
-        if (cancelled || gen !== licenseCheckGeneration.current) return;
-
-        console.log('🔍 License validation result:', result);
-        
+    const applyLicenseResult = async (
+      result: {
+        isValid: boolean;
+        needsActivation?: boolean;
+        reason?: string;
+        multiUserLan?: boolean;
+      },
+      fromBackground: boolean
+    ) => {
+      persistLicenseValidationResult(result);
         if (result.isValid) {
-          console.log('✅ License validation passed');
           setLicenseValid(true);
           setLicenseCheckReason('');
+        setDeviceCheckDone(true);
+        try {
+          localStorage.setItem('license_multi_user_lan', result.multiUserLan ? '1' : '0');
+        } catch {
+          // ignore
+        }
+        if (!result.multiUserLan) {
           try {
-            localStorage.setItem('license_multi_user_lan', result.multiUserLan ? '1' : '0');
+            networkService.setEnabled(false);
+            await networkService.disconnect();
           } catch {
             // ignore
           }
-          if (!result.multiUserLan) {
-            try {
-              networkService.setEnabled(false);
-              await networkService.disconnect();
-            } catch {
-              // ignore
-            }
-          }
-          void syncHostMultiUserLanFromCloud(Boolean(result.multiUserLan));
-          void import('./services/userActivityService').then(({ startUsageTracking }) =>
-            startUsageTracking()
+        }
+        if (fromBackground) {
+          setTimeout(() => void syncHostMultiUserLanFromCloud(Boolean(result.multiUserLan)), 5000);
+          setTimeout(
+            () =>
+              void import('./services/userActivityService').then(({ startUsageTracking }) =>
+                startUsageTracking()
+              ),
+            5000
           );
-        } else {
-          console.log('❌ License validation failed:', result.reason);
+        }
+        return;
+      }
+
           setLicenseValid(false);
           setLicenseCheckReason(result.reason || 'License validation failed');
-          try {
-            localStorage.setItem('license_multi_user_lan', '0');
-          } catch {
-            // ignore
-          }
-          void syncHostMultiUserLanFromCloud(false);
+      try {
+        localStorage.setItem('license_multi_user_lan', '0');
+      } catch {
+        // ignore
+      }
+      if (fromBackground) void syncHostMultiUserLanFromCloud(false);
 
-          // Do not send users to #/activate while still "signed in" — they get stuck and Back to Login breaks
-          // (HashRouter desync when hash is set via window.location). Sign out and open Login; user uses "Activate licence" from there.
           if (result.needsActivation) {
-            console.log('🔄 License needs setup — signing out to Login screen');
             setLicenseCheckDone(true);
             try {
               localStorage.setItem(
@@ -485,37 +585,59 @@ function App() {
             }
             logout();
             window.location.hash = '#/login';
-            return;
-          }
-        }
-
-        setLicenseCheckDone(true);
-      } catch (error) {
-        console.error('❌ License check error:', error);
-        if (!cancelled && gen === licenseCheckGeneration.current) {
-          setLicenseValid(false);
-          setLicenseCheckReason('License check failed');
-          setLicenseCheckDone(true);
-        }
       }
     };
 
-    void checkLicense();
+    void (async () => {
+      if (!isAuthenticated || licenseCheckDone) return;
+
+      if (shouldOpenSuperAdminPanel()) {
+        setLicenseValid(true);
+        setLicenseCheckReason('');
+        setDeviceCheckDone(true);
+        setLicenseCheckDone(true);
+            return;
+          }
+
+      const localTrialOk = await isLocalTrialActive();
+      if (localTrialOk && isTrialAccountEmail(user?.email)) {
+        setLicenseValid(true);
+        setLicenseCheckReason('');
+        setDeviceCheckDone(true);
+        setLicenseCheckDone(true);
+        return;
+      }
+
+      const optimistic = await getOptimisticStartupLicense();
+      if (cancelled || gen !== licenseCheckGeneration.current) return;
+
+      if (optimistic.isValid) {
+        await applyLicenseResult(optimistic, false);
+        setLicenseCheckDone(true);
+      } else {
+        await applyLicenseResult(optimistic, false);
+          setLicenseCheckDone(true);
+        }
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, licenseCheckDone, logout]);
+  }, [isAuthenticated, licenseCheckDone, logout, user?.email]);
 
-  // Device change detection on app startup
+  // Device change detection — runs after license check (license already validates device when valid)
   useEffect(() => {
     let cancelled = false;
 
     const checkDeviceChange = async () => {
-      if (!isAuthenticated || deviceCheckDone) return;
+      if (!isAuthenticated || deviceCheckDone || !licenseCheckDone) return;
+      if (licenseValid) {
+        setDeviceCheckDone(true);
+        return;
+      }
 
       try {
-        const result = await detectDeviceChange();
+        const result = await withTimeout(detectDeviceChange(), 8000, { changed: false });
         
         if (cancelled) return;
 
@@ -539,7 +661,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, deviceCheckDone, logout]);
+  }, [isAuthenticated, deviceCheckDone, licenseCheckDone, licenseValid, logout]);
 
   // Firestore listener for remote deactivation (device transfer)
   useEffect(() => {
@@ -564,7 +686,7 @@ function App() {
 
     if (!licenseKey) return;
 
-    const unsubscribe = subscribeToLicenseDeactivation({
+    const unsubscribe = subscribeToLicenseDeactivationWithVisibility({
       licenseKey,
       onDeactivated: async (reason) => {
         await forceLogoutDueToDeviceChange(reason);
@@ -680,25 +802,22 @@ function App() {
     window.dispatchEvent(new Event('companyProfileUpdated'));
   };
 
-  // AuthProvider jab localStorage se state load kar raha// Show loading while checking authentication and license
-  if (
-    loading ||
-    (!licenseCheckDone && isAuthenticated) ||
-    (isAuthenticated && isElectronRuntime() && profileGate === 'loading')
-  ) {
+  if (loading) {
     return (
-        <Box sx={{
+      <Box
+        sx={{
           display: 'flex', 
           justifyContent: 'center', 
           alignItems: 'center', 
           height: '100%',
           flexDirection: 'column',
-          gap: 2
-        }}>
+          gap: 2,
+        }}
+      >
           <CircularProgress size={60} />
           <Typography variant="h6">Loading {APP_DISPLAY_NAME}...</Typography>
           <Typography variant="body2" color="text.secondary">
-            {loading ? 'Checking authentication...' : 'Validating license...'}
+          Checking authentication...
           </Typography>
         </Box>
     );
@@ -752,6 +871,10 @@ function App() {
       setAdminPopupBusy(false);
     }
   };
+
+  if (localTrialExpired === true) {
+    return <LocalTrialExpiredModal />;
+  }
 
   return (
     <>
@@ -894,6 +1017,30 @@ function App() {
         open={dataLocationSetupOpen}
         onComplete={() => setDataLocationSetupOpen(false)}
       />
+      {startupGatesBusy && (
+        <Box
+          sx={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 12000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexDirection: 'column',
+            gap: 1.5,
+            bgcolor: 'rgba(255,255,255,0.82)',
+            backdropFilter: 'blur(2px)',
+          }}
+        >
+          <CircularProgress size={48} />
+          <Typography variant="body1" fontWeight={600}>
+            Loading {APP_DISPLAY_NAME}...
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {companyGate === 'loading' ? 'Loading company data...' : 'Preparing your workspace...'}
+          </Typography>
+        </Box>
+        )}
       <FocusProvider>
         <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <Router>
@@ -903,20 +1050,46 @@ function App() {
             onComplete={handleSetupComplete}
             onRestoreBackup={handleRestoreBackup}
           />
+          {isAuthenticated &&
+            profileCompleted &&
+            setupCompleted &&
+            licenseValid &&
+            licenseCheckDone &&
+            companyGate === 'ready' &&
+            hostCheck.ok && <MobileEntitlementBootstrap />}
+          {isAuthenticated && <MiddlewareSyncBootstrap />}
 
+          <Suspense fallback={pageSuspense}>
           <Routes>
           {/* LOGIN */}
           <Route
             path="/login"
             element={
               isAuthenticated ? (
-                companyGate === 'select' ? (
+                companyGate === 'loading' ? (
+                  startupGateSpinner
+                ) : companyGate === 'select' ? (
                   <Navigate to="/select-company" replace />
+                ) : profileCompleted && shellReady ? (
+                  <Navigate to="/dashboard" replace />
+                ) : profileCompleted ? (
+                  startupGateSpinner
                 ) : (
-                  <Navigate to={(profileCompleted ? "/dashboard" : "/business-profile")} replace />
+                  <Navigate to="/business-profile" replace />
                 )
               ) : (
                 <Login />
+              )
+            }
+          />
+
+          <Route
+            path="/trial"
+            element={
+              isAuthenticated ? (
+                <Navigate to="/select-company" replace />
+              ) : (
+                <TrialLoginScreen />
               )
             }
           />
@@ -931,7 +1104,13 @@ function App() {
                   <CircularProgress />
                 </Box>
               ) : companyGate === 'ready' ? (
-                <Navigate to={(profileCompleted ? "/dashboard" : "/business-profile")} replace />
+                profileCompleted && shellReady ? (
+                  <Navigate to="/dashboard" replace />
+                ) : profileCompleted ? (
+                  startupGateSpinner
+                ) : (
+                  <Navigate to="/business-profile" replace />
+                )
               ) : companyGate === 'loading' ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
                   <CircularProgress />
@@ -942,16 +1121,26 @@ function App() {
             }
           />
 
-          <Route
+          <Route 
             path="/activate"
             element={
               /* Only skip Activate after license is valid; otherwise logged-in users without a cache/license
                * were bounced to /dashboard, no route matched (license gate), * sent them back → infinite loop. */
               isAuthenticated && licenseValid && licenseCheckDone ? (
-                <Navigate to={(profileCompleted ? "/dashboard" : "/business-profile")} replace />
-              ) : (
+                companyGate === 'loading' ? (
+                  startupGateSpinner
+                ) : companyGate === 'select' ? (
+                  <Navigate to="/select-company" replace />
+                ) : profileCompleted && shellReady ? (
+                      <Navigate to="/dashboard" replace />
+                ) : profileCompleted ? (
+                  startupGateSpinner
+                    ) : (
+                      <Navigate to="/business-profile" replace />
+                    )
+                  ) : (
                 <Suspense fallback={<div style={{ padding: 24 }}>Loading...</div>}>
-                  <Activate />
+                  <LazyActivate />
                 </Suspense>
               )
             }
@@ -962,34 +1151,37 @@ function App() {
             element={
               isAuthenticated ? (
                 profileCompleted ? (
-                  <Navigate to="/dashboard" replace />
+                  companyGate === 'loading' ? (
+                    startupGateSpinner
+                  ) : companyGate === 'select' ? (
+                    <Navigate to="/select-company" replace />
+                  ) : shellReady ? (
+                    <Navigate to="/dashboard" replace />
+                  ) : (
+                    startupGateSpinner
+                  )
                 ) : (
                   <BusinessProfile />
                 )
               ) : (
                 <Navigate to="/login" replace />
               )
-            }
+            } 
           />
 
-          {/* DEFAULT ROUTE – handle initial app load */}
+          {/* Root redirect only while company shell is not ready (Layout owns "/" when ready). */}
+          {companyGate !== 'ready' && (
           <Route 
-            path="/" 
+              path="/"
             element={
               isAuthenticated ? (
                 licenseValid ? (
-                  companyGate === 'select' ? (
-                    <Navigate to="/select-company" replace />
-                  ) : companyGate === 'loading' ? (
-                    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
-                      <CircularProgress />
-                    </Box>
-                  ) : profileCompleted ? (
-                    setupCompleted ? (
-                      <Navigate to="/dashboard" replace />
-                    ) : (
+                    companyGate === 'select' ? (
+                      <Navigate to="/select-company" replace />
+                    ) : companyGate === 'loading' ? (
+                      startupGateSpinner
+                    ) : profileCompleted ? (
                       <Navigate to="/business-profile" replace />
-                    )
                   ) : (
                     <Navigate to="/business-profile" replace />
                   )
@@ -1001,38 +1193,14 @@ function App() {
               )
             } 
           />
-
-          {/* FALLBACK ROUTE – redirect to login or activate based on auth state */}
-          <Route 
-            path="*" 
-            element={
-              isAuthenticated ? (
-                licenseValid ? (
-                  profileCompleted ? (
-                    setupCompleted ? (
-                      <Navigate to="/dashboard" replace />
-                    ) : (
-                      <Navigate to="/business-profile" replace />
-                    )
-                  ) : (
-                    <Navigate to="/business-profile" replace />
-                  )
-                ) : (
-                  <Navigate to="/activate" replace />
-                )
-              ) : (
-                <Navigate to="/login" replace />
-              )
-            } 
-          />
+          )}
 
           {/* PROTECTED ROUTES – only when logged in, business profile completed, setup complete, AND LICENSE VALID */}
           {isAuthenticated && profileCompleted && setupCompleted && licenseValid && licenseCheckDone && companyGate === 'ready' && (
             <>
               {hostCheck.ok ? (
                 <>
-                  <MobileEntitlementBootstrap />
-                  <Route path="/print" element={<PrintWindow />} />
+                  <Route path="/print" element={<LazyPrintWindow />} />
                   <Route path="/" element={<Layout />}>
                     <Route index element={<Navigate to="/dashboard" replace />} />
                     <Route path="dashboard" element={<Dashboard />} />
@@ -1042,7 +1210,7 @@ function App() {
                         path="price-lists"
                         element={
                           <RequirePermission permission="view-inventory">
-                            <PriceListList />
+                            <LazyPriceListList />
                           </RequirePermission>
                         }
                       />
@@ -1050,7 +1218,7 @@ function App() {
                         path="adjustments/new"
                         element={
                           <RequirePermission permission="manage-inventory">
-                            <StockAdjustmentForm />
+                            <LazyStockAdjustmentForm />
                           </RequirePermission>
                         }
                       />
@@ -1058,7 +1226,7 @@ function App() {
                         path="adjustments"
                         element={
                           <RequirePermission permission="view-inventory">
-                            <StockAdjustmentList />
+                            <LazyStockAdjustmentList />
                           </RequirePermission>
                         }
                       />
@@ -1070,7 +1238,7 @@ function App() {
                         path="invoices/:id"
                         element={
                           <RequirePermission permission="create-vouchers">
-                            <SalesVoucherForm />
+                            <LazySalesVoucherForm />
                           </RequirePermission>
                         }
                       />
@@ -1078,7 +1246,7 @@ function App() {
                         path="collections/new"
                         element={
                           <RequirePermission permission="create-vouchers">
-                            <CollectionFormPage />
+                            <LazyCollectionFormPage />
                           </RequirePermission>
                         }
                       />
@@ -1086,56 +1254,68 @@ function App() {
                         path="collections/:id/edit"
                         element={
                           <RequirePermission permission="create-vouchers">
-                            <CollectionFormPage />
+                            <LazyCollectionFormPage />
                           </RequirePermission>
                         }
                       />
-                      <Route path=":docKind/new" element={<SalesPipelineForm />} />
-                      <Route path=":docKind/:id/edit" element={<SalesPipelineForm />} />
+                      <Route path=":docKind/new" element={<LazySalesPipelineForm />} />
+                      <Route path=":docKind/:id/edit" element={<LazySalesPipelineForm />} />
                       <Route path=":docKind" element={<SalesDocumentPage />} />
                     </Route>
                     <Route path="purchase" element={<PurchaseManagementShell />}>
                       <Route index element={<Navigate to="/purchase/purchase-bills" replace />} />
-                      <Route path=":docKind/new" element={<PurchasePipelineForm />} />
-                      <Route path=":docKind/:id/edit" element={<PurchasePipelineForm />} />
+                      <Route path=":docKind/new" element={<LazyPurchasePipelineForm />} />
+                      <Route path=":docKind/:id/edit" element={<LazyPurchasePipelineForm />} />
                       <Route path=":docKind" element={<PurchaseDocumentPage />} />
                     </Route>
                     <Route path="products" element={<Navigate to="/items" replace />} />
-                    <Route path="products/new" element={<Navigate to="/masters/inventory-items/new" replace />} />
-                    <Route path="products/edit/:id" element={<Navigate to="/masters/inventory-items" replace />} />
-                    <Route path="customers" element={<CustomersModuleShell />}>
-                      <Route index element={<CustomersListPage />} />
-                      <Route path="ledger-report" element={<PartyLedgerReport />} />
-                      <Route path=":id" element={<CustomerDetailPage />} />
+                    <Route path="products/new" element={<Navigate to="/items?new=1" replace />} />
+                    <Route path="products/edit/:id" element={<Navigate to="/items" replace />} />
+                    <Route path="ledgers" element={<LedgersModuleShell />}>
+                      <Route index element={<LazyAllLedgersPage />} />
+                      <Route path="debtors" element={<CustomersListPage />} />
+                      <Route path="debtors/:id/statement" element={<LazyCustomerLedgerStatementPage />} />
+                      <Route path="debtors/:id" element={<LazyCustomerDetailPage />} />
+                      <Route path="creditors" element={<LazyCreditorsListPage />} />
+                      <Route path="report" element={<LazyPartyLedgerReport />} />
                     </Route>
-                    <Route path="parties" element={<Navigate to="/customers" replace />} />
-                    <Route path="parties/new" element={<Navigate to="/customers?new=1" replace />} />
-                    <Route path="parties/:id" element={<PartyForm />} />
-                    <Route path="parties/ledger-report" element={<PartyLedgerReport />} />
-                    <Route path="parties/party-ledger/:ledgerId" element={<LedgerStatementByLedgerId />} />
+                    <Route path="customers" element={<Navigate to="/ledgers/debtors" replace />} />
+                    <Route path="customers/ledger-report" element={<Navigate to="/ledgers/report" replace />} />
+                    <Route path="customers/:id/statement" element={<LazyCustomerLedgerStatementPage />} />
+                    <Route path="customers/:id" element={<LazyCustomerDetailPage />} />
+                    <Route path="parties" element={<Navigate to="/ledgers/debtors" replace />} />
+                    <Route path="parties/new" element={<Navigate to="/ledgers/debtors?new=1" replace />} />
+                    <Route path="parties/ledger-report" element={<Navigate to="/ledgers/report" replace />} />
+                    <Route path="parties/:id" element={<LazyPartyForm />} />
+                    <Route path="parties/party-ledger/:ledgerId" element={<LazyLedgerStatementByLedgerId />} />
+                    <Route path="suppliers" element={<Navigate to="/purchase/purchase-bills" replace />} />
+                    <Route path="banks" element={<Navigate to="/masters/bank-accounts" replace />} />
+                    <Route path="banks/new" element={<Navigate to="/masters/ledger-accounts/new" replace />} />
+                    <Route path="banks/edit/:id" element={<Navigate to="/masters/ledger-accounts/:id/edit" replace />} />
+                    <Route path="banks/:id/statement" element={<Navigate to="/masters/bank-accounts" replace />} />
                     <Route path="invoices" element={<Navigate to="/vouchers/sales" replace />} />
-                    <Route path="vouchers" element={<VouchersHub />} />
-                    <Route path="vouchers/money" element={<MoneyVouchersHub />} />
+                    <Route path="vouchers" element={<LazyVouchersHub />} />
+                    <Route path="vouchers/money" element={<LazyMoneyVouchersHub />} />
                     <Route path="vouchers/payment" element={<Navigate to="/vouchers/payment-vouchers" replace />} />
                     <Route path="vouchers/payment/new" element={<Navigate to="/vouchers/payment-vouchers/new" replace />} />
                     <Route path="vouchers/receipt" element={<Navigate to="/vouchers/receipt-vouchers" replace />} />
                     <Route path="vouchers/receipt/new" element={<Navigate to="/vouchers/receipt-vouchers/new" replace />} />
-                    <Route path="purchase-invoices" element={<PurchaseInvoices />} />
-                    <Route path="debit-notes" element={<DebitNotes />} />
-                    <Route path="/payments/*" element={<Payments />} />
-                    <Route path="accounts" element={<BankLedgerList />} />
-                    <Route path="masters/bank-accounts" element={<BankLedgerList />} />
-                    <Route path="accounts/*" element={<BankLedgerList />} />
-                    <Route path="expenses/*" element={<ManualExpenseEntry />} />
+                    <Route path="purchase-invoices" element={<LazyPurchaseInvoices />} />
+                    <Route path="debit-notes" element={<LazyDebitNotes />} />
+                    <Route path="/payments/*" element={<LazyPayments />} />
+                    <Route path="accounts" element={<LazyBankLedgerList />} />
+                    <Route path="masters/bank-accounts" element={<LazyBankLedgerList />} />
+                    <Route path="accounts/*" element={<LazyBankLedgerList />} />
+                    <Route path="expenses/*" element={<LazyManualExpenseEntry />} />
                     <Route path="schemes" element={<Schemes />} />
-                    <Route path="schemes/new" element={<SmartSchemeForm />} />
-                    <Route path="schemes/retailer-dashboard" element={<RetailerSchemeDashboard />} />
-                    <Route path="schemes/overdue-tracker" element={<OverdueTracker />} />
+                    <Route path="schemes/new" element={<LazySmartSchemeForm />} />
+                    <Route path="schemes/retailer-dashboard" element={<LazyRetailerSchemeDashboard />} />
+                    <Route path="schemes/overdue-tracker" element={<LazyOverdueTracker />} />
                     <Route
                       path="vouchers/sales-return"
                       element={
                         <RequirePermission permission="create-vouchers">
-                          <SalesReturnVoucherList />
+                          <LazySalesReturnVoucherList />
                         </RequirePermission>
                       }
                     />
@@ -1143,7 +1323,7 @@ function App() {
                       path="vouchers/sales-return/new"
                       element={
                         <RequirePermission permission="create-vouchers">
-                          <SalesReturnVoucherForm />
+                          <LazySalesReturnVoucherForm />
                         </RequirePermission>
                       }
                     />
@@ -1151,7 +1331,7 @@ function App() {
                       path="masters/ledger-accounts"
                       element={
                         <RequirePermission permission="view-ledgers">
-                          <LedgerAccountList />
+                          <LazyLedgerAccountList />
                         </RequirePermission>
                       }
                     />
@@ -1159,7 +1339,7 @@ function App() {
                       path="masters/ledger-accounts/new"
                       element={
                         <RequirePermission permission="manage-ledgers">
-                          <LedgerAccountForm />
+                          <LazyLedgerAccountForm />
                         </RequirePermission>
                       }
                     />
@@ -1167,7 +1347,39 @@ function App() {
                       path="masters/ledger-accounts/:id/edit"
                       element={
                         <RequirePermission permission="manage-ledgers">
-                          <LedgerAccountForm />
+                          <LazyLedgerAccountForm />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="masters/chart-of-accounts"
+                      element={
+                        <RequirePermission permission="view-ledgers">
+                          <LazyChartOfAccountsPage />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="masters/ledger-audit"
+                      element={
+                        <RequirePermission permission="view-ledgers">
+                          <LazyAccountingStructureAuditPage />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="masters/accounting-integrity"
+                      element={
+                        <RequirePermission permission="view-ledgers">
+                          <LazyAccountingIntegrityAuditPage />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="masters/financial-readiness"
+                      element={
+                        <RequirePermission permission="view-ledgers">
+                          <LazyFinancialStatementReadinessAuditPage />
                         </RequirePermission>
                       }
                     />
@@ -1175,7 +1387,7 @@ function App() {
                       path="masters/godowns"
                       element={
                         <RequirePermission permission="view-inventory">
-                          <GodownList />
+                          <LazyGodownList />
                         </RequirePermission>
                       }
                     />
@@ -1183,7 +1395,7 @@ function App() {
                       path="masters/godowns/new"
                       element={
                         <RequirePermission permission="manage-inventory">
-                          <GodownForm />
+                          <LazyGodownForm />
                         </RequirePermission>
                       }
                     />
@@ -1191,7 +1403,7 @@ function App() {
                       path="masters/godowns/:id/edit"
                       element={
                         <RequirePermission permission="manage-inventory">
-                          <GodownForm />
+                          <LazyGodownForm />
                         </RequirePermission>
                       }
                     />
@@ -1201,19 +1413,11 @@ function App() {
                     />
                     <Route
                       path="masters/inventory-items/new"
-                      element={
-                        <RequirePermission permission="manage-inventory">
-                          <InventoryItemForm />
-                        </RequirePermission>
-                      }
+                      element={<Navigate to="/items?new=1" replace />}
                     />
                     <Route
                       path="masters/inventory-items/:id/edit"
-                      element={
-                        <RequirePermission permission="manage-inventory">
-                          <InventoryItemForm />
-                        </RequirePermission>
-                      }
+                      element={<RedirectInventoryItemEdit />}
                     />
                     <Route
                       path="masters/inventory-items/:id"
@@ -1223,7 +1427,7 @@ function App() {
                       path="masters/price-lists"
                       element={
                         <RequirePermission permission="view-inventory">
-                          <PriceListList />
+                          <LazyPriceListList />
                         </RequirePermission>
                       }
                     />
@@ -1231,15 +1435,19 @@ function App() {
                       path="masters/price-lists/new"
                       element={
                         <RequirePermission permission="manage-inventory">
-                          <PriceListForm />
+                          <LazyPriceListForm />
                         </RequirePermission>
                       }
+                    />
+                    <Route
+                      path="masters/price-lists/report"
+                      element={<Navigate to="/items/price-lists" replace />}
                     />
                     <Route
                       path="masters/price-lists/:id/edit"
                       element={
                         <RequirePermission permission="manage-inventory">
-                          <PriceListForm />
+                          <LazyPriceListForm />
                         </RequirePermission>
                       }
                     />
@@ -1247,7 +1455,7 @@ function App() {
                       path="masters/stock-adjustments"
                       element={
                         <RequirePermission permission="view-inventory">
-                          <StockAdjustmentList />
+                          <LazyStockAdjustmentList />
                         </RequirePermission>
                       }
                     />
@@ -1255,16 +1463,16 @@ function App() {
                       path="masters/stock-adjustments/new"
                       element={
                         <RequirePermission permission="manage-inventory">
-                          <StockAdjustmentForm />
+                          <LazyStockAdjustmentForm />
                         </RequirePermission>
                       }
                     />
-                    <Route path="import/erp" element={<ImportFromErp />} />
+                    <Route path="import/erp" element={<LazyImportFromErp />} />
                     <Route
                       path="approvals/pending"
                       element={
                         <RequirePermission permission="manage-users">
-                          <ApprovalPendingPage />
+                          <LazyApprovalPendingPage />
                         </RequirePermission>
                       }
                     />
@@ -1272,7 +1480,7 @@ function App() {
                       path="vouchers/sales"
                       element={
                         <RequirePermission permission="create-vouchers">
-                          <SalesVoucherList />
+                          <LazySalesVoucherList />
                         </RequirePermission>
                       }
                     />
@@ -1280,7 +1488,7 @@ function App() {
                       path="vouchers/sales/new"
                       element={
                         <RequirePermission permission="create-vouchers">
-                          <SalesVoucherForm />
+                          <LazySalesVoucherForm />
                         </RequirePermission>
                       }
                     />
@@ -1288,7 +1496,7 @@ function App() {
                       path="vouchers/sales/:id/edit"
                       element={
                         <RequirePermission permission="create-vouchers">
-                          <SalesVoucherForm />
+                          <LazySalesVoucherForm />
                         </RequirePermission>
                       }
                     />
@@ -1304,7 +1512,7 @@ function App() {
                       path="vouchers/purchase"
                       element={
                         <RequirePermission permission="create-vouchers">
-                          <PurchaseVoucherList />
+                          <LazyPurchaseVoucherList />
                         </RequirePermission>
                       }
                     />
@@ -1312,7 +1520,7 @@ function App() {
                       path="vouchers/purchase/new"
                       element={
                         <RequirePermission permission="create-vouchers">
-                          <PurchaseVoucherForm />
+                          <LazyPurchaseVoucherForm />
                         </RequirePermission>
                       }
                     />
@@ -1320,7 +1528,7 @@ function App() {
                       path="vouchers/purchase/:id/edit"
                       element={
                         <RequirePermission permission="create-vouchers">
-                          <PurchaseVoucherForm />
+                          <LazyPurchaseVoucherForm />
                         </RequirePermission>
                       }
                     />
@@ -1328,7 +1536,7 @@ function App() {
                       path="vouchers/purchase-return"
                       element={
                         <RequirePermission permission="view-vouchers">
-                          <PurchaseReturnVoucherList />
+                          <LazyPurchaseReturnVoucherList />
                         </RequirePermission>
                       }
                     />
@@ -1336,7 +1544,7 @@ function App() {
                       path="vouchers/purchase-return/new"
                       element={
                         <RequirePermission permission="create-vouchers">
-                          <PurchaseReturnVoucherForm />
+                          <LazyPurchaseReturnVoucherForm />
                         </RequirePermission>
                       }
                     />
@@ -1344,7 +1552,7 @@ function App() {
                       path="vouchers/payment-vouchers"
                       element={
                         <RequirePermission permission="view-vouchers">
-                          <PaymentVoucherList />
+                          <LazyPaymentVoucherList />
                         </RequirePermission>
                       }
                     />
@@ -1353,7 +1561,7 @@ function App() {
                       element={
                         <RequirePermission permission="create-vouchers">
                           <Suspense fallback={<div style={{ padding: 24 }}>Loading...</div>}>
-                            <PaymentVoucherPage includeExpenseLedgersInParticulars fullScreenMode />
+                            <LazyPaymentVoucherPage includeExpenseLedgersInParticulars fullScreenMode />
                           </Suspense>
                         </RequirePermission>
                       }
@@ -1365,7 +1573,7 @@ function App() {
                       element={
                         <RequirePermission permission="create-vouchers">
                           <Suspense fallback={<div style={{ padding: 24 }}>Loading...</div>}>
-                            <PaymentVoucherPage includeExpenseLedgersInParticulars initialType="PAYMENT" forceModernView />
+                            <LazyPaymentVoucherPage includeExpenseLedgersInParticulars initialType="PAYMENT" forceModernView />
                           </Suspense>
                         </RequirePermission>
                       }
@@ -1374,7 +1582,7 @@ function App() {
                       path="vouchers/receipt-vouchers"
                       element={
                         <RequirePermission permission="view-vouchers">
-                          <ReceiptVoucherList />
+                          <LazyReceiptVoucherList />
                         </RequirePermission>
                       }
                     />
@@ -1383,7 +1591,7 @@ function App() {
                       element={
                         <RequirePermission permission="create-vouchers">
                           <Suspense fallback={<div style={{ padding: 24 }}>Loading...</div>}>
-                            <PaymentVoucherPage includeExpenseLedgersInParticulars initialType="RECEIPT" forceModernView />
+                            <LazyPaymentVoucherPage includeExpenseLedgersInParticulars initialType="RECEIPT" forceModernView />
                           </Suspense>
                         </RequirePermission>
                       }
@@ -1392,7 +1600,7 @@ function App() {
                       path="vouchers/journal"
                       element={
                         <RequirePermission permission="view-vouchers">
-                          <JournalVoucherList />
+                          <LazyJournalVoucherList />
                         </RequirePermission>
                       }
                     />
@@ -1400,25 +1608,35 @@ function App() {
                       path="vouchers/journal/new"
                       element={
                         <RequirePermission permission="create-vouchers">
-                          <JournalVoucherForm />
+                          <LazyJournalVoucherForm />
+                        </RequirePermission>
+                      }
+                    />
+                    <Route
+                      path="day-book"
+                      element={
+                        <RequirePermission permission="view-reports">
+                          <DayBookPage />
                         </RequirePermission>
                       }
                     />
                     <Route path="reports" element={<Reports />} />
-                    <Route path="dashboard/drill/:kind" element={<DashboardKpiDrillPage />} />
-                    <Route path="reports/outstanding-aging" element={<OutstandingAgingReport />} />
-                    <Route path="reports/low-stock" element={<LowStockReport />} />
+                    <Route path="dashboard/drill/:kind" element={<LazyDashboardKpiDrillPage />} />
+                    <Route path="reports/outstanding-aging" element={<LazyOutstandingAgingReport />} />
+                    <Route path="reports/party-outstanding" element={<LazyPartyOutstandingReport />} />
+                    <Route path="reports/customer-ageing" element={<Navigate to="/reports/outstanding-aging" replace />} />
+                    <Route path="reports/low-stock" element={<LazyLowStockReport />} />
                     <Route path="gst" element={<GSTReports />} />
-                    <Route path="gst/gstr1" element={<GSTR1Report />} />
-                    <Route path="gst/gstr2" element={<GSTR2Report />} />
-                    <Route path="gst/gstr3b" element={<GSTR3BReport />} />
-                    <Route path="gst/gstr9" element={<GSTR9Report />} />
-                    <Route path="gst/hsn-summary" element={<HSNSummary />} />
-                    <Route path="gst/e-way-bill" element={<EWayBillPage />} />
+                    <Route path="gst/gstr1" element={<LazyGSTR1Report />} />
+                    <Route path="gst/gstr2" element={<LazyGSTR2Report />} />
+                    <Route path="gst/gstr3b" element={<LazyGSTR3BReport />} />
+                    <Route path="gst/gstr9" element={<LazyGSTR9Report />} />
+                    <Route path="gst/hsn-summary" element={<LazyHSNSummary />} />
+                    <Route path="gst/e-way-bill" element={<LazyEWayBillPage />} />
                     <Route path="utilities/e-way-bill" element={<Navigate to="/gst/e-way-bill" replace />} />
                     <Route path="user-management" element={<Navigate to="/settings" replace />} />
                     <Route path="settings" element={<Settings />} />
-                    <Route path="store" element={<StorePage />} />
+                    <Route path="store" element={<LazyStorePage />} />
                   </Route>
                 </>
               ) : (
@@ -1447,27 +1665,27 @@ function App() {
             </>
           )}
 
-          {/* LICENSE VALIDATION REQUIRED */}
-          {isAuthenticated && licenseCheckDone && !licenseValid && (
-            <Route
-              path="*"
-              element={
-                <Suspense fallback={<div style={{ padding: 24 }}>Loading...</div>}>
-                  <Activate />
-                </Suspense>
-              }
-            />
-          )}
-
-          {/* FALLBACK */}
+          {/* Catch-all last — never Navigate to "/" unless Layout shell is mounted. */}
           <Route
             path="*"
             element={
               isAuthenticated ? (
-                licenseCheckDone && !licenseValid ? (
+                !licenseCheckDone ? (
+                  startupGateSpinner
+                ) : !licenseValid ? (
                   <Navigate to="/activate" replace />
+                ) : companyGate === 'loading' ? (
+                  startupGateSpinner
+                ) : companyGate === 'select' ? (
+                  <Navigate to="/select-company" replace />
+                ) : profileCompleted ? (
+                  shellReady ? (
+                    <Navigate to="/dashboard" replace />
+                  ) : (
+                    startupGateSpinner
+                  )
                 ) : (
-                  <Navigate to={(profileCompleted ? "/dashboard" : "/business-profile")} replace />
+                  <Navigate to="/business-profile" replace />
                 )
               ) : (
                 <Navigate to="/login" replace />
@@ -1475,10 +1693,12 @@ function App() {
             }
           />
           </Routes>
+          </Suspense>
         </Router>
         </Box>
       </FocusProvider>
       </Box>
+      <SuperAdminPanel open={superAdminOpen} onClose={() => setSuperAdminOpen(false)} />
     </>
   );
 }

@@ -1,6 +1,7 @@
 import { generateId } from '../../utils/id';
 import { storageDriver } from '../storage/storageDriver';
 import { systemLogger } from '../logging/systemLogger';
+import { readStoredAuthUserRaw } from '../../utils/authStorage';
 
 const AUDIT_KEY = 'pve_audit_log';
 
@@ -13,7 +14,9 @@ export type AuditOperation =
   | 'SYNC_PULL'
   | 'LOGIN'
   | 'LOGOUT'
-  | 'EXPORT';
+  | 'EXPORT'
+  | 'SETTINGS_CHANGE'
+  | 'BACKUP_RESTORE';
 
 export interface AuditEntry {
   id: string;
@@ -32,7 +35,7 @@ export interface AuditEntry {
 
 const getCurrentUser = (): { id: string; username: string; role: string; companyId: string } => {
   try {
-    const raw = localStorage.getItem('user');
+    const raw = readStoredAuthUserRaw();
     if (!raw) return { id: 'anonymous', username: 'anonymous', role: 'viewer', companyId: '' };
     const user = JSON.parse(raw);
     return {
@@ -102,8 +105,24 @@ export const auditService = {
     return this.log('CREATE', entityType, entityId, details);
   },
 
-  async logUpdate(entityType: string, entityId: string, details?: Record<string, unknown>): Promise<AuditEntry> {
+  async logUpdate(
+    entityType: string,
+    entityId: string,
+    details?: Record<string, unknown> & { oldValue?: unknown; newValue?: unknown }
+  ): Promise<AuditEntry> {
     return this.log('UPDATE', entityType, entityId, details);
+  },
+
+  async logSettingsChange(
+    settingKey: string,
+    oldValue: unknown,
+    newValue: unknown
+  ): Promise<AuditEntry> {
+    return this.log('SETTINGS_CHANGE', 'settings', settingKey, { oldValue, newValue });
+  },
+
+  async logBackupRestore(filePath: string, details?: Record<string, unknown>): Promise<AuditEntry> {
+    return this.log('BACKUP_RESTORE', 'backup', filePath, details);
   },
 
   async logDelete(entityType: string, entityId: string, details?: Record<string, unknown>): Promise<AuditEntry> {

@@ -3,6 +3,7 @@ import type {
   CustomerSummary,
   TransactionInvoice,
 } from '../types/dashboard';
+import type { BillReference } from '../types/billReference';
 
 export interface AgingLineItem {
   id: string;
@@ -20,7 +21,7 @@ export interface AgingBucket {
   items: AgingLineItem[];
 }
 
-const BUCKET_LABELS = ['0-30 Days', '30-60 Days', '60-90 Days', '90+ Days'] as const;
+const BUCKET_LABELS = ['0-30 Days', '31-60 Days', '61-90 Days', '91-180 Days', '180+ Days'] as const;
 
 function daysSince(isoDate: string): number {
   const raw = String(isoDate || '').slice(0, 10);
@@ -37,7 +38,8 @@ function bucketIndex(days: number): number {
   if (days <= 30) return 0;
   if (days <= 60) return 1;
   if (days <= 90) return 2;
-  return 3;
+  if (days <= 180) return 3;
+  return 4;
 }
 
 function emptyBuckets(): AgingBucket[] {
@@ -45,7 +47,7 @@ function emptyBuckets(): AgingBucket[] {
 }
 
 function distributeProportionally(total: number): AgingBucket[] {
-  const ratios = [0.63, 0.2, 0.1, 0.07];
+  const ratios = [0.45, 0.25, 0.15, 0.1, 0.05];
   return BUCKET_LABELS.map((label, i) => ({
     label,
     value: Number((total * ratios[i]).toFixed(2)),
@@ -65,6 +67,40 @@ function pushLine(
 function isUnpaidInvoice(inv: TransactionInvoice): boolean {
   const s = String(inv.paymentStatus || '').toUpperCase();
   return s !== 'PAID';
+}
+
+/** Age-wise outstanding from open bill references (Tally bill-wise). */
+function buildFromBillReferences(
+  customers: CustomerSummary[],
+  billReferences: BillReference[],
+  ledgerNameById?: Map<string, string>
+): AgingBucket[] {
+  const buckets = emptyBuckets();
+  const customerMap = new Map(customers.map((c) => [c.id, c.name]));
+
+  for (const ref of billReferences) {
+    const pending = Number(ref.pendingAmount || 0);
+    if (pending <= 0.01) continue;
+    const daysOld = daysSince(ref.voucherDate);
+    const idx = bucketIndex(daysOld);
+    const partyName = customerMap.get(ref.partyId) ?? ledgerNameById?.get(ref.partyId) ?? '—';
+    const typeLabel =
+      ref.referenceType === 'NEW_REF'
+        ? 'Invoice'
+        : ref.referenceType === 'ADVANCE'
+          ? 'Advance'
+          : 'On Account';
+    pushLine(buckets, idx, {
+      id: ref.id,
+      title: partyName,
+      subtitle: `${typeLabel} ${ref.referenceNo} · ${daysOld}d`,
+      amount: pending,
+      daysOld,
+      partyLedgerId: ref.partyId,
+    });
+  }
+
+  return buckets;
 }
 
 /** FIFO age-wise outstanding from party balances + sales vouchers. */
@@ -130,9 +166,27 @@ export function buildOutstandingAging(params: {
   salesVouchers?: AgingSaleVoucher[];
   invoices?: TransactionInvoice[];
   fallbackTotal?: number;
+  billReferences?: BillReference[];
+  ledgerNameById?: Map<string, string>;
 }): { buckets: AgingBucket[]; total: number } {
   const customers = (params.customers ?? []).filter((c) => Number(c.currentBalance) > 0);
   const salesVouchers = params.salesVouchers ?? [];
+  const billReferences = (params.billReferences ?? []).filter((r) => Number(r.pendingAmount) > 0.01);
+
+  if (billReferences.length > 0) {
+    const buckets = buildFromBillReferences(customers, billReferences, params.ledgerNameById);
+    const total = buckets.reduce((s, b) => s + b.value, 0);
+    if (total > 0) {
+      return {
+        buckets: buckets.map((b) => ({
+          ...b,
+          value: Number(b.value.toFixed(2)),
+          items: b.items.sort((a, b2) => b2.amount - a.amount),
+        })),
+        total: Number(total.toFixed(2)),
+      };
+    }
+  }
 
   if (customers.length > 0 && salesVouchers.length > 0) {
     const buckets = buildFromCustomersFifo(customers, salesVouchers);

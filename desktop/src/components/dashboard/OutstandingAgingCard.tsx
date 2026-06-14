@@ -38,8 +38,10 @@ export function OutstandingAgingCard({
   const dt = useDashboardTheme();
   const [selected, setSelected] = useState<AgingBucket | null>(null);
 
+  const agingColor = (index: number) => dt.aging[index % dt.aging.length];
+
   const chartData = useMemo(
-    () => buckets.map((b, i) => ({ ...b, fill: dt.aging[i % dt.aging.length] })),
+    () => buckets.map((b, i) => ({ ...b, fill: agingColor(i) })),
     [buckets, dt.aging]
   );
 
@@ -92,7 +94,7 @@ export function OutstandingAgingCard({
                   sx={{
                     width: `${(b.value / total) * 100}%`,
                     minWidth: b.value > 0 ? 4 : 0,
-                    bgcolor: dt.aging[i % dt.aging.length],
+                    bgcolor: agingColor(i),
                     cursor: 'pointer',
                     transition: 'opacity 0.2s',
                     '&:hover': { opacity: 0.85 },
@@ -185,7 +187,7 @@ export function OutstandingAgingCard({
                       width: 8,
                       height: 8,
                       borderRadius: '50%',
-                      bgcolor: dt.aging[i % dt.aging.length],
+                      bgcolor: agingColor(i),
                     }}
                   />
                   <Typography variant="caption" fontWeight={700} sx={{ flex: 1 }}>
@@ -205,9 +207,9 @@ export function OutstandingAgingCard({
                     sx={{
                       height: 4,
                       borderRadius: 2,
-                      bgcolor: alpha(dt.aging[i], 0.15),
+                      bgcolor: alpha(agingColor(i), 0.15),
                       '& .MuiLinearProgress-bar': {
-                        bgcolor: dt.aging[i % dt.aging.length],
+                        bgcolor: agingColor(i),
                       },
                     }}
                   />

@@ -1,5 +1,6 @@
 import { LedgerAccount, LedgerTransaction } from '../../types/masters';
 import { ledgerAccountService } from '../masters/ledgerAccountService';
+import { ledgerGroupService } from '../masters/ledgerGroupService';
 import { ledgerTransactionService } from '../masters/ledgerTransactionService';
 
 export interface TrialBalanceFilters {
@@ -64,6 +65,8 @@ export const trialBalanceService = {
     const ledgers = await ledgerAccountService.list({
       includeInactive: filters.includeInactive,
     });
+    const groups = await ledgerGroupService.list({ includeInactive: filters.includeInactive });
+    const groupMap = new Map(groups.map((g) => [g.id, g]));
 
     const entries: TrialBalanceEntry[] = [];
     let totalDebit = 0;
@@ -73,6 +76,8 @@ export const trialBalanceService = {
       if (ledger.isActive === false && !filters.includeInactive) {
         continue;
       }
+      const group = groupMap.get(ledger.groupId);
+      if (!group) continue;
 
       const transactions = await ledgerTransactionService.list({ ledgerId: ledger.id });
       const opening = computeOpening(ledger, transactions, fromTs);

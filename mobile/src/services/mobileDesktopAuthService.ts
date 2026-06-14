@@ -1,5 +1,4 @@
-import { getMobileDeviceId } from './deviceService';
-import { readSyncConfig, writeSyncConfig } from './sync/storage';
+// LEGACY: disabled — desktop-tethered auth replaced by invoicepro-api JWT auth.
 
 export type DesktopLoginResult = {
   sessionToken: string;
@@ -12,10 +11,13 @@ export type DesktopLoginResult = {
   };
 };
 
-export async function loginViaDesktopSync(params: {
+export async function loginViaDesktopSync(_params: {
   loginId: string;
   pin: string;
 }): Promise<DesktopLoginResult> {
+  // LEGACY: disabled
+  throw new Error('Desktop-tethered login is disabled. Use invoicepro-api login.');
+  /*
   const config = await readSyncConfig();
   const endpoint = config.endpointBase.replace(/\/+$/, '');
   const deviceId = await getMobileDeviceId();
@@ -52,9 +54,13 @@ export async function loginViaDesktopSync(params: {
     sessionToken: String(payload.sessionToken),
     user: payload.user,
   };
+  */
 }
 
 export async function fetchDesktopSnapshot(): Promise<Record<string, unknown> | null> {
+  // LEGACY: disabled
+  return null;
+  /*
   const config = await readSyncConfig();
   if (!config.sessionToken?.trim()) return null;
   const endpoint = config.endpointBase.replace(/\/+$/, '');
@@ -69,4 +75,5 @@ export async function fetchDesktopSnapshot(): Promise<Record<string, unknown> | 
   if (!response.ok) return null;
   const payload = await response.json();
   return payload?.snapshot ?? null;
+  */
 }

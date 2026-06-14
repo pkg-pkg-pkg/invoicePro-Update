@@ -15,8 +15,26 @@ import {
   upsertCompanyProfile,
 } from './companyProfileDbService';
 
+const LOCAL_PROFILE_COMPLETE_KEY = 'pve_business_profile_completed';
+
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+export function markLocalBusinessProfileComplete(): void {
+  try {
+    localStorage.setItem(LOCAL_PROFILE_COMPLETE_KEY, 'true');
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function isLocalBusinessProfileComplete(): boolean {
+  try {
+    return localStorage.getItem(LOCAL_PROFILE_COMPLETE_KEY) === 'true';
+  } catch {
+    return false;
+  }
 }
 
 export function hasBusinessProfileInLocalData(_data: Record<string, string>): boolean {
@@ -71,6 +89,7 @@ export async function applyCloudCompanyDetailsToDb(cloud: CloudCompanyDetails): 
   await upsertCompanyProfile(payload);
   if (isCloudProfileComplete(cloud)) {
     await markCompanyProfileCompleted(businessName);
+    markLocalBusinessProfileComplete();
   }
   await preloadCompanyProfile();
   window.dispatchEvent(new Event('companyProfileUpdated'));
@@ -105,9 +124,12 @@ export async function markBusinessProfileCompleteInFirestore(email: string): Pro
 }
 
 export async function isBusinessProfileCompleteOnDb(): Promise<boolean> {
+  if (isLocalBusinessProfileComplete()) return true;
   if (!isElectronRuntime()) return isBusinessProfileSavedLocally();
   const status = await getProfileCompletionStatus();
-  return Boolean(status.profileCompleted ?? status.PROFILE_COMPLETED);
+  const complete = Boolean(status.profileCompleted ?? status.PROFILE_COMPLETED);
+  if (complete) markLocalBusinessProfileComplete();
+  return complete;
 }
 
 /** Restore cloud profile to SQLite and sync Firebase completion flag. */
@@ -120,6 +142,7 @@ export async function syncBusinessProfileOnLogin(email: string): Promise<boolean
   if (isElectronRuntime()) {
     const dbComplete = await isBusinessProfileCompleteOnDb();
     if (dbComplete) {
+      markLocalBusinessProfileComplete();
       await logProfileDebugEvent('sync_on_login_db_hit', { email: emailNorm });
       if (!completed) {
         try {
@@ -205,6 +228,8 @@ export async function finalizeBusinessProfileSave(input: {
   if (!markResult.success) {
     throw new Error(markResult.error || 'Failed to mark profile complete');
   }
+
+  markLocalBusinessProfileComplete();
 
   await preloadCompanyProfile();
   window.dispatchEvent(new Event('companyProfileUpdated'));

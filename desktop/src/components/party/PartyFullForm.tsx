@@ -106,6 +106,7 @@ function buildInitialValues(mode: PartyFullFormMode, party?: Party | null): Part
     email: party?.email ?? '',
     whatsapp: party?.whatsapp ?? '',
     openingBalance: party?.openingBalance ?? 0,
+    status: party?.status ?? 'ACTIVE',
     profile,
   };
 }
@@ -240,6 +241,7 @@ export function PartyFullForm({ mode, party, embedded, saving, onCancel, onSave 
       email: values.email,
       whatsapp: values.whatsapp || normalizeIndianMobile(values.mobile),
       openingBalance: Number(values.openingBalance ?? 0),
+      status: values.status,
     };
   };
 
@@ -268,6 +270,21 @@ export function PartyFullForm({ mode, party, embedded, saving, onCancel, onSave 
 
       <CollapsibleFormSection title={mode === 'customer' ? '1. Customer Type & Primary Contact' : '1. Primary Contact'}>
         <Grid container spacing={2}>
+          {mode === 'customer' && party?.id ? (
+            <Grid item xs={12} md={4}>
+              <TextField
+                select
+                label="Status"
+                fullWidth
+                size="small"
+                value={values.status ?? 'ACTIVE'}
+                onChange={(e) => setValues((v) => ({ ...v, status: e.target.value as 'ACTIVE' | 'INACTIVE' }))}
+              >
+                <MenuItem value="ACTIVE">Active</MenuItem>
+                <MenuItem value="INACTIVE">Inactive</MenuItem>
+              </TextField>
+            </Grid>
+          ) : null}
           {mode === 'customer' ? (
             <Grid item xs={12}>
               <FormControl>

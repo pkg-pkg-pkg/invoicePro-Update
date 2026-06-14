@@ -1,24 +1,13 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Typography, Grid, Card, CardActionArea, CardContent, Button } from '@mui/material';
-import { Payment as PaymentIcon, AccountBalance as AccountBalanceIcon, ReceiptLong as ReceiptLongIcon, FileDownload as FileDownloadIcon } from '@mui/icons-material';
+import { Box, Typography, Grid, Card, CardActionArea, CardContent } from '@mui/material';
+import { Payment as PaymentIcon, AccountBalance as AccountBalanceIcon, ReceiptLong as ReceiptLongIcon } from '@mui/icons-material';
 
 interface PaymentReportsProps {
   canExport: boolean;
 }
 
-export default function PaymentReports({ canExport }: PaymentReportsProps) {
+export default function PaymentReports({ canExport: _canExport }: PaymentReportsProps) {
   const navigate = useNavigate();
-  const [exporting, setExporting] = useState(false);
-
-  const handleExport = async () => {
-    if (!canExport) {
-      alert('You do not have permission to export reports');
-      return;
-    }
-    setExporting(true);
-    // ... export logic
-  };
 
   return (
     <Box>
@@ -73,15 +62,6 @@ export default function PaymentReports({ canExport }: PaymentReportsProps) {
           </Card>
         </Grid>
       </Grid>
-
-      <Button
-        variant="outlined"
-        startIcon={<FileDownloadIcon />}
-        disabled={!canExport || exporting}
-        onClick={handleExport}
-      >
-        {exporting ? 'Exporting...' : 'Export to Excel'}
-      </Button>
     </Box>
   );
 }

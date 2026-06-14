@@ -125,32 +125,31 @@ const SmartSchemeEngine = ({ initialTabFromQuery }: { initialTabFromQuery?: stri
   const loadData = async () => {
     setLoading(true);
     try {
-      // Load products for margin calculation
-      const productsData = await inventoryItemService.list({ includeInactive: false });
-      const activeProducts = productsData.filter(p => p.status === 'ACTIVE');
+      const [productsData, retailersData] = await Promise.all([
+        inventoryItemService.list({ includeInactive: false }),
+        partyService.list({ partyType: ['BUYER', 'SUPPLIER', 'BOTH'] }),
+      ]);
+
+      const activeProducts = productsData.filter((p) => p.status === 'ACTIVE');
       setProducts(activeProducts);
-
-      // Initialize product selections
-      const productSelections: ProductSelection[] = activeProducts.map(product => ({
-        productId: product.id,
-        productName: product.name,
-        selected: false,
-        marginPercentage: 0,
-        costPrice: product.pricing?.purchase || 0,
-        sellingPrice: product.pricing?.sale || 0,
-      }));
-      setSelectedProducts(productSelections);
-
-      // Load customers/suppliers for smart scheme mapping
-      const retailersData = await partyService.list({ partyType: ['BUYER', 'SUPPLIER', 'BOTH'] });
-      const cleanRetailers = retailersData.filter(
-        (party) => party.status !== 'INACTIVE' && isRetailerNameValid(party.name)
+      setSelectedProducts(
+        activeProducts.map((product) => ({
+          productId: product.id,
+          productName: product.name,
+          selected: false,
+          marginPercentage: 0,
+          costPrice: product.pricing?.purchase || 0,
+          sellingPrice: product.pricing?.sale || 0,
+        }))
       );
-      setRetailers(cleanRetailers);
 
-      // Load existing schemes
-      await loadSchemes();
-      await loadSchemeProgress();
+      setRetailers(
+        retailersData.filter(
+          (party) => party.status !== 'INACTIVE' && isRetailerNameValid(party.name)
+        )
+      );
+
+      await Promise.all([loadSchemes(), loadSchemeProgress()]);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -717,16 +716,9 @@ const SmartSchemeEngine = ({ initialTabFromQuery }: { initialTabFromQuery?: stri
     </Box>
   );
 
-  if (loading && schemes.length === 0) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight={400}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
   return (
     <Box sx={{ p: 3 }}>
+      {loading && schemes.length === 0 ? <LinearProgress sx={{ mb: 2 }} /> : null}
       <Typography variant="h4" fontWeight="bold" gutterBottom>
         🚀 Smart Scheme Engine
       </Typography>

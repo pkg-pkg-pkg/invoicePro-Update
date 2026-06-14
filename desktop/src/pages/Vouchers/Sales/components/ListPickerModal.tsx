@@ -50,6 +50,16 @@ export type ListPickerModalProps<T> = {
 
 const HEADER_BG = 'primary.dark';
 
+const headerCellSx = {
+  position: 'sticky' as const,
+  zIndex: 2,
+  bgcolor: 'background.paper',
+  fontWeight: 700,
+  borderBottom: 1,
+  borderColor: 'divider',
+  boxShadow: '0 1px 0 rgba(0,0,0,0.06)',
+};
+
 export function ListPickerModal<T>({
   open,
   onClose,
@@ -74,11 +84,23 @@ export function ListPickerModal<T>({
   const highlightRef = useRef(0);
   const searchRef = useRef<HTMLInputElement>(null);
   const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map());
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [toolbarHeight, setToolbarHeight] = useState(120);
 
   const filtered = useMemo(() => {
     const q = query.trim();
     return rows.filter((r) => filterRow(r, q));
   }, [rows, query, filterRow]);
+
+  useEffect(() => {
+    if (!open) return;
+    const measure = () => {
+      if (toolbarRef.current) setToolbarHeight(toolbarRef.current.offsetHeight);
+    };
+    measure();
+    const t = window.setTimeout(measure, 0);
+    return () => window.clearTimeout(t);
+  }, [open, onCreateNew, hintText, initialQuery]);
 
   useEffect(() => {
     if (!open) return;
@@ -202,7 +224,6 @@ export function ListPickerModal<T>({
       disableEnforceFocus={false}
       fullWidth
       maxWidth="md"
-      scroll="paper"
       sx={{ zIndex: (t) => t.zIndex.modal + 400 }}
       slotProps={{
         backdrop: { sx: { backgroundColor: 'rgba(15, 23, 42, 0.55)' } },
@@ -247,65 +268,92 @@ export function ListPickerModal<T>({
         </IconButton>
       </Box>
 
-      <Box sx={{ px: 2, pt: 1.5, pb: 1, flexShrink: 0 }}>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
-          {hintText}
-        </Typography>
-        <TextField
-          inputRef={searchRef}
-          fullWidth
-          size="small"
-          placeholder={searchPlaceholder}
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setHighlight(0);
-          }}
-          onKeyDown={onSearchKeyDown}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon fontSize="small" color="action" />
-              </InputAdornment>
-            ),
-          }}
-          autoComplete="off"
-        />
-      </Box>
-
-      {onCreateNew && (
-        <Box sx={{ px: 2, pb: 1 }}>
-          <Button
-            type="button"
-            fullWidth
-            variant="contained"
-            color="primary"
-            onClick={onCreateNew}
-            sx={{ py: 1, fontWeight: 700 }}
-          >
-            {createNewLabel}
-          </Button>
-        </Box>
-      )}
-
       <TableContainer
         component={Paper}
         variant="outlined"
         square
         tabIndex={0}
         onKeyDown={onTableKeyDown}
-        sx={{ flex: 1, minHeight: 200, mx: 2, mb: 1, borderRadius: 1 }}
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          mx: 2,
+          mb: 1,
+          borderRadius: 1,
+          overflow: 'auto',
+          position: 'relative',
+          bgcolor: 'background.paper',
+        }}
       >
-        <Table size="small" stickyHeader>
+        <Box
+          ref={toolbarRef}
+          sx={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 3,
+            bgcolor: 'background.paper',
+            borderBottom: 1,
+            borderColor: 'divider',
+            px: 1.5,
+            pt: 1.5,
+            pb: onCreateNew ? 1 : 1.5,
+          }}
+        >
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+            {hintText}
+          </Typography>
+          <TextField
+            inputRef={searchRef}
+            fullWidth
+            size="small"
+            placeholder={searchPlaceholder}
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setHighlight(0);
+            }}
+            onKeyDown={onSearchKeyDown}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" color="action" />
+                </InputAdornment>
+              ),
+            }}
+            autoComplete="off"
+          />
+          {onCreateNew ? (
+            <Button
+              type="button"
+              fullWidth
+              variant="contained"
+              color="primary"
+              onClick={onCreateNew}
+              sx={{ mt: 1, py: 1, fontWeight: 700 }}
+            >
+              {createNewLabel}
+            </Button>
+          ) : null}
+        </Box>
+
+        <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell sx={{ width: 48, bgcolor: 'action.hover', fontWeight: 700 }}>#</TableCell>
+              <TableCell
+                sx={{
+                  ...headerCellSx,
+                  top: toolbarHeight,
+                  width: 48,
+                }}
+              >
+                #
+              </TableCell>
               {columns.map((c) => (
                 <TableCell
                   key={c.id}
                   sx={{
-                    bgcolor: 'action.hover',
-                    fontWeight: 700,
+                    ...headerCellSx,
+                    top: toolbarHeight,
                     width: c.width,
                   }}
                   align={c.align}
@@ -363,7 +411,7 @@ export function ListPickerModal<T>({
         </Table>
       </TableContainer>
 
-      <Typography variant="caption" color="text.secondary" sx={{ px: 2, pb: 1.5, textAlign: 'right', display: 'block' }}>
+      <Typography variant="caption" color="text.secondary" sx={{ px: 2, pb: 1.5, textAlign: 'right', display: 'block', flexShrink: 0 }}>
         {footerHint}
       </Typography>
     </Dialog>

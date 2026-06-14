@@ -12,6 +12,7 @@ import {
 } from '../../services/customers/customersApi';
 import { CustomerDetailPanel } from '../../components/customers/CustomerDetailPanel';
 import { CustomerFormModal } from '../../components/customers/CustomerFormModal';
+import { CustomerSafeDeleteDialog } from '../../components/customers/CustomerSafeDeleteDialog';
 import { useAuth } from '../contexts/auth';
 import { useUserDisplayName } from '../../hooks/useUserDisplayName';
 
@@ -31,6 +32,7 @@ export default function CustomerDetailPage() {
   const [statementLoading, setStatementLoading] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const userLabel = displayName || user?.fullName || user?.email || 'User';
 
@@ -41,7 +43,7 @@ export default function CustomerDetailPage() {
     try {
       const party = await customersApi.getById(id);
       if (!party) {
-        setError('Customer not found');
+        setError('Debtor not found');
         setCustomer(null);
         return;
       }
@@ -98,14 +100,14 @@ export default function CustomerDetailPage() {
   return (
     <Box>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-        <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/customers')}>
-          Back to Customers
+        <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/ledgers/debtors')}>
+          Back to Debtors
         </Button>
       </Stack>
 
       <Breadcrumbs sx={{ mb: 2 }}>
-        <Link component="button" underline="hover" color="inherit" onClick={() => navigate('/customers')}>
-          Customers
+        <Link component="button" underline="hover" color="inherit" onClick={() => navigate('/ledgers/debtors')}>
+          Ledgers
         </Link>
         <Typography color="text.primary" fontWeight={700}>
           {customer?.name ?? '…'}
@@ -123,12 +125,8 @@ export default function CustomerDetailPage() {
         statementRows={statementRows}
         statementLoading={statementLoading}
         onEdit={() => setFormOpen(true)}
-        onClose={() => navigate('/customers')}
-        onDelete={async () => {
-          if (!customer) return;
-          await customersApi.remove(customer.id);
-          navigate('/customers');
-        }}
+        onClose={() => navigate('/ledgers/debtors')}
+        onDelete={() => setDeleteOpen(true)}
         onAddComment={(text) => {
           if (!customer) return;
           setComments(customersApi.addComment(customer.id, text, userLabel));
@@ -149,6 +147,14 @@ export default function CustomerDetailPage() {
             if (refreshed) setCustomer(refreshed);
           }
         }}
+      />
+
+      <CustomerSafeDeleteDialog
+        open={deleteOpen}
+        party={customer}
+        onClose={() => setDeleteOpen(false)}
+        onDone={() => navigate('/ledgers/debtors')}
+        onError={(msg) => setError(msg)}
       />
     </Box>
   );

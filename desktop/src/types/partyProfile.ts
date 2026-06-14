@@ -85,6 +85,7 @@ export type PartyFullFormValues = {
   email?: string;
   whatsapp?: string;
   openingBalance?: number;
+  status?: 'ACTIVE' | 'INACTIVE';
   profile: Omit<PartyProfile, 'partyId'>;
 };
 

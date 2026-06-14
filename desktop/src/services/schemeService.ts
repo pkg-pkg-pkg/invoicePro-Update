@@ -1,4 +1,21 @@
 import api from './api';
+import { isElectronRuntime } from '../utils/runtime';
+
+const SCHEMES_STORAGE_KEY = 'pve_schemes';
+
+function readStoredSchemes(companyId?: string): Scheme[] {
+  try {
+    const raw = localStorage.getItem(SCHEMES_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return companyId
+      ? (parsed as Scheme[]).filter((s) => String(s.companyId) === String(companyId))
+      : (parsed as Scheme[]);
+  } catch {
+    return [];
+  }
+}
 
 export interface SchemeSlab {
   id: string;
@@ -50,13 +67,18 @@ class SchemeService {
    * Get all schemes for a company
    */
   async getSchemes(companyId: string): Promise<Scheme[]> {
+    if (isElectronRuntime()) {
+      return readStoredSchemes(companyId);
+    }
     try {
       const response = await api.get('/schemes', {
-        params: { companyId }
+        params: { companyId },
       });
       return response.data.data || [];
     } catch (error) {
       console.error('Error fetching schemes:', error);
+      const cached = readStoredSchemes(companyId);
+      if (cached.length > 0) return cached;
       throw error;
     }
   }

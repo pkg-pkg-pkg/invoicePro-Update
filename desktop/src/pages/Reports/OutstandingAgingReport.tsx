@@ -69,10 +69,12 @@ export default function OutstandingAgingReport() {
         salesVouchers: outstandingSummary?.salesVouchers ?? [],
         invoices: recentTransactions?.invoices ?? [],
         fallbackTotal: Number((todaySummary ?? summary)?.totalOutstanding || 0),
+        billReferences: outstandingSummary?.billReferences ?? [],
       }),
     [
       outstandingSummary?.customers,
       outstandingSummary?.salesVouchers,
+      outstandingSummary?.billReferences,
       recentTransactions?.invoices,
       todaySummary,
       summary,

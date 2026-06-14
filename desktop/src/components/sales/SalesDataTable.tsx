@@ -26,10 +26,14 @@ import ViewColumnIcon from '@mui/icons-material/ViewColumn';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import DeleteIcon from '@mui/icons-material/Delete';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useTheme } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom';
+import { usePermissions } from '../../hooks/usePermissions';
+import { voucherService } from '../../services/vouchers/voucherService';
+import { approvalService } from '../../services/approvals/approvalService';
 import type { SalesDocumentRow } from '../../types/salesDocuments';
 import { SalesStatusBadge } from './SalesStatusBadge';
 import { getSalesModuleTokens } from '../../theme/salesModuleTheme';
@@ -104,6 +108,34 @@ export function SalesDataTable({
   const theme = useTheme();
   const st = getSalesModuleTokens(theme);
   const navigate = useNavigate();
+  const { isAdmin } = usePermissions();
+
+  const handleDeleteInvoice = async (row: SalesDocumentRow) => {
+    if (kind !== 'tax-invoices' || row.source !== 'voucher') return;
+    if (!isAdmin) {
+      try {
+        await approvalService.request({
+          section: 'SALES',
+          action: 'DELETE_VOUCHER',
+          entityType: 'VOUCHER',
+          entityId: row.id,
+          entityLabel: row.number,
+          reason: 'Delete sales invoice requested by non-admin user',
+        });
+        alert('Approval request sent to Admin. Once approved, invoice will be deleted.');
+      } catch (e) {
+        alert((e as Error).message || 'Could not send approval request.');
+      }
+      return;
+    }
+    if (!window.confirm(`Delete invoice ${row.number}?`)) return;
+    try {
+      await voucherService.delete(row.id);
+      onRefresh();
+    } catch (e) {
+      alert((e as Error).message || 'Failed to delete invoice.');
+    }
+  };
 
   const [sortKey, setSortKey] = useState<SortKey>('date');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -269,9 +301,11 @@ export function SalesDataTable({
             </IconButton>
           </Tooltip>
           <Tooltip title="Refresh">
-            <IconButton size="small" onClick={onRefresh} disabled={loading}>
-              <RefreshIcon fontSize="small" />
-            </IconButton>
+            <span style={{ display: 'inline-flex' }}>
+              <IconButton size="small" onClick={onRefresh} disabled={loading}>
+                <RefreshIcon fontSize="small" />
+              </IconButton>
+            </span>
           </Tooltip>
         </Stack>
       </Stack>
@@ -381,9 +415,24 @@ export function SalesDataTable({
                   </TableCell>
                 ))}
                 <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                  <IconButton size="small" onClick={(e) => setRowMenu({ anchor: e.currentTarget, row })}>
-                    <MoreVertIcon fontSize="small" />
-                  </IconButton>
+                  <Stack direction="row" spacing={0.25} justifyContent="flex-end" alignItems="center">
+                    {kind === 'tax-invoices' && row.source === 'voucher' ? (
+                      <Tooltip title={isAdmin ? 'Delete invoice' : 'Request delete approval'}>
+                        <span style={{ display: 'inline-flex' }}>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => void handleDeleteInvoice(row)}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    ) : null}
+                    <IconButton size="small" onClick={(e) => setRowMenu({ anchor: e.currentTarget, row })}>
+                      <MoreVertIcon fontSize="small" />
+                    </IconButton>
+                  </Stack>
                 </TableCell>
               </TableRow>
             ))}

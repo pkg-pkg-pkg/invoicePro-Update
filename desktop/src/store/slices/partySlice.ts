@@ -4,7 +4,9 @@ import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { docApi, getHostBaseUrl } from '../../services/docApi';
 import { companyScopedKey, readCompanyScopedRaw } from '../../utils/companyStorage';
 
-const API = (import.meta.env?.VITE_API_URL || 'http://localhost:3000/api').replace('/api', '');
+import { resolveApiOrigin } from '../../utils/apiConfig';
+
+const API = resolveApiOrigin();
 
 const isOfflineRuntime = () => {
   try {

@@ -1,6 +1,6 @@
 {
   "name": "@gst-billing/desktop",
-  "version": "3.5.0",
+  "version": "3.5.6",
   "description": "PVE InvoicePro 360 - desktop GST billing",
   "author": "PVE",
   "repository": {
@@ -36,6 +36,9 @@
     "@mui/material": "^5.15.0",
     "@reduxjs/toolkit": "^2.0.1",
     "@tauri-apps/api": "^2.0.0",
+    "@types/jsbarcode": "^3.11.4",
+    "@zxing/browser": "^0.2.0",
+    "@zxing/library": "^0.22.0",
     "axios": "^1.6.2",
     "bcryptjs": "^3.0.2",
     "better-sqlite3": "^12.6.2",
@@ -43,16 +46,16 @@
     "electron-updater": "^6.8.3",
     "exceljs": "^4.4.0",
     "firebase": "^12.8.0",
+    "jsbarcode": "^3.12.3",
     "jszip": "^3.10.1",
     "localtunnel": "^2.0.2",
-    "nodemailer": "7.0.13",
+    "node-machine-id": "^1.1.12",
     "papaparse": "^5.5.3",
     "qrcode": "^1.5.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-redux": "^9.0.4",
     "react-router-dom": "^6.21.0",
-    "read-excel-file": "^5.8.8",
     "recharts": "^2.10.3"
   },
   "devDependencies": {

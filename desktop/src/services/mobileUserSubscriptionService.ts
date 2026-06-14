@@ -1,5 +1,6 @@
 import { httpsCallable } from 'firebase/functions';
-import { functions } from '../firebase/firebase';
+import { auth, functions } from '../firebase/firebase';
+import { isElectronRuntime } from '../utils/runtime';
 
 function requireFunctions() {
   if (!functions) throw new Error('Firebase not configured');
@@ -49,6 +50,20 @@ export function mapMobileUserForEntitlements(item: MobileUserRecord & Record<str
   };
 }
 
+async function invokeCallable<T>(name: string, data: unknown): Promise<T> {
+  if (isElectronRuntime() && window.electronAPI?.firebaseCallable) {
+    const user = auth?.currentUser;
+    if (!user) throw new Error('Sign in required');
+    const idToken = await user.getIdToken();
+    const res = await window.electronAPI.firebaseCallable({ name, data, idToken });
+    if (!res?.ok) throw new Error(res?.error || 'Cloud function call failed');
+    return res.result as T;
+  }
+  const fn = httpsCallable(requireFunctions(), name);
+  const res = await fn(data);
+  return res.data as T;
+}
+
 export async function callSubmitMobileUserSubscription(params: {
   licenseKey?: string;
   userEmail: string;
@@ -56,33 +71,29 @@ export async function callSubmitMobileUserSubscription(params: {
   displayName?: string;
   utr: string;
 }) {
-  const fn = httpsCallable(requireFunctions(), 'submitMobileUserSubscription');
-  const res = await fn(params);
-  return res.data as { ok: boolean; requestId?: string };
+  return invokeCallable<{ ok: boolean; requestId?: string }>('submitMobileUserSubscription', params);
 }
 
 export async function callGetMyMobileUserRequests(params?: { licenseKey?: string }) {
-  const fn = httpsCallable(requireFunctions(), 'getMyMobileUserRequests');
-  const res = await fn({ licenseKey: params?.licenseKey ?? '' });
-  return res.data as { ok: boolean; items: Array<{ id: string; [k: string]: unknown }> };
+  return invokeCallable<{ ok: boolean; items: Array<{ id: string; [k: string]: unknown }> }>(
+    'getMyMobileUserRequests',
+    { licenseKey: params?.licenseKey ?? '' }
+  );
 }
 
 export async function callListMobileUsersForLicense(params?: { licenseKey?: string }) {
-  const fn = httpsCallable(requireFunctions(), 'listMobileUsersForLicense');
-  const res = await fn({ licenseKey: params?.licenseKey ?? '' });
-  return res.data as { ok: boolean; items: Array<MobileUserRecord & Record<string, unknown>> };
+  return invokeCallable<{ ok: boolean; items: Array<MobileUserRecord & Record<string, unknown>> }>(
+    'listMobileUsersForLicense',
+    { licenseKey: params?.licenseKey ?? '' }
+  );
 }
 
 export async function callTransferMobileUserDevice(params: { userId: string }) {
-  const fn = httpsCallable(requireFunctions(), 'transferMobileUserDevice');
-  const res = await fn(params);
-  return res.data as { ok: boolean };
+  return invokeCallable<{ ok: boolean }>('transferMobileUserDevice', params);
 }
 
 export async function callRegisterMobileUserDevice(params: { userId: string; deviceId: string }) {
-  const fn = httpsCallable(requireFunctions(), 'registerMobileUserDevice');
-  const res = await fn(params);
-  return res.data as { ok: boolean };
+  return invokeCallable<{ ok: boolean }>('registerMobileUserDevice', params);
 }
 
 export async function syncMobileEntitlementsToDesktop(items: Array<MobileUserRecord & Record<string, unknown>>) {

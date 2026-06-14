@@ -1,5 +1,5 @@
 import { PartyKind } from './partyService';
-import { mobileSyncWorker } from './sync/mobileSyncWorker';
+import { middlewareSync } from './sync/middlewareSync';
 
 export type EntryType = 'RECEIPT' | 'PAYMENT';
 
@@ -13,7 +13,7 @@ export async function createEntry(input: {
   date: string;
 }) {
   const entityType = input.type === 'RECEIPT' ? 'receipt' : 'payment';
-  const event = await mobileSyncWorker.enqueueCreate(entityType, input as unknown as Record<string, unknown>);
+  const event = await middlewareSync.enqueueCreate(entityType, input as unknown as Record<string, unknown>);
   return {
     success: true,
     queued: true,

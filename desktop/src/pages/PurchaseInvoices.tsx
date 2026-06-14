@@ -45,6 +45,11 @@ import { docApi, getHostBaseUrl } from '../services/docApi';
 import { getAppSettings, getDefaultTodayForEntry, validateTransactionDate } from '../services/appSettingsService';
 import { usePermissions } from '../hooks/usePermissions';
 import { companyScopedKey, readCompanyScopedRaw } from '../utils/companyStorage';
+import {
+  voucherLineCellSx,
+  voucherLineNumericInputSx,
+  voucherLinePercentInputSx,
+} from '../theme/voucherLineItemTableStyles';
 
 const PURCHASE_STORAGE_KEY = companyScopedKey('pve_invoicepro_purchase_invoices');
 const SUPPLIERS_STORAGE_KEY = companyScopedKey('pve_suppliers');
@@ -1233,11 +1238,11 @@ export default function PurchaseInvoices() {
                 <TableRow>
                   <TableCell>Item</TableCell>
                   <TableCell>HSN</TableCell>
-                  <TableCell align="right">Qty</TableCell>
-                  <TableCell align="right">Purchase Price</TableCell>
-                  <TableCell align="right">Disc %</TableCell>
+                  <TableCell align="right" sx={voucherLineCellSx('qty')}>Qty</TableCell>
+                  <TableCell align="right" sx={voucherLineCellSx('rate')}>Purchase Price</TableCell>
+                  <TableCell align="right" sx={voucherLineCellSx('discPercent')}>Disc %</TableCell>
                   <TableCell align="right">Rate</TableCell>
-                  {gstEnabled ? <TableCell align="right">GST %</TableCell> : null}
+                  {gstEnabled ? <TableCell align="right" sx={voucherLineCellSx('gstPercent')}>GST %</TableCell> : null}
                   <TableCell align="right">Taxable</TableCell>
                   {gstEnabled ? <TableCell align="right">GST Amt</TableCell> : null}
                   {gstEnabled ? <TableCell align="right">Price with GST</TableCell> : null}
@@ -1270,39 +1275,43 @@ export default function PurchaseInvoices() {
                         onChange={(e) => handleItemChange(index, 'hsn', e.target.value)}
                       />
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell align="right" sx={voucherLineCellSx('qty')}>
                       <TextField
                         size="small"
                         type="number"
                         value={(item as any).qty ?? ''}
                         onChange={(e) => handleItemChange(index, 'qty', e.target.value)}
                         inputProps={{ min: 0 }}
+                        sx={voucherLinePercentInputSx}
                       />
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell align="right" sx={voucherLineCellSx('rate')}>
                       <TextField
                         size="small"
                         type="number"
                         value={(item as any).purchasePrice ?? ''}
                         onChange={(e) => handleItemChange(index, 'purchasePrice', e.target.value)}
+                        sx={voucherLineNumericInputSx}
                       />
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell align="right" sx={voucherLineCellSx('discPercent')}>
                       <TextField
                         size="small"
                         type="number"
                         value={(item as any).discountPercent ?? ''}
                         onChange={(e) => handleItemChange(index, 'discountPercent', e.target.value)}
+                        sx={voucherLinePercentInputSx}
                       />
                     </TableCell>
                     <TableCell align="right">₹{item.rate.toFixed(2)}</TableCell>
                     {gstEnabled ? (
-                      <TableCell align="right">
+                      <TableCell align="right" sx={voucherLineCellSx('gstPercent')}>
                         <TextField
                           size="small"
                           type="number"
                           value={(item as any).gstRate ?? ''}
                           onChange={(e) => handleItemChange(index, 'gstRate', e.target.value)}
+                          sx={voucherLinePercentInputSx}
                         />
                       </TableCell>
                     ) : null}

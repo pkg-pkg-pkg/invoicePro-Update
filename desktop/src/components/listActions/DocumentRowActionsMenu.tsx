@@ -16,6 +16,8 @@ import { useNavigate } from 'react-router-dom';
 import type { ActionContext, DocumentListKind, PendingConfirm, RowActionId } from './types';
 import { getRowActionsForContext } from './documentRowActionsConfig';
 import { createRowActionHandlers } from './documentRowActionsHandlers';
+import { CustomerSafeDeleteDialog } from '../customers/CustomerSafeDeleteDialog';
+import type { Party } from '../../types/party';
 
 type Props = {
   anchorEl: HTMLElement | null;
@@ -41,6 +43,7 @@ export function DocumentRowActionsMenu({
   const navigate = useNavigate();
   const [confirm, setConfirm] = useState<PendingConfirm | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [deleteParty, setDeleteParty] = useState<Party | null>(null);
   const [toast, setToast] = useState<{ message: string; severity: 'success' | 'error' | 'info' } | null>(null);
 
   const showToast = useCallback((message: string, severity: 'success' | 'error' | 'info' = 'success') => {
@@ -75,16 +78,24 @@ export function DocumentRowActionsMenu({
     if (!resolvedContext) return;
     onClose();
 
+    if (resolvedContext.type === 'customer' && actionId === 'delete') {
+      setDeleteParty(resolvedContext.party);
+      return;
+    }
+
     const confirmMeta = handlers.needsConfirm(actionId, resolvedContext);
     if (confirmMeta) {
       const isDelete = confirmMeta.kind === 'delete';
+      const isReactivate = confirmMeta.kind === 'reactivate';
       setConfirm({
         kind: confirmMeta.kind,
-        title: isDelete ? 'Delete record?' : 'Cancel record?',
-        message: isDelete
-          ? 'Are you sure you want to delete this record? This action cannot be undone.'
-          : `Are you sure you want to cancel ${confirmMeta.title}? This action cannot be undone.`,
-        confirmLabel: isDelete ? 'Yes, Delete' : 'Yes, Cancel',
+        title: isReactivate ? 'Activate this customer?' : isDelete ? 'Delete record?' : 'Cancel record?',
+        message: isReactivate
+          ? `Activate ${confirmMeta.title}? The customer will appear in active lists again.`
+          : isDelete
+            ? 'Are you sure you want to delete this record? This action cannot be undone.'
+            : `Are you sure you want to cancel ${confirmMeta.title}? This action cannot be undone.`,
+        confirmLabel: isReactivate ? 'Activate' : isDelete ? 'Yes, Delete' : 'Yes, Cancel',
         onConfirm: async () => {
           await handlers.execute(actionId, resolvedContext);
         },
@@ -150,7 +161,7 @@ export function DocumentRowActionsMenu({
           </Button>
           <Button
             variant="contained"
-            color="error"
+            color={confirm?.kind === 'reactivate' ? 'success' : 'error'}
             onClick={() => void handleConfirm()}
             disabled={confirmBusy}
           >
@@ -158,6 +169,17 @@ export function DocumentRowActionsMenu({
           </Button>
         </DialogActions>
       </Dialog>
+
+      <CustomerSafeDeleteDialog
+        open={Boolean(deleteParty)}
+        party={deleteParty}
+        onClose={() => setDeleteParty(null)}
+        onDone={(msg) => {
+          showToast(msg);
+          onRefresh?.();
+        }}
+        onError={(msg) => showToast(msg, 'error')}
+      />
 
       <Snackbar
         open={Boolean(toast)}

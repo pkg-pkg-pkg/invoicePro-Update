@@ -148,12 +148,19 @@ const DOC_ACTIONS: Record<DocumentListKind, RowActionDef[]> = {
   customers: [
     { id: 'openEdit', label: '✏️ Open / Edit' },
     { id: 'viewStatement', label: '📊 View Statement' },
+    { id: 'sendStatementWhatsapp', label: '📱 Send Statement on WhatsApp' },
+    { id: 'sendOutstandingReminder', label: '🔔 Send Outstanding Reminder' },
     { id: 'newTransaction', label: '💰 New Transaction', dividerBefore: true },
     { id: 'sendEmail', label: '📧 Send Email' },
     {
       id: 'markInactive',
       label: '🔴 Mark Inactive',
       visible: (ctx) => ctx.type === 'customer' && ctx.party.status !== 'INACTIVE',
+    },
+    {
+      id: 'reactivateCustomer',
+      label: '🟢 Reactivate Customer',
+      visible: (ctx) => ctx.type === 'customer' && ctx.party.status === 'INACTIVE',
     },
     { id: 'delete', label: '🗑️ Delete', destructive: true, dividerBefore: true },
   ],

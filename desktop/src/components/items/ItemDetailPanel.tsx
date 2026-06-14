@@ -37,6 +37,7 @@ import { getItemTypeLabel, getTxStatusColor } from '../../utils/itemDisplayHelpe
 type Props = {
   item: InventoryItem | null;
   categoryName: string;
+  brandName?: string;
   godowns: Godown[];
   unitName: string;
   loading?: boolean;
@@ -96,6 +97,7 @@ function TxStatusBadge({ status }: { status: ItemTransactionRow['status'] }) {
 export function ItemDetailPanel({
   item,
   categoryName,
+  brandName,
   godowns,
   unitName,
   loading,
@@ -130,6 +132,7 @@ export function ItemDetailPanel({
       { label: 'ISBN', value: item.isbn ?? '—' },
       { label: 'Created Source', value: item.createdSource ?? 'User' },
       { label: 'Tax', value: TAX_LABEL[item.taxClass ?? 'TAXABLE'] ?? 'Taxable' },
+      { label: 'Brand / Group', value: brandName ?? (item.brand?.trim() || 'Primary') },
       { label: 'Category', value: categoryName },
       { label: 'GST Rate', value: `${item.gstRate}%` },
       { label: 'Selling Price', value: formatCurrency(item.pricing?.sale ?? 0) },
@@ -139,7 +142,7 @@ export function ItemDetailPanel({
       { label: 'Status', value: item.status },
       { label: 'Description', value: item.description ?? '—' },
     ];
-  }, [item, categoryName, unitName]);
+  }, [item, categoryName, brandName, unitName]);
 
   const summary = useMemo(() => {
     const salesTx = transactions.filter((t) => t.type === 'SALES');
@@ -329,6 +332,27 @@ export function ItemDetailPanel({
             {history.map((h) => (
               <Box key={h.id} sx={{ py: 1, borderBottom: `1px solid ${tok.border}` }}>
                 <Typography variant="body2" fontWeight={600}>{h.summary}</Typography>
+                {h.action === 'BARCODE_CHANGED' && h.meta ? (
+                  <Stack spacing={0.25} sx={{ mt: 0.5 }}>
+                    {h.meta.oldBarcode !== h.meta.newBarcode ? (
+                      <Typography variant="caption" color={tok.textMuted} display="block">
+                        Primary: {h.meta.oldBarcode || '—'} → {h.meta.newBarcode || '—'}
+                      </Typography>
+                    ) : null}
+                    {JSON.stringify(h.meta.oldAdditionalBarcodes ?? []) !==
+                    JSON.stringify(h.meta.newAdditionalBarcodes ?? []) ? (
+                      <Typography variant="caption" color={tok.textMuted} display="block">
+                        Additional: {(h.meta.oldAdditionalBarcodes ?? []).join('; ') || '—'} →{' '}
+                        {(h.meta.newAdditionalBarcodes ?? []).join('; ') || '—'}
+                      </Typography>
+                    ) : null}
+                    {h.meta.reason ? (
+                      <Typography variant="caption" color={tok.textMuted} display="block">
+                        Reason: {h.meta.reason}
+                      </Typography>
+                    ) : null}
+                  </Stack>
+                ) : null}
                 <Typography variant="caption" color={tok.textMuted}>
                   {formatDate(h.createdAt)} · {h.userLabel ?? 'User'} · {h.action}
                 </Typography>
